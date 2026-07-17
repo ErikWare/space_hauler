@@ -2043,7 +2043,7 @@ if (HEADLESS) {
   addEventListener("resize", fit);
   addEventListener("orientationchange", () => { setTimeout(fit, 100); setTimeout(fit, 300); });
   if (window.visualViewport) visualViewport.addEventListener("resize", fit);
-  SPRITES.load(); GAME.wireUI(canvas, ctx); GAME.wireLoadoutDOM(); GAME.wireDroneDOM(); GAME.wireContractsDOM(); GAME.wireFleetDOM(); GAME.wireStoreDOM(); GAME.wireWarpDOM(); GAME.wireShipsDOM(); GAME.wireFortifyDOM(); GAME.wireSkillsUI(); GAME.wireVictoryDOM(); GAME.wireSaveUI(); GAME.wireTutorialDOM(); GAME.init();
+  GAME.wireUI(canvas, ctx); GAME.wireLoadoutDOM(); GAME.wireDroneDOM(); GAME.wireContractsDOM(); GAME.wireFleetDOM(); GAME.wireStoreDOM(); GAME.wireWarpDOM(); GAME.wireShipsDOM(); GAME.wireFortifyDOM(); GAME.wireSkillsUI(); GAME.wireVictoryDOM(); GAME.wireSaveUI(); GAME.wireTutorialDOM(); GAME.init();
   GAME.loadGame();   // restore a saved run before the first frame renders (no-op without a save)
   GAME.initTutorial(GAME.state);   // first-run coach marks: brand-new game only (a loaded save marks them done)
   // Preload the external AI PNG art (sprites/*.png). The frame loop shows a

@@ -1,9 +1,0 @@
-{
-  "name": "space_hauler",
-  "title": "Rock Hauler",
-  "template": "custom (three3d tier)",
-  "created": "2026-07-08",
-  "status": "prototype",
-  "controls": "arrows/WASD steer+thrust · Space tractor beam · shop: 1-5 buy · touch: drag steers, TRACTOR button",
-  "harness_version": 1
-}

@@ -2,7 +2,7 @@
 """
 Space Hauler v4 build.
 
-Concatenates src/modules/*.js (the nine Forge modules, in dependency order) then
+Concatenates src/modules/*.js (the eight Forge modules, in dependency order) then
 src/**/*.js (the game, in load order), and wraps the result in a single
 self-contained game.html with the HARNESS comment markers preserved.
 
@@ -49,15 +49,15 @@ HEAD = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Space Hauler v4</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128640;</text></svg>">
 <!--
 === HARNESS:HEADER ==========================================================
 GAME:      space_hauler — SPACE HAULER v4 (2.5D burst-impulse mining / combat)
 BUILT BY:  build.py  (src/modules/*.js + src/**/*.js → single game.html)
-INTEGRATES the nine Forge modules (inlined below under HARNESS:MODULES):
+INTEGRATES the eight Forge modules (inlined below under HARNESS:MODULES):
   ForgeItemSystem  procedural item rolls / junk-drop mapping
   ForgeEquipment   flat 6-slot fit rack (any item any slot), derived stats, skill ticks
   ForgeHUD         shield/armor/hull bars, fuel, cargo, minimap, left-column skills, warp
-  ForgeInventory   (legacy canvas bay grid — kept for its selfTest; gear UI is now DOM)
   ForgeWorld       12k field: seeded stations, discovery, nebulae, warp gates
   ForgeStore       per-station storefront: buy/sell, set-home, warp-gate buy
   ForgeCombat      lock-on, weapon auto-fire, 3-layer typed damage, projectiles

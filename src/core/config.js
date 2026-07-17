@@ -344,21 +344,14 @@ function toast(text, col, life) { toasts.push({ text: text, age: 0, col, life })
 function stepToasts(dt) { for (let i = toasts.length - 1; i >= 0; i--) { toasts[i].age += dt; if (toasts[i].age > (toasts[i].life || 3)) toasts.splice(i, 1); } }
 
 /*=== HARNESS:ASSETS =========================================================
-  Procedural baked fallback sprites (2.5D pseudo-sphere / 3/4 iso). Each is
-  swappable for a Grok PNG via assets/<key>.png. draw() blits in SCREEN space.
+  Procedural baked sprites (2.5D pseudo-sphere / 3/4 iso), rastered on demand
+  by _bake(). draw() blits in SCREEN space. (External PNG art is the separate
+  ART layer in game/sprites.js.)
 ============================================================================*/
 const SS = 2;
 const SPRITES = {
-  defs: {}, img: {}, cache: {},
+  defs: {}, cache: {},
   define(k, spec) { this.defs[k] = spec; },
-  load() {
-    if (HEADLESS) return;
-    for (const k of Object.keys(this.defs)) {
-      const src = (typeof EMBEDDED_ASSETS !== "undefined" && EMBEDDED_ASSETS[k]) || `assets/${k}.png`;
-      const im = new Image(); im.onload = () => { this.img[k] = im; }; im.onerror = () => {};
-      im.src = src;
-    }
-  },
   _bake(k) {
     if (this.cache[k]) return this.cache[k];
     const s = this.defs[k], c = document.createElement("canvas");
@@ -369,16 +362,10 @@ const SPRITES = {
   draw(g, k, sx, sy, scale, rot) {
     const s = this.defs[k]; if (!s || HEADLESS) return;
     g.save(); g.translate(sx, sy); if (rot) g.rotate(rot); g.scale(scale, scale);
-    const im = this.img[k];
-    if (im) g.drawImage(im, -s.w / 2, -s.h / 2, s.w, s.h);
-    else g.drawImage(this._bake(k), -s.w / 2, -s.h / 2, s.w, s.h);
+    g.drawImage(this._bake(k), -s.w / 2, -s.h / 2, s.w, s.h);
     g.restore();
   },
 };
-
-/*=== HARNESS:EMBEDDED:BEGIN ===*/
-const EMBEDDED_ASSETS = {};
-/*=== HARNESS:EMBEDDED:END ===*/
 
 /*=== HARNESS:GAME ===========================================================*/
 // The whole game is one GAME object; methods are attached across the src files

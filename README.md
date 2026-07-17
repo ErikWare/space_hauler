@@ -36,7 +36,6 @@ The committed `game.html` is the playable build; rebuild it after touching anyth
 | `src/` | Game source: nine Forge engine modules + game systems, concatenated in load order by `build.py` |
 | `sprites/` | Runtime art (PNGs fetched by `game.html`) + the AI sprite-generation pipeline (`pipeline.py`) |
 | `sprites/mira/` | Planet-surface tile/building/prop art for the Mira planet engine |
-| `assets/` | Legacy v3 sprite manifest (historical) |
 | `*.md` | Design specs, roadmap, and the development ledger |
 
-Missing sprite PNGs are never fatal — every draw site falls back to procedural canvas art (`src/game/sprites.js` gates `GAMEPLAY_SPRITES` / `PLANET_SPRITES`).
+Missing sprite PNGs are never fatal — every draw site falls back to procedural canvas art (`src/game/sprites.js` gates `GAMEPLAY_SPRITES`).
