@@ -1,0 +1,27 @@
+# OS junk
+.DS_Store
+
+# Python tooling scratch
+__pycache__/
+*.pyc
+*.log
+
+# Sprite-pipeline scratch (regenerable via sprites/pipeline.py)
+sprites/*/_debug/
+sprites/test_ship.*
+
+# Stale one-off build snapshots — game.html is the canonical build (build.py)
+*_preview.html
+game_v3_updated.html
+
+# Playtest / QA artifacts
+playtest_screens/
+playtest.json
+test_planet.js
+city_screenshot.png
+city_districts.png
+visual_contact_sheet.png
+
+# Local convenience symlink — GitHub Pages serves symlinks as plain text;
+# index.html is the hosted entry point instead
+space_hauler.html
