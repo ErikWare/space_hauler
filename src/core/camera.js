@@ -8,12 +8,6 @@ Object.assign(GAME, {
     return { x: (wx - c.x) * c.zoom + CONFIG.W / 2,
              y: (wy - c.y) * c.zoom * CONFIG.pitch + CONFIG.H / 2 };
   },
-  // screen → world (inverse of S)
-  screenToWorld(sx, sy) {
-    const c = this.state.cam;
-    return { x: (sx - CONFIG.W / 2) / c.zoom + c.x,
-             y: (sy - CONFIG.H / 2) / (c.zoom * CONFIG.pitch) + c.y };
-  },
   // FLAT world → screen (no pitch) — matches the Forge draw fns' projection
   // (world→screen = (w - cam) * zoom + off). Used for aliens / miners / combat
   // so their drawn sprite and their tap hit-box stay aligned.

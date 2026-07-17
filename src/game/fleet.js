@@ -191,14 +191,6 @@ Object.assign(GAME, {
     }
   },
 
-  _destroyCompanion(s, fi) {
-    const d = s.playerFleet[fi];
-    burst(d.x, d.y, "#ff5060", 18); sfx("warn");
-    toast("✖ companion destroyed!", "#ff5060");
-    s.playerFleet.splice(fi, 1);
-    s.playerFleet.forEach((o, k) => { o.formationIdx = k; o.offsetX = FLEET.offsets[k][0]; o.offsetY = FLEET.offsets[k][1]; });
-  },
-
   // ---- world drawing (flat plane via SF, like aliens/miners) ----
   drawFleetWorld(g) {
     if (HEADLESS) return;

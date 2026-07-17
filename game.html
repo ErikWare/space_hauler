@@ -7446,20 +7446,6 @@ const ART = {
     return true;
   },
 
-  // ---- Mira isometric terrain tiles -----------------------------------------
-  // Draw a terrain tile diamond centered at (sx,sy). hw/hh are the diamond
-  // half-extents in screen-px (ISO_HW*z and ISO_HH*z). Returns true if the PNG
-  // was drawn — caller falls back to flatTile on false.
-  drawTerrain(g, key, sx, sy, hw, hh) {
-    if (!MIRA_TERRAIN_KEYS.has(key)) return false;
-    const im = this.get(key); if (!im) return false;
-    g.save();
-    g.imageSmoothingEnabled = true;
-    g.drawImage(im, sx - hw, sy - hh, 2*hw, 2*hh);
-    g.restore();
-    return true;
-  },
-
   // Affine-map a flat square texture onto the iso diamond with pixel-perfect fit.
   // top-left→top, top-right→right, bottom-left→left, bottom-right→bottom.
   // Fast path: if buildTileCache was called for this hw/hh, blits a single
@@ -7576,12 +7562,6 @@ Object.assign(GAME, {
     const c = this.state.cam;
     return { x: (wx - c.x) * c.zoom + CONFIG.W / 2,
              y: (wy - c.y) * c.zoom * CONFIG.pitch + CONFIG.H / 2 };
-  },
-  // screen → world (inverse of S)
-  screenToWorld(sx, sy) {
-    const c = this.state.cam;
-    return { x: (sx - CONFIG.W / 2) / c.zoom + c.x,
-             y: (sy - CONFIG.H / 2) / (c.zoom * CONFIG.pitch) + c.y };
   },
   // FLAT world → screen (no pitch) — matches the Forge draw fns' projection
   // (world→screen = (w - cam) * zoom + off). Used for aliens / miners / combat
@@ -8119,38 +8099,6 @@ Object.assign(GAME, {
       fieldId: null, _center: null, hp, maxHp: hp, hitFlash: 0, mined: false, towedBy: null, active: true };
     if (zone === "belt") { rock.size *= 1.2; rock.outer = d; }   // belt glow halo
     return rock;
-  },
-  seedZoneRocks() {   // called from seedWorld AFTER enemy bases exist
-    const s = this.state, cfg = CONFIG;
-    const irnd = (a, b) => a + ((rnd() * (b - a + 1)) | 0);
-    // dense orbital rings: full 360° around each planet's orbital radius
-    for (let i = 0; i < s.planets.length; i++) {
-      const n = irnd(cfg.oreRingRocksMin, cfg.oreRingRocksMax);
-      for (let k = 0; k < n; k++) s.rocks.push(this.makeZoneRock("ring_" + i));
-    }
-    // moon clusters
-    for (let m = 0; m < (s._moonList || []).length; m++) {
-      const n = irnd(cfg.moonRocksMin, cfg.moonRocksMax);
-      for (let k = 0; k < n; k++) s.rocks.push(this.makeZoneRock("moon_" + m));
-    }
-    // asteroid belt — the most dangerous, most mineable zone
-    const nb = irnd(cfg.beltRocksMin, cfg.beltRocksMax);
-    for (let k = 0; k < nb; k++) s.rocks.push(this.makeZoneRock("belt"));
-    // background fill in small clusters of 3–8
-    const bgN = irnd(cfg.bgRocksMin, cfg.bgRocksMax);
-    for (let placed = 0; placed < bgN;) {
-      const c = this.rockZonePos("background");
-      const n = Math.min(irnd(cfg.bgClusterMin, cfg.bgClusterMax), bgN - placed);
-      for (let k = 0; k < n; k++, placed++) {
-        const a = rnd() * TAU, d = rnd() * 400;
-        s.rocks.push(this.makeZoneRock("background", { x: c.x + Math.cos(a) * d, y: c.y + Math.sin(a) * d }));
-      }
-    }
-    // enemy base scatter fields
-    for (let b = 0; b < s.enemyBases.length; b++) {
-      const n = irnd(cfg.baseRocksMin, cfg.baseRocksMax);
-      for (let k = 0; k < n; k++) s.rocks.push(this.makeZoneRock("base_" + b));
-    }
   },
   // when a rock is consumed (mined by player/weapon/NPC):
   //   field rock  → DEPLETE: free the slot; the field's stock (captured on
@@ -9991,7 +9939,7 @@ function itemIconSVG(keyOrItem) {
 // in sync as the player equips, sells, buys and warps.
 //
 // v4.1 UI revamp: the gear tab is now a DOM overlay (#gearPanel — see build.py
-// <body>) instead of the ForgeInventory canvas grid; equipment is the flat 6-slot
+// <body>); equipment is the flat 6-slot
 // ForgeEquipment rack. s.inventory is the single source of truth for cargo.
 
 // Rarity + category palette shared by the DOM gear panel (canvas HUD keeps its own).
@@ -11301,24 +11249,6 @@ Object.assign(GAME, {
     if (!show) { st._shown = false; return; }
     this._syncDockTabs(st.panel);
     if (!st._shown) { st._shown = true; this.renderStorePanel(); }
-  },
-  _stItemStat(item) {
-    if (!item) return "";
-    if (item.weapon) {
-      const w = item.weapon;
-      const avg = Math.round((w.dmgShield + w.dmgArmor + (w.dmgHull || 0)) / 2);
-      return avg + " dmg";
-    }
-    const bs = item.base_stats;
-    if (bs) {
-      const keys = Object.keys(bs);
-      if (keys.length) {
-        const k = keys[0], v = bs[k];
-        const label = k.replace(/_pct$/, "").replace(/_/g, " ");
-        return (v > 0 ? "+" : "") + v + (k.endsWith("_pct") ? "% " : " ") + label;
-      }
-    }
-    return "";
   },
   renderStorePanel() {
     const sd = this._storeDOM(); if (!sd) return;
@@ -13252,10 +13182,6 @@ function polAngleDeg(x, y) {
 function getRegion(id) { return REGIONS.find(r => r.id === id) || null; }
 function getRegionController(id) { const r = getRegion(id); return r ? r.controller : null; }
 function setRegionController(id, faction) { const r = getRegion(id); if (r) r.controller = faction; return r; }
-function getNeighborRegions(id) {
-  const r = getRegion(id);
-  return r ? r.neighbors.map(getRegion).filter(Boolean) : [];
-}
 // Border regions `faction` can legally attack: any region it does not control
 // whose neighbor graph touches a region it DOES control. Queried on live
 // controllers, so a captured region (player included) opens its whole
@@ -14339,15 +14265,6 @@ Object.assign(GAME, {
     if (parent) parent.appendChild(el);
     return el;
   },
-  _droneEtaAvg() {   // mean travel time to the currently eligible destinations
-    const s = this.state, stations = ForgeWorld.getStations();
-    const from = stations.find(st => st.id === s.dockStationId);
-    const dests = stations.filter(st => st.discovered && from && st.id !== from.id);
-    if (!from || !dests.length) return null;
-    let sum = 0;
-    for (const d of dests) sum += this.dist(from.pos.x, from.pos.y, d.pos.x, d.pos.y);
-    return (sum / dests.length) / DRONES.speed / (1 + this.droneEngineBonus());
-  },
   _canAffordDrones(spec, count) {
     const s = this.state;
     if (s.credits < spec.cost * count) return false;
@@ -15312,14 +15229,6 @@ Object.assign(GAME, {
       if (sp > FLEET.maxSpeed) { d.vx = d.vx / sp * FLEET.maxSpeed; d.vy = d.vy / sp * FLEET.maxSpeed; }
       d.x += d.vx * dt; d.y += d.vy * dt;
     }
-  },
-
-  _destroyCompanion(s, fi) {
-    const d = s.playerFleet[fi];
-    burst(d.x, d.y, "#ff5060", 18); sfx("warn");
-    toast("✖ companion destroyed!", "#ff5060");
-    s.playerFleet.splice(fi, 1);
-    s.playerFleet.forEach((o, k) => { o.formationIdx = k; o.offsetX = FLEET.offsets[k][0]; o.offsetY = FLEET.offsets[k][1]; });
   },
 
   // ---- world drawing (flat plane via SF, like aliens/miners) ----
@@ -23309,15 +23218,6 @@ Object.assign(GAME, {
     ["loadout", "⚙ FIT"], ["store", "☰ STORE"], ["warp", "⌘ WARP"], ["ships", "⛭ SHIPS"],
     ["drones", "◈ HANGAR"], ["fleet", "▲ FLEET"], ["contracts", "✦ JOBS"],
   ],
-  drawDockTabs(g) {
-    const s = this.state, tb = this.dockTabs();
-    const tab = (r, label, on) => { g.fillStyle = on ? "#1c5a54" : "#16202f"; g.strokeStyle = on ? "#2c8b82" : "#2a3a52"; g.lineWidth = 1;
-      g.beginPath(); g.roundRect(r.x, r.y, r.w, r.h, 8); g.fill(); g.stroke();
-      g.fillStyle = on ? "#dffdf8" : "#e8edf4"; g.font = "bold 7px monospace"; g.textAlign = "center";
-      g.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 3); g.textAlign = "left"; };
-    for (const [key, label] of this._dockTabDefs) tab(tb[key], label, s.dockTab === key);
-    tab(tb.launch, "LAUNCH ▸", false);
-  },
   hitDockTabs(x, y) {
     const tb = this.dockTabs(), hit = r => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h;
     for (const [key] of this._dockTabDefs) if (hit(tb[key])) { this.setDockTab(key); return true; }

@@ -87,10 +87,6 @@ function polAngleDeg(x, y) {
 function getRegion(id) { return REGIONS.find(r => r.id === id) || null; }
 function getRegionController(id) { const r = getRegion(id); return r ? r.controller : null; }
 function setRegionController(id, faction) { const r = getRegion(id); if (r) r.controller = faction; return r; }
-function getNeighborRegions(id) {
-  const r = getRegion(id);
-  return r ? r.neighbors.map(getRegion).filter(Boolean) : [];
-}
 // Border regions `faction` can legally attack: any region it does not control
 // whose neighbor graph touches a region it DOES control. Queried on live
 // controllers, so a captured region (player included) opens its whole

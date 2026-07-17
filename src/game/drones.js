@@ -429,15 +429,6 @@ Object.assign(GAME, {
     if (parent) parent.appendChild(el);
     return el;
   },
-  _droneEtaAvg() {   // mean travel time to the currently eligible destinations
-    const s = this.state, stations = ForgeWorld.getStations();
-    const from = stations.find(st => st.id === s.dockStationId);
-    const dests = stations.filter(st => st.discovered && from && st.id !== from.id);
-    if (!from || !dests.length) return null;
-    let sum = 0;
-    for (const d of dests) sum += this.dist(from.pos.x, from.pos.y, d.pos.x, d.pos.y);
-    return (sum / dests.length) / DRONES.speed / (1 + this.droneEngineBonus());
-  },
   _canAffordDrones(spec, count) {
     const s = this.state;
     if (s.credits < spec.cost * count) return false;

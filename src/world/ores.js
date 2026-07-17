@@ -132,38 +132,6 @@ Object.assign(GAME, {
     if (zone === "belt") { rock.size *= 1.2; rock.outer = d; }   // belt glow halo
     return rock;
   },
-  seedZoneRocks() {   // called from seedWorld AFTER enemy bases exist
-    const s = this.state, cfg = CONFIG;
-    const irnd = (a, b) => a + ((rnd() * (b - a + 1)) | 0);
-    // dense orbital rings: full 360° around each planet's orbital radius
-    for (let i = 0; i < s.planets.length; i++) {
-      const n = irnd(cfg.oreRingRocksMin, cfg.oreRingRocksMax);
-      for (let k = 0; k < n; k++) s.rocks.push(this.makeZoneRock("ring_" + i));
-    }
-    // moon clusters
-    for (let m = 0; m < (s._moonList || []).length; m++) {
-      const n = irnd(cfg.moonRocksMin, cfg.moonRocksMax);
-      for (let k = 0; k < n; k++) s.rocks.push(this.makeZoneRock("moon_" + m));
-    }
-    // asteroid belt — the most dangerous, most mineable zone
-    const nb = irnd(cfg.beltRocksMin, cfg.beltRocksMax);
-    for (let k = 0; k < nb; k++) s.rocks.push(this.makeZoneRock("belt"));
-    // background fill in small clusters of 3–8
-    const bgN = irnd(cfg.bgRocksMin, cfg.bgRocksMax);
-    for (let placed = 0; placed < bgN;) {
-      const c = this.rockZonePos("background");
-      const n = Math.min(irnd(cfg.bgClusterMin, cfg.bgClusterMax), bgN - placed);
-      for (let k = 0; k < n; k++, placed++) {
-        const a = rnd() * TAU, d = rnd() * 400;
-        s.rocks.push(this.makeZoneRock("background", { x: c.x + Math.cos(a) * d, y: c.y + Math.sin(a) * d }));
-      }
-    }
-    // enemy base scatter fields
-    for (let b = 0; b < s.enemyBases.length; b++) {
-      const n = irnd(cfg.baseRocksMin, cfg.baseRocksMax);
-      for (let k = 0; k < n; k++) s.rocks.push(this.makeZoneRock("base_" + b));
-    }
-  },
   // when a rock is consumed (mined by player/weapon/NPC):
   //   field rock  → DEPLETE: free the slot; the field's stock (captured on
   //                 deactivation + slow regen) accounts for the loss. A rock

@@ -44,7 +44,7 @@
 // in sync as the player equips, sells, buys and warps.
 //
 // v4.1 UI revamp: the gear tab is now a DOM overlay (#gearPanel — see build.py
-// <body>) instead of the ForgeInventory canvas grid; equipment is the flat 6-slot
+// <body>); equipment is the flat 6-slot
 // ForgeEquipment rack. s.inventory is the single source of truth for cargo.
 
 // Rarity + category palette shared by the DOM gear panel (canvas HUD keeps its own).
@@ -1354,24 +1354,6 @@ Object.assign(GAME, {
     if (!show) { st._shown = false; return; }
     this._syncDockTabs(st.panel);
     if (!st._shown) { st._shown = true; this.renderStorePanel(); }
-  },
-  _stItemStat(item) {
-    if (!item) return "";
-    if (item.weapon) {
-      const w = item.weapon;
-      const avg = Math.round((w.dmgShield + w.dmgArmor + (w.dmgHull || 0)) / 2);
-      return avg + " dmg";
-    }
-    const bs = item.base_stats;
-    if (bs) {
-      const keys = Object.keys(bs);
-      if (keys.length) {
-        const k = keys[0], v = bs[k];
-        const label = k.replace(/_pct$/, "").replace(/_/g, " ");
-        return (v > 0 ? "+" : "") + v + (k.endsWith("_pct") ? "% " : " ") + label;
-      }
-    }
-    return "";
   },
   renderStorePanel() {
     const sd = this._storeDOM(); if (!sd) return;

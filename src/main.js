@@ -453,15 +453,6 @@ Object.assign(GAME, {
     ["loadout", "⚙ FIT"], ["store", "☰ STORE"], ["warp", "⌘ WARP"], ["ships", "⛭ SHIPS"],
     ["drones", "◈ HANGAR"], ["fleet", "▲ FLEET"], ["contracts", "✦ JOBS"],
   ],
-  drawDockTabs(g) {
-    const s = this.state, tb = this.dockTabs();
-    const tab = (r, label, on) => { g.fillStyle = on ? "#1c5a54" : "#16202f"; g.strokeStyle = on ? "#2c8b82" : "#2a3a52"; g.lineWidth = 1;
-      g.beginPath(); g.roundRect(r.x, r.y, r.w, r.h, 8); g.fill(); g.stroke();
-      g.fillStyle = on ? "#dffdf8" : "#e8edf4"; g.font = "bold 7px monospace"; g.textAlign = "center";
-      g.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 3); g.textAlign = "left"; };
-    for (const [key, label] of this._dockTabDefs) tab(tb[key], label, s.dockTab === key);
-    tab(tb.launch, "LAUNCH ▸", false);
-  },
   hitDockTabs(x, y) {
     const tb = this.dockTabs(), hit = r => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h;
     for (const [key] of this._dockTabDefs) if (hit(tb[key])) { this.setDockTab(key); return true; }

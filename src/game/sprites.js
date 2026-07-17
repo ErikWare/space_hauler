@@ -401,20 +401,6 @@ const ART = {
     return true;
   },
 
-  // ---- Mira isometric terrain tiles -----------------------------------------
-  // Draw a terrain tile diamond centered at (sx,sy). hw/hh are the diamond
-  // half-extents in screen-px (ISO_HW*z and ISO_HH*z). Returns true if the PNG
-  // was drawn — caller falls back to flatTile on false.
-  drawTerrain(g, key, sx, sy, hw, hh) {
-    if (!MIRA_TERRAIN_KEYS.has(key)) return false;
-    const im = this.get(key); if (!im) return false;
-    g.save();
-    g.imageSmoothingEnabled = true;
-    g.drawImage(im, sx - hw, sy - hh, 2*hw, 2*hh);
-    g.restore();
-    return true;
-  },
-
   // Affine-map a flat square texture onto the iso diamond with pixel-perfect fit.
   // top-left→top, top-right→right, bottom-left→left, bottom-right→bottom.
   // Fast path: if buildTileCache was called for this hw/hh, blits a single
