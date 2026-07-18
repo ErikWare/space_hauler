@@ -32,6 +32,8 @@ const DRONES = {
   salvageFrac: 0.5,          // scrap a drone → this fraction of its bar + credit cost comes back
   convoyMax: 5,
   orePerBar: 2,              // refinery ratio (floor) — remainder stays in the ore hold
+  // ONLY these four refine into bars (drone-material economy). Precious/exotic
+  // ores stay raw in the hold — sold for credits or kept for future recipes.
   barTypes: ["copper", "silver", "gold", "platinum"],
   pirateEvery: 25,           // one ambush roll per drone per 25s of travel
   pirateChance: 0.33,

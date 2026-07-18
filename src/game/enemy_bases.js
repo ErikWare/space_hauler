@@ -71,6 +71,8 @@ Object.assign(GAME, {
     return s.aliens.find(a => a.id === id && a.state !== "DEAD")
         || s.enemyBases.find(b => b.id === id && !b.destroyed)
         || (s.outposts || []).find(o => o.id === id && o.owner !== "player")
+        || this.emplacementById(id)                                   // site base emplacement (game/sites.js)
+        || (s.empTorpedoes || []).find(tp => tp.id === id)            // shootable inbound torpedo
         || s.rocks.find(r => r.active && r.id === id) || null;
   },
   baseAlienCount(baseId) {

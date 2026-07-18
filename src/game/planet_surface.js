@@ -1079,7 +1079,7 @@ const PLANET = (() => {
       ground:'clay', propset:'mira', nodeset:'mira',
     },
     vesper: {
-      tileset:'mira', bldgset:'mira',   // terrain art set (sprites/<set>/) — flip when this planet gets its own
+      tileset:'vesper', bldgset:'vesper',   // full vesper art pack (tiles + vex buildings)
       name:'Vesper', tag:'bare-rock mining world', cityXY:[52,24],
       sky:{top:'#8A7FA8',hor:'#D8CDE8',cloud:'#C8C0D8'},
       biomeLO:["#8A8494","#6E6880","#5C566C","#4A4458"], biomeHI:["#ABA4B8","#8E88A0","#7A7490","#686278"],
@@ -1091,7 +1091,7 @@ const PLANET = (() => {
       city:{ pattern:'organic', monument:'water_tower', skyline:'industrial' },  // mining warren, grown not planned
     },
     cinder: {
-      tileset:'mira', bldgset:'mira',   // terrain art set (sprites/<set>/) — flip when this planet gets its own
+      tileset:'cinder', bldgset:'cinder',   // full cinder art pack (tiles + vex forge buildings)
       name:'Cinder', tag:'volcanic spice world', cityXY:[48,34],
       sky:{top:'#C86A48',hor:'#F2C494',cloud:'#B8988A'},
       biomeLO:["#5A4038","#4A3028","#6E5A46","#3E3430"], biomeHI:["#7A5A4C","#684A3C","#8E765C","#5A4C44"],
@@ -1103,7 +1103,7 @@ const PLANET = (() => {
       city:{ pattern:'radial', monument:'stepped_temple', skyline:'frontier' },  // defensive ring, flame altar heart
     },
     dusk: {
-      tileset:'mira', bldgset:'mira',   // terrain art set (sprites/<set>/) — flip when this planet gets its own
+      tileset:'dusk', bldgset:'dusk',   // full dusk art pack (tiles + snow-krag buildings)
       name:'Dusk', tag:'ice-field world', cityXY:[16,4],
       sky:{top:'#9FC4E8',hor:'#EAF4FC',cloud:'#FFFFFF'},
       biomeLO:["#C2D4E4","#A8C0D8","#B0C8D0","#98A8C0"], biomeHI:["#EAF4FC","#CCE0F0","#D8E8EC","#B8C8DC"],
@@ -1115,7 +1115,7 @@ const PLANET = (() => {
       city:{ pattern:'radial', compact:true, monument:'obelisk', skyline:'low' },  // huddled rings against the cold
     },
     sorn: {
-      tileset:'mira', bldgset:'mira',   // terrain art set (sprites/<set>/) — flip when this planet gets its own
+      tileset:'sorn', bldgset:'sorn',   // full sorn art pack (tiles + salvage-krag buildings)
       name:'Sorn', tag:'desert caravan world', cityXY:[30,8],
       sky:{top:'#E0AE5C',hor:'#F8E4B8',cloud:'#F0E0C0'},
       biomeLO:["#D0A860","#C09850","#B08840","#987838"], biomeHI:["#E8CC88","#D8BC70","#C8AC60","#B09850"],

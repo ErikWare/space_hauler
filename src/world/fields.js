@@ -33,9 +33,15 @@ Object.assign(GAME, {
 
   fieldById(id) { const s = this.state; return s.fields && s.fields.find(f => f.id === id); },
 
+  // exotic vein tier: distance band → one of the four exotic ores (config.exoticOres)
+  exoticRingFor(d) {
+    const band = CONFIG.exoticOres.find(b => d <= b.maxDist) || CONFIG.exoticOres[CONFIG.exoticOres.length - 1];
+    return CONFIG.rings.find(r => r.type === band.type);
+  },
   // representative ore tier for a field of `kind` at distance `d` — drives both
   // the dormant icon color and region.resources labeling.
   fieldTier(kind, d) {
+    if (kind === "exotic") return this.exoticRingFor(d);                   // the vein IS its ore
     if (kind === "nebula" || kind === "belt") return CONFIG.rings[4];      // platinum-leaning payday
     if (kind === "rich") return CONFIG.rings[Math.min(4, 2 + ((d > 45000) ? 2 : 1))]; // silver/gold/platinum pocket
     return this.zoneOreRing(d);
@@ -57,11 +63,27 @@ Object.assign(GAME, {
     const a = rnd() * TAU, d = Math.pow(rnd(), CONFIG.fieldSpreadPow) * f.r;
     const x = f.x + Math.cos(a) * d, y = f.y + Math.sin(a) * d, dd = Math.hypot(x, y);
     let ring, bonus = false;
+    // exotic veins are homogeneous: every rock is the field's stamped ore
+    if (f.kind === "exotic") { ring = CONFIG.rings.find(r => r.type === f.oreType) || this.exoticRingFor(dd); bonus = true; }
     // belt + nebula are guaranteed gold/platinum paydays (their disc can spill
     // past the strict annulus, so pick the tier directly rather than by distance)
-    if (f.kind === "nebula" || f.kind === "belt") { ring = CONFIG.rings[3 + ((rnd() * 2) | 0)]; bonus = true; }
-    else if (f.kind === "rich") { ring = this.fieldTier("rich", dd); bonus = true; }   // rare pocket
+    else if (f.kind === "nebula" || f.kind === "belt") { ring = CONFIG.rings[rnd() < 0.7 ? 3 : 4]; bonus = true; }   // gold 70 / platinum 30
+    // rich pocket: half its rocks are the payday tier, half the local ambient
+    // mix — the pocket still glitters against its zone without flooding the
+    // world's rare-ore supply (pure-tier pockets made gold commoner than silver)
+    else if (f.kind === "rich") {
+      if (rnd() < 0.5) { ring = this.fieldTier("rich", dd); bonus = true; }
+      else ring = this.zoneOreRing(dd);
+    }
     else ring = this.zoneOreRing(dd);
+    // rare exotic surprise salted into ANY ordinary field past the tutorial
+    // bubble — a single exotic rock among common ore (config.exoticSprinkleChance).
+    // Guarded to the general kinds only; belt/nebula (paydays) and exotic veins
+    // (already homogeneous) are left untouched.
+    if ((f.kind === "bg" || f.kind === "ring" || f.kind === "moon" || f.kind === "base" || f.kind === "rich")
+        && dd >= CONFIG.exoticMinDist && rnd() < CONFIG.exoticSprinkleChance) {
+      ring = this.exoticRingFor(dd); bonus = true;
+    }
     const hp = CONFIG.rockHp(ring.mass);
     const rock = { id: "rk" + (this.state ? this.state.nextRockId++ : 0),
       x, y, vx: 0, vy: 0, type: ring.type, value: ring.value, mass: ring.mass, col: ring.col,
@@ -110,7 +132,11 @@ Object.assign(GAME, {
       const r = s.rocks[i];
       if (!r.active || r.fieldId !== f.id) continue;
       alive++;                          // still part of the field (present or towed)
-      if (r.towedBy) continue;          // keep towed rocks live so the tow survives
+      // keep towed rocks live so the tow survives — towedBy marks NPC-miner
+      // tows; the PLAYER tow chain references rocks by index via s.tows, so it
+      // must be checked too, else the freed slot gets reused by the next field
+      // activation and the player's haul silently swaps into a different rock.
+      if (r.towedBy || this.isTowed("rocks", i)) continue;
       this._freeRockSlot(i);
     }
     for (let i = 0; i < s.junk.length; i++) {
@@ -169,6 +195,7 @@ Object.assign(GAME, {
   },
   _fieldLabel(f) {
     return f.kind === "belt" ? "◆ ASTEROID BELT" : f.kind === "nebula" ? "◆ NEBULA ORE"
+      : f.kind === "exotic" ? "◆ " + (CONFIG.oreNames[f.oreType] || "EXOTIC").toUpperCase() + " VEIN"
       : "◇ " + (CONFIG.oreNames[f.oreType] || "ore field");
   },
   // Compact overview marker: one diamond + halo + label. Sparse, legible targets.
@@ -193,6 +220,7 @@ Object.assign(GAME, {
       case "moon":   return { r: C.fieldMoonR,   cap: irnd(C.fieldMoonCapMin, C.fieldMoonCapMax) };
       case "base":   return { r: C.fieldBaseR,   cap: irnd(C.fieldBaseCapMin, C.fieldBaseCapMax) };
       case "nebula": return { r: C.fieldNebulaR, cap: irnd(C.fieldNebulaCapMin, C.fieldNebulaCapMax) };
+      case "exotic": return { r: C.exoticFieldR, cap: irnd(C.exoticCapMin, C.exoticCapMax) };   // tight rare vein
       default:       // "bg" / "rich" — wide discs that overlap neighbor regions
         return { r: C.fieldBgRMin + rnd() * (C.fieldBgRMax - C.fieldBgRMin), cap: irnd(C.fieldBgCapMin, C.fieldBgCapMax) };
     }

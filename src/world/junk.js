@@ -161,4 +161,33 @@ Object.assign(GAME, {
     const nj = this.makeJunkZone(j.zone || "fill");
     Object.assign(j, nj);
   },
+  // Deposit path (game/economy.js): junk hauled to a station is consumed. Field
+  // junk frees its slot (respawnJunk). Non-field zone junk — including the debris
+  // ring right around each station — used to re-scatter INSTANTLY into its zone,
+  // feeding a spam-salvage loop at home base. Free the slot now and queue a
+  // delayed respawn instead so the debris field regenerates over time.
+  depositRespawnJunk(i) {
+    const s = this.state, j = s.junk[i];
+    if (j.fieldId) { this.respawnJunk(i); return; }   // field junk: free slot, despawns with the field
+    const zone = j.zone || "fill";
+    this._freeJunkSlot(i);
+    s.respawnQueue.push({ arr: "junk", t: CONFIG.depositRespawnDelay, zone });
+  },
+  // Count down queued deposit respawns; re-scatter each into its zone when ready.
+  tickRespawns(dt) {
+    const s = this.state, q = s.respawnQueue;
+    if (!q || !q.length) return;
+    for (let k = q.length - 1; k >= 0; k--) {
+      const e = q[k];
+      e.t -= dt;
+      if (e.t > 0) continue;
+      if (e.arr === "rocks") {
+        this._spawnRock(e.zone ? this.makeZoneRock(e.zone)
+          : this.makeRock(CONFIG.rings.find(g => g.type === e.type) || CONFIG.rings[0], e.center));
+      } else {
+        this._spawnJunk(this.makeJunkZone(e.zone || "fill"));
+      }
+      q.splice(k, 1);
+    }
+  },
 });

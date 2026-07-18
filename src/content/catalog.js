@@ -66,7 +66,7 @@ const SPACE_HAULER_CATALOG = {
       "names": ["Shield Repair", "Shield Pulse", "Regen Rig", "Shield Injector"],
       "name": "Shield Repair",  "base_value": 90,
       "stats": {},
-      "skill": { "skill_fn": "shield_regen", "cooldown_ms": 6000, "regen_amount": 25, "fuel_cost": 10 },
+      "skill": { "skill_fn": "shield_regen", "cooldown_ms": 2000, "regen_amount": 220, "fuel_cost": 55 },
       "affix_pool": ["skill_amount_pct","skill_cooldown_pct"],
       "drop_from": ["junk_panel"] },
 
@@ -74,7 +74,7 @@ const SPACE_HAULER_CATALOG = {
       "names": ["Armor Repair", "Patch Welder", "Hull Forge", "Armor Injector"],
       "name": "Armor Repair",   "base_value": 100,
       "stats": {},
-      "skill": { "skill_fn": "armor_repair", "cooldown_ms": 8000, "regen_amount": 20, "fuel_cost": 14 },
+      "skill": { "skill_fn": "armor_repair", "cooldown_ms": 3000, "regen_amount": 90, "fuel_cost": 50 },
       "affix_pool": ["skill_amount_pct","skill_cooldown_pct"],
       "drop_from": ["junk_crate"] },
 

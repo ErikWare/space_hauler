@@ -56,6 +56,22 @@ Object.assign(GAME, {
       const r = 34 * z, hitR = Math.max(CONFIG.tapPickR, r);
       if (dd < hitR && dd < bd + r) { bd = dd; best = o; }
     }
+    // site base emplacements are lockable structures too (pitched S(), like bases)
+    for (const t of (s.sites || [])) {
+      const emp = t.emplacement;
+      if (!emp || emp.destroyed) continue;
+      if (this.dist(s.x, s.y, emp.x, emp.y) > scan) continue;
+      const p = this.S(emp.x, emp.y), dd = Math.hypot(p.x - sx, p.y - sy);
+      const r = 30 * z, hitR = Math.max(CONFIG.tapPickR, r);
+      if (dd < hitR && dd < bd + r) { bd = dd; best = emp; }
+    }
+    // inbound torpedo drones are shootable (flat SF(), like aliens)
+    for (const tp of (s.empTorpedoes || [])) {
+      if (this.dist(s.x, s.y, tp.x, tp.y) > scan) continue;
+      const p = this.SF(tp.x, tp.y), dd = Math.hypot(p.x - sx, p.y - sy);
+      const r = (tp.r + 6) * z, hitR = Math.max(CONFIG.tapPickR, r);
+      if (dd < hitR && dd < bd + r) { bd = dd; best = tp; }
+    }
     return best;
   },
 

@@ -292,12 +292,15 @@
   function isWarpUIOpen() { return state.warpUI.open; }
 
   function warpLayout(W, H, k) {
+    // row count follows the LIVE station array — the game may append stations
+    // (deep-space hubs) after generation; genStations alone yields STATION_COUNT
+    var n = state.stations.length || STATION_COUNT;
     var x = W * 0.14, w = W * 0.72;
     var top = H * 0.16;
-    var rowH = Math.min(46 * k, (H * 0.62) / STATION_COUNT) - 6 * k;
+    var rowH = Math.min(46 * k, (H * 0.62) / n) - 6 * k;
     var gap = 6 * k, rows = [];
-    for (var i = 0; i < STATION_COUNT; i++) rows.push({ x: x, y: top + i * (rowH + gap), w: w, h: rowH, id: i });
-    var closeY = top + STATION_COUNT * (rowH + gap) + 8 * k;
+    for (var i = 0; i < n; i++) rows.push({ x: x, y: top + i * (rowH + gap), w: w, h: rowH, id: i });
+    var closeY = top + n * (rowH + gap) + 8 * k;
     return { rows: rows, close: { x: W / 2 - 46 * k, y: closeY, w: 92 * k, h: 28 * k } };
   }
 

@@ -14,11 +14,11 @@ Object.assign(GAME, {
         const om = dangerLootMult(t.dangerLevel || 1).ore;
         let q = om | 0; if (rnd() < om - q) q++;
         slot.count += q; if (r.ringBonus) slot.bonus = true; ore += q;
-        this.respawnRock(t.i);
+        this.depositRespawnRock(t.i);   // delayed re-scatter, not instant (no home-base spam loop)
       } else {
         const drop = this.rollJunkDrop(s.junk[t.i].key, t.dangerLevel);
         if (drop) { s.inventory.push(drop); mods++; this.onContractItem(drop); }   // Phase 4 salvage hook
-        this.respawnJunk(t.i);
+        this.depositRespawnJunk(t.i);   // delayed re-scatter, not instant
       }
     }
     s.tows = [];

@@ -61,6 +61,16 @@ Object.assign(GAME, {
     if (anchors.length >= 2) extra = 1;
     else { const roll = rnd(); if (roll < C.regionRich3Chance) extra = 2; else if (roll < C.regionRich2Chance) extra = 1; }
     for (let e = 0; e < extra; e++) kinds.push("rich");
+    // exotic vein roll: never in a station's sector; chance from the distance
+    // band (config.exoticOres — deeper bands hold rarer ore at lower odds).
+    // region.exotic makes seedOutposts skip this sector, so a vein never shares
+    // a sector with a station OR an outpost. Skips already-busy 3-field regions
+    // to keep the ≤3 fields/region invariant.
+    const isStationRegion = region.event && region.event.type === "station";
+    if (!isStationRegion && kinds.length < 3 && region.dist >= C.exoticMinDist) {
+      const band = C.exoticOres.find(b => region.dist <= b.maxDist) || C.exoticOres[C.exoticOres.length - 1];
+      if (rnd() < band.chance) { kinds.push("exotic"); region.exotic = true; }
+    }
 
     for (let i = 0; i < kinds.length; i++) {
       // anchor fields stay centered on their anchor; extras/bg jitter for variety

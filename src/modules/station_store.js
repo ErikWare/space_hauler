@@ -69,6 +69,9 @@
    * A bar's base value is 2× its ore's value (CONFIG.rings), so the buy price
    * is the same ×1.3 markup the item stock uses. Values are duplicated here
    * because this module runs headless without CONFIG. */
+  // Only the four INDUSTRIAL ores refine into bars (the drone-material economy).
+  // Precious + exotic ores stay raw in the hold — sold for credits or held for
+  // future crafting recipes — so they never appear on the bar market.
   var BAR_TYPES = ["copper", "silver", "gold", "platinum"];
   var BAR_BASE_VALUE = { copper: 60, silver: 180, gold: 480, platinum: 1200 };
 

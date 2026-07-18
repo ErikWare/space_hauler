@@ -418,7 +418,8 @@ Object.assign(GAME, {
     const $ = id => document.getElementById(id);
     const panel = $("contractsPanel");
     if (!panel) return null;
-    this._ct = { panel, active: $("ctActive"), list: $("ctList"), cred: $("ctCred"), _shown: false };
+    this._ct = { panel, active: $("ctActive"), list: $("ctList"), cred: $("ctCred"),
+      qsHeld: $("qsHeld"), qsList: $("qsList"), _shown: false };   // Phase 5 quest sections (game/quests.js)
     return this._ct;
   },
   // called each draw frame (same pattern as syncDroneDOM): show/hide + first-show render
@@ -491,6 +492,8 @@ Object.assign(GAME, {
       card.appendChild(row);
       ct.list.appendChild(card);
     }
+
+    this.renderQuestsPanel();   // Phase 5: quest log + quest board (game/quests.js)
   },
   wireContractsDOM() {
     const ct = this._ctDOM(); if (!ct) return;
@@ -500,9 +503,10 @@ Object.assign(GAME, {
     const launch = document.getElementById("ctLaunch");
     if (launch) launch.addEventListener("click", () => { input.closeMenu = true; });
     const onClick = (e) => {
-      const btn = e.target.closest ? e.target.closest("button[data-act]") : null;
+      const btn = e.target.closest ? e.target.closest("button[data-act],button[data-qact]") : null;
       if (!btn || btn.disabled) return;
       const s = this.state;
+      if (btn.dataset.qact) { this.questDomAct(btn); this.renderContractsPanel(); return; }   // Phase 5 quest buttons
       if (btn.dataset.act === "accept") {
         const c = (s.stationContracts[s.dockStationId] || []).find(x => x.id === +btn.dataset.cid);
         if (c) this.acceptContract(c);
@@ -512,5 +516,7 @@ Object.assign(GAME, {
     };
     ct.active.addEventListener("click", onClick);
     ct.list.addEventListener("click", onClick);
+    if (ct.qsHeld) ct.qsHeld.addEventListener("click", onClick);   // Phase 5 quest sections share the handler
+    if (ct.qsList) ct.qsList.addEventListener("click", onClick);
   },
 });

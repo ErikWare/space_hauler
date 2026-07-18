@@ -33,6 +33,16 @@ defineRock("rock_copper", "#c9784a", "#ffb066");
 defineRock("rock_silver", "#c8d4e0", "#ffffff");
 defineRock("rock_gold", "#c9a23a", "#ffe27a");
 defineRock("rock_platinum", "#6fb8b0", "#aefff5");
+// exotic vein ores (config.exoticOres) — one saturated signature color each
+defineRock("rock_iridium", "#9a6ee8", "#d9b8ff");
+defineRock("rock_cryonite", "#3a6ee0", "#8ab8ff");
+defineRock("rock_solarite", "#e04838", "#ffb090");
+defineRock("rock_voidium", "#d838b8", "#ff9af0");
+// precious variety ores (config.oreBands) — distinct earthy/metallic hues
+defineRock("rock_hematite", "#b5533a", "#ff9a6a");
+defineRock("rock_titanium", "#6b7f9c", "#c8d8f0");
+defineRock("rock_malachite", "#3fae72", "#9affc0");
+defineRock("rock_cobalt", "#4468c8", "#9ab8ff");
 
 Object.assign(GAME, {
   spriteKey(r) { return "rock_" + r.type; },
@@ -63,12 +73,26 @@ Object.assign(GAME, {
      A mined rock respawns back into its own zone (rockZonePos below); zones
      whose anchor is gone (selfTest sections clear s.planets) fall back to a
      background scatter instead of crashing. */
-  zoneOreRing(d) {   // ore tier by distance from the star
-    const R = CONFIG.rings, belt = CONFIG.asteroidBelt;
-    if (d >= belt.innerR && d <= belt.outerR) return R[3 + ((rnd() * 2) | 0)];   // gold/platinum
-    if (d < 20000) return R[rnd() < 0.6 ? 1 : 0];                                // copper/slag
-    if (d < 45000) return R[rnd() < 0.6 ? 2 : 3];                                // silver/gold
-    return R[rnd() < 0.7 ? 4 : 3];                                               // platinum/gold
+  // ore lookup by type (cached) — the distance-band mix references ores by name
+  ringByType(t) {
+    if (!this._ringByType_) { this._ringByType_ = {}; for (const r of CONFIG.rings) this._ringByType_[r.type] = r; }
+    return this._ringByType_[t];
+  },
+  _weightedOre(w) {
+    let total = 0; for (const k in w) total += w[k];
+    let r = rnd() * total;
+    for (const k in w) { r -= w[k]; if (r < 0) return this.ringByType(k); }
+    return this.ringByType(Object.keys(w)[0]);
+  },
+  // ore tier by distance from the star. Distance-weighted variety pass (2026-07-16):
+  // the mix per band lives in CONFIG.oreBands so the general map runs 8+ ore types
+  // instead of the old gold/silver/platinum monotony (which was also 57% platinum).
+  // Belt distance stays a guaranteed gold/platinum payday.
+  zoneOreRing(d) {
+    const belt = CONFIG.asteroidBelt;
+    if (d >= belt.innerR && d <= belt.outerR) return this.ringByType(rnd() < 0.7 ? "gold" : "platinum");
+    const band = CONFIG.oreBands.find(b => d <= b.maxDist) || CONFIG.oreBands[CONFIG.oreBands.length - 1];
+    return this._weightedOre(band.w);
   },
   rockZonePos(zone) {
     const s = this.state, belt = CONFIG.asteroidBelt;
@@ -148,5 +172,18 @@ Object.assign(GAME, {
     }
     s.rocks[i] = r.zone ? this.makeZoneRock(r.zone)
                : this.makeRock(CONFIG.rings.find(g => g.type === r.type) || CONFIG.rings[0], r._center);
+  },
+
+  // Deposit path (game/economy.js): a rock towed to a station is consumed. Field
+  // rocks free their slot and let the field regen (respawnRock). Non-field zone/
+  // legacy rocks used to respawn INSTANTLY right back into their zone — outside
+  // the station — which let the player spam-mine home base. Instead we free the
+  // slot now and queue a delayed respawn so the resource regenerates over time.
+  depositRespawnRock(i) {
+    const s = this.state, r = s.rocks[i];
+    if (r.fieldId) { this.respawnRock(i); return; }   // field: stream-out + fieldRegenPerSec handles it
+    const spec = r.zone ? { zone: r.zone } : { type: r.type, center: r._center };
+    this._freeRockSlot(i);
+    s.respawnQueue.push(Object.assign({ arr: "rocks", t: CONFIG.depositRespawnDelay }, spec));
   },
 });

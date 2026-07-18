@@ -6,6 +6,18 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8137"],
       "port": 8137
+    },
+    {
+      "name": "space-hauler-b",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8141"],
+      "port": 8141
+    },
+    {
+      "name": "space-hauler-c",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8143"],
+      "port": 8143
     }
   ]
 }

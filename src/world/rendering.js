@@ -52,39 +52,135 @@ SPRITES.define("drone", { w: 48, h: 48, brief: "companion drone, teal wedge, nos
     g.beginPath(); g.ellipse(cx + 7, cy - 1.8, 1.4, 0.8, -0.2, 0, TAU); g.fill();
   },
 });
-SPRITES.define("station", { w: 160, h: 160, brief: "ring station, foreshortened ellipse",
+// Procedural TWIN-TORUS station — two segmented rings stacked on a central
+// spine (a tall spool silhouette), reactor glow between them, solar wings off
+// the mid-spine, and a command dome + antenna beacon on top. Baked once; drawn
+// large & tall (native 240×300 → ~330×412 on screen).
+SPRITES.define("station", { w: 240, h: 300, brief: "twin-torus station: stacked rings on a central spine",
   bake(g, w, h) {
-    const cx = 80, cy = 88, rx = 64, ry = 27, hy = cy - 16;
-    g.strokeStyle = "#39445c"; g.lineWidth = 13;
-    g.beginPath(); g.ellipse(cx, cy + 2, rx, ry, 0, 0, TAU); g.stroke();
-    g.strokeStyle = "#6d82a3"; g.lineWidth = 10;
-    g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, Math.PI, TAU); g.stroke();
-    for (let i = 0; i < 6; i++) {
-      const a = i / 6 * TAU + 0.26;
-      g.strokeStyle = "#55688a"; g.lineWidth = 4; g.beginPath();
-      g.moveTo(cx, hy); g.lineTo(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry); g.stroke();
-    }
-    g.strokeStyle = "#9db8d9"; g.lineWidth = 10;
-    g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI); g.stroke();
-    g.fillStyle = "#e8f4ff";
-    for (let i = 0; i < 5; i++) { const a = 0.35 + i / 4.4 * 2.4;
-      g.beginPath(); g.arc(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, 2, 0, TAU); g.fill(); }
-    const glow = g.createRadialGradient(cx, hy, 2, cx, hy, 24);
-    glow.addColorStop(0, "rgba(127,208,255,0.95)"); glow.addColorStop(1, "rgba(127,208,255,0)");
-    g.fillStyle = glow; g.beginPath(); g.arc(cx, hy, 24, 0, TAU); g.fill();
-    g.fillStyle = "#2a3550"; g.beginPath(); g.arc(cx, hy, 11, 0, TAU); g.fill();
-    g.strokeStyle = "#7fd0ff"; g.lineWidth = 2.5; g.stroke();
-    g.fillStyle = "#7fd0ff"; g.beginPath(); g.arc(cx, hy, 4, 0, TAU); g.fill();
+    const cx = 120, upperY = 120, lowerY = 198, rx = 82, ry = 32, P = ry / rx;
+    const midY = (upperY + lowerY) / 2, domeY = upperY - 24;
+    g.lineJoin = "round"; g.lineCap = "round";
+    // ambient halo around the whole structure
+    let halo = g.createRadialGradient(cx, midY, rx * 0.2, cx, midY, rx * 1.7);
+    halo.addColorStop(0, "rgba(96,134,196,0.12)"); halo.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = halo; g.beginPath(); g.ellipse(cx, midY, rx * 1.6, (lowerY - upperY) / 2 + ry * 2.4, 0, 0, TAU); g.fill();
+
+    // one segmented torus ring centred at yy
+    const ring = (yy) => {
+      g.strokeStyle = "#2b3450"; g.lineWidth = 20;                    // dark tube base
+      g.beginPath(); g.ellipse(cx, yy, rx, ry, 0, 0, TAU); g.stroke();
+      g.strokeStyle = "#455574"; g.lineWidth = 16;                    // mid tube
+      g.beginPath(); g.ellipse(cx, yy, rx, ry, 0, 0, TAU); g.stroke();
+      g.strokeStyle = "#8299c0"; g.lineWidth = 11;                    // front-lit highlight arc
+      g.beginPath(); g.ellipse(cx, yy, rx, ry, 0, 0.12, Math.PI - 0.12); g.stroke();
+      g.strokeStyle = "#1a2136"; g.lineWidth = 2;                     // panel ticks
+      for (let i = 0; i < 26; i++) { const a = i / 26 * TAU;
+        const ox = cx + Math.cos(a) * (rx + 8), oy = yy + Math.sin(a) * (ry + 8 * P);
+        const ix = cx + Math.cos(a) * (rx - 8), iy = yy + Math.sin(a) * (ry - 8 * P);
+        g.beginPath(); g.moveTo(ix, iy); g.lineTo(ox, oy); g.stroke(); }
+      for (let i = 0; i < 14; i++) { const a = i / 14 * TAU + 0.1;   // docking lights
+        g.fillStyle = i % 4 === 0 ? "#ffd27a" : "#7fd0ff";
+        g.beginPath(); g.arc(cx + Math.cos(a) * rx, yy + Math.sin(a) * ry, 1.9, 0, TAU); g.fill(); }
+    };
+    // spokes from an axle point (cx, hy) out to a ring at yy
+    const spokes = (yy, hy) => {
+      for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + 0.3;
+        const ex = cx + Math.cos(a) * rx * 0.9, ey = yy + Math.sin(a) * ry * 0.9;
+        g.strokeStyle = "#3d4c6c"; g.lineWidth = 5; g.beginPath(); g.moveTo(cx, hy); g.lineTo(ex, ey); g.stroke();
+        g.strokeStyle = "#6d82a8"; g.lineWidth = 2; g.beginPath(); g.moveTo(cx, hy); g.lineTo(ex, ey); g.stroke(); }
+    };
+    // solar wing off the mid-spine
+    const wing = (sgn) => {
+      const bx = cx + sgn * (rx + 6), by = midY;
+      g.strokeStyle = "#48597c"; g.lineWidth = 4;
+      g.beginPath(); g.moveTo(cx, midY); g.lineTo(bx, by); g.stroke();
+      const pw = 26, ph = 40, x0 = sgn > 0 ? bx : bx - pw, y0 = by - ph / 2;
+      g.fillStyle = "#16294a"; g.fillRect(x0, y0, pw, ph);
+      g.strokeStyle = "#3f6db0"; g.lineWidth = 1.3; g.strokeRect(x0, y0, pw, ph);
+      g.strokeStyle = "rgba(120,180,255,0.4)"; g.lineWidth = 1;
+      for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(x0 + pw * i / 4, y0); g.lineTo(x0 + pw * i / 4, y0 + ph); g.stroke(); }
+      for (let i = 1; i < 6; i++) { g.beginPath(); g.moveTo(x0, y0 + ph * i / 6); g.lineTo(x0 + pw, y0 + ph * i / 6); g.stroke(); }
+    };
+
+    // ── draw back-to-front ──
+    wing(-1); wing(1);                                                // wings behind everything
+    ring(lowerY); spokes(lowerY, midY);                              // lower/back ring
+    // reactor glow between the rings
+    const rg = g.createRadialGradient(cx, midY, 2, cx, midY, 30);
+    rg.addColorStop(0, "rgba(127,208,255,0.55)"); rg.addColorStop(1, "rgba(127,208,255,0)");
+    g.fillStyle = rg; g.beginPath(); g.arc(cx, midY, 30, 0, TAU); g.fill();
+    // central spine cylinder connecting the two rings
+    const sw = 14;
+    const sp = g.createLinearGradient(cx - sw, 0, cx + sw, 0);
+    sp.addColorStop(0, "#28324a"); sp.addColorStop(0.5, "#54648a"); sp.addColorStop(1, "#28324a");
+    g.fillStyle = sp; g.fillRect(cx - sw, upperY - 6, sw * 2, lowerY - upperY + 12);
+    g.strokeStyle = "#1a2136"; g.lineWidth = 1;                       // spine panel bands
+    for (let i = 1; i < 5; i++) { const yy = upperY + (lowerY - upperY) * i / 5;
+      g.beginPath(); g.moveTo(cx - sw, yy); g.lineTo(cx + sw, yy); g.stroke(); }
+    spokes(upperY, domeY + 10);
+    ring(upperY);                                                    // upper/front ring
+    // ── command dome + antenna on top ──
+    g.fillStyle = "#33405e"; g.beginPath(); g.ellipse(cx, domeY + 8, 26, 12, 0, 0, TAU); g.fill();   // platform
+    g.strokeStyle = "#5570a0"; g.lineWidth = 1.5; g.stroke();
+    g.fillStyle = "#3c4a6a"; g.beginPath(); g.ellipse(cx, domeY + 2, 19, 9, 0, 0, TAU); g.fill();     // mid tier
+    g.fillStyle = "#4a5c82"; g.beginPath(); g.arc(cx, domeY - 2, 11, Math.PI, TAU); g.fill();          // dome cap
+    g.strokeStyle = "#6d82a8"; g.stroke();
+    const glow = g.createRadialGradient(cx, domeY - 3, 1, cx, domeY - 3, 18);
+    glow.addColorStop(0, "rgba(191,233,255,0.95)"); glow.addColorStop(1, "rgba(127,208,255,0)");
+    g.fillStyle = glow; g.beginPath(); g.arc(cx, domeY - 3, 18, 0, TAU); g.fill();
+    g.fillStyle = "#bfe9ff"; g.beginPath(); g.arc(cx, domeY - 3, 3.2, 0, TAU); g.fill();
+    g.strokeStyle = "#8fa6cc"; g.lineWidth = 1.6;                     // antenna spire
+    g.beginPath(); g.moveTo(cx, domeY - 12); g.lineTo(cx, domeY - 34); g.stroke();
+    g.fillStyle = "#ff6b6b"; g.beginPath(); g.arc(cx, domeY - 35, 2.4, 0, TAU); g.fill();
   },
 });
 
 Object.assign(GAME, {
   nebulaHex(color) { return { cyan: "#4fd6c8", purple: "#b06cff", orange: "#ff9a3c" }[color] || "#8a6cff"; },
 
+  // Shared procedural drone hull — a little arrowhead craft with side nacelles,
+  // an engine bloom, a spine highlight, and a glowing cockpit. Used by the fleet
+  // escorts and outpost-stationed/guard drones so every drone reads as a ship,
+  // not a bare triangle. Drawn in SCREEN space at (x,y), heading `ang`, scale `sz`
+  // (≈ hull half-length). opts.thrust:false kills the bloom (for tiny orbiters).
+  drawDroneShape(g, x, y, ang, sz, col, opts) {
+    opts = opts || {};
+    const dark = "#0b0f16", lw = Math.max(0.7, sz * 0.11);
+    g.save(); g.translate(x, y); g.rotate(ang);
+    if (opts.thrust !== false) {                       // engine bloom aft
+      const gr = g.createRadialGradient(-sz * 0.85, 0, 0, -sz * 0.85, 0, sz * 0.85);
+      gr.addColorStop(0, hexA(col, 0.75)); gr.addColorStop(1, hexA(col, 0));
+      g.fillStyle = gr; g.beginPath(); g.arc(-sz * 0.85, 0, sz * 0.85, 0, TAU); g.fill();
+    }
+    g.lineJoin = "round"; g.strokeStyle = dark; g.lineWidth = lw;
+    g.fillStyle = shade(col, -0.4);                    // side nacelles
+    for (const sgn of [-1, 1]) {
+      g.beginPath(); g.ellipse(-sz * 0.1, sgn * sz * 0.6, sz * 0.36, sz * 0.2, 0, 0, TAU);
+      g.fill(); g.stroke();
+    }
+    g.fillStyle = col;                                 // main hull (hex arrowhead)
+    g.beginPath();
+    g.moveTo(sz * 1.05, 0);
+    g.lineTo(sz * 0.2, sz * 0.52);
+    g.lineTo(-sz * 0.72, sz * 0.34);
+    g.lineTo(-sz * 0.52, 0);
+    g.lineTo(-sz * 0.72, -sz * 0.34);
+    g.lineTo(sz * 0.2, -sz * 0.52);
+    g.closePath(); g.fill(); g.stroke();
+    g.strokeStyle = hexA("#ffffff", 0.4); g.lineWidth = Math.max(0.5, sz * 0.09);   // spine
+    g.beginPath(); g.moveTo(sz * 0.85, 0); g.lineTo(-sz * 0.45, 0); g.stroke();
+    g.fillStyle = opts.eye || "#dff6ff";               // cockpit
+    g.beginPath(); g.arc(sz * 0.32, 0, sz * 0.19, 0, TAU); g.fill();
+    g.restore();
+  },
+
   // faction key for a station id (→ station_vex/krag/nox PNG). Each solar planet
-  // carries the faction of the station that orbits it.
+  // carries the faction of the station that orbits it; deep-space stations
+  // carry their own faction tag (CONFIG.deepSpaceStations).
   stationFaction(id) {
-    const pdef = CONFIG.solarPlanets.find(p => p.stationIdx === id);
+    const pdef = CONFIG.solarPlanets.find(p => p.stationIdx === id) ||
+                 CONFIG.deepSpaceStations.find(d => d.stationIdx === id);
     return (pdef && pdef.faction) || "vex";
   },
 
@@ -92,7 +188,10 @@ Object.assign(GAME, {
   // ForgeFaction.drawAlienShip draws around its hull triangle, replicated here
   // because we swapped that triangle for a faction sprite (screen-space, SF).
   drawAlienStatus(g, al, p, z, isLocked) {
-    const hp = al.hp || {}, s = (al.r || 13) * z, clamp01 = v => Math.max(0, Math.min(1, v));
+    // anchor radius tracks the drawn sprite (r × class width mult / 2 — keep in
+    // sync with drawEnemyShip's sprW) so ring/bar/name clear the bigger hulls
+    const sprW = { fighter: 3.4, raider: 3.6, gunship: 3.9, carrier: 4.6 }[al.shipClass] || 3.4;
+    const hp = al.hp || {}, s = (al.r || 13) * sprW * 0.5 * z, clamp01 = v => Math.max(0, Math.min(1, v));
     if (hp.shieldMax > 0) {
       g.globalAlpha = 0.6 * clamp01((hp.shield || 0) / hp.shieldMax);
       g.strokeStyle = "#4ad2ff"; g.lineWidth = 1;
@@ -120,6 +219,18 @@ Object.assign(GAME, {
   drawEnemyShip(g, al, p, z) {
     const col = al.color || "#e8edf4", cls = al.shipClass || "fighter";
     const R = (al.r || 12) * z, s = this.state, dark = "#0c1420";
+    // Clay fleet sprite first (sprites/space/, per faction × class). Width tracks
+    // the class hull radius (HULLR_BY_CLASS in faction.js) so a squad reads as a
+    // capital ship + escorts; carriers get an extra bump for flagship drama.
+    // Sprites are top-down, nose right at angle 0 — same convention as the
+    // procedural hulls. Falls back to the tinted procedural shape (headless /
+    // missing art).
+    // Bumped ~35% (2026-07-17 look/feel pass): fighters were 31px specks next
+    // to the 80px player hull. Fighter 41 / raider 58 / gunship 82 / carrier
+    // 129px @ z=1 — a carrier now clearly outclasses the player's Vulture.
+    const sprW = { fighter: 3.4, raider: 3.6, gunship: 3.9, carrier: 4.6 }[cls] || 3.4;
+    if (ART.draw(g, "ship_" + (al.faction || "vex") + "_" + cls, p.x, p.y, R * sprW, al.angle || 0))
+      return;
     const pulse = 0.55 + 0.45 * Math.sin((s.t || 0) * 8 + (al._jitter || 0) * 9);
     g.save(); g.translate(p.x, p.y); g.rotate(al.angle || 0);
     const eng = (x, y, rr) => {
@@ -264,7 +375,11 @@ Object.assign(GAME, {
     const sp = this.S(moon.x, moon.y);
     const mr = Math.max(2, moon.r * z);
     if (sp.x < -mr || sp.x > CONFIG.W + mr || sp.y < -mr || sp.y > CONFIG.H + mr) return;
-    SPRITES.draw(g, "moon", sp.x, sp.y, moon.r / 50 * z, 0);
+    // Clay moon variants, hashed off the moon's stable orbit anchor so each
+    // moon keeps its face; baked-sprite fallback.
+    const mh = (Math.abs((moon.ox || moon.x) * 13 + (moon.oy || moon.y) * 7) | 0) % 3;
+    if (!ART.draw(g, "moon_" + "abc"[mh], sp.x, sp.y, moon.r * 2.05 * z, 0))
+      SPRITES.draw(g, "moon", sp.x, sp.y, moon.r / 50 * z, 0);
   },
 
   buildMinimap() {
@@ -353,13 +468,18 @@ Object.assign(GAME, {
       const sp = this.S(p.x, p.y), ext = p.r * CONFIG.pRingOut * z + 20;
       if (sp.x < -ext || sp.x > CONFIG.W + ext || sp.y < -ext || sp.y > CONFIG.H + ext) continue;
       if (p.dots && p.dots.length) this.drawPlanetRing(g, p, sp, z, false);
-      SPRITES.draw(g, this.planetSprite(p.type), sp.x, sp.y, p.r * z / 230, 0);
+      // Clay planet globe per planetDefs type (region variants reuse the nearest
+      // concept); rings stay procedural above/below. Baked-sprite fallback.
+      const pKey = { ice_world: "planet_ice", fire_world: "planet_lava" }["" + p.type] || ("planet_" + p.type);
+      if (!ART.draw(g, pKey, sp.x, sp.y, p.r * 2.05 * z, 0))
+        SPRITES.draw(g, this.planetSprite(p.type), sp.x, sp.y, p.r * z / 230, 0);
       if (p.dots && p.dots.length) this.drawPlanetRing(g, p, sp, z, true);
       if (z > 0.03) for (const m of (p.moons || [])) this.drawMoon(g, m, z);
     }
-    // ore ring guides around home station
+    // ore ring guides around home station (n:0 exotic ores have no home ring)
     const base = this.S(this._oreCenter ? this._oreCenter.x : 0, this._oreCenter ? this._oreCenter.y : 0);
     for (const ring of CONFIG.rings) {
+      if (!ring.n) continue;
       g.strokeStyle = "rgba(90,110,150,0.13)"; g.lineWidth = 1;
       g.beginPath(); g.ellipse(base.x, base.y, ring.r * z, ring.r * z * P, 0, 0, TAU); g.stroke();
     }
@@ -369,20 +489,38 @@ Object.assign(GAME, {
     const items = [];
     for (const st of ForgeWorld.getStations()) {
       if (!st.discovered) continue;
-      if (!isWorldVisible(st.pos.x, st.pos.y, 120)) continue;
-      const pt = this.S(st.pos.x, st.pos.y), fac = this.stationFaction(st.id);
+      if (!isWorldVisible(st.pos.x, st.pos.y, 300)) continue;   // tall twin-torus station → wider cull margin
+      const pt = this.S(st.pos.x, st.pos.y);
+      // Territory capture reskins the landmark (EMPIRE flow): a station whose
+      // political wedge the player holds (controller === "player", set by the
+      // outpost-majority recalc — game/regions.js) flies the player's civ hull
+      // (s.playerFaction) instead of the founder's. Pre-faction saves (null)
+      // and a missing civ PNG (warn-once) keep the founder skin.
+      let fac = this.stationFaction(st.id);
+      const preg = politicalRegionAt(st.pos.x, st.pos.y);
+      if (preg && preg.controller === "player" && s.playerFaction) {
+        const fk = "station_" + s.playerFaction;
+        if (!ART.ready || ART.has(fk)) fac = s.playerFaction;
+        else ART.warnMissing(fk, "station_" + fac);
+      }
       items.push({ y: st.pos.y, f: () => {
         // warp-active (charted) station → portal behind the hull (larger, so its ring
         // frames it); fall back to the pulsing purple ellipse when the PNG is absent
-        if (st.warpActive && !ART.draw(g, "warp_gate", pt.x, pt.y, 320 * z, 0)) {
+        if (st.warpActive && !ART.draw(g, "warp_gate", pt.x, pt.y, 370 * z, 0)) {
           g.strokeStyle = `rgba(150,110,255,${0.5 + Math.sin(s.t * 3) * 0.2})`; g.lineWidth = Math.max(1, 2 * z);
           g.beginPath(); g.ellipse(pt.x, pt.y, 42 * z, 42 * z * P, 0, 0, TAU); g.stroke();
         }
-        if (!ART.draw(g, "station_" + fac, pt.x, pt.y, 230 * z, 0))
-          SPRITES.draw(g, "station", pt.x, pt.y, 200 / 160 * z, 0);   // procedural fallback (headless / pre-load)
+        // Stations are the sector landmarks (native draw width 500→560px @
+        // z=1, Phase 2 size bump). Scales ×z like the ship/rocks, but with a
+        // 24px screen-size floor so the landmark stays findable at max
+        // zoom-out (z=0.08 → 45px today; the floor only binds if the zoom
+        // range ever widens).
+        const stW = Math.max(24, 560 * z);
+        if (!ART.draw(g, "station_" + fac, pt.x, pt.y, stW, 0))
+          SPRITES.draw(g, "station", pt.x, pt.y, stW / 240, 0);   // procedural fallback at the same width (native 240px)
         if (z > 0.22) { g.font = `bold ${Math.max(9, 11 * z) | 0}px monospace`; g.textAlign = "center";
           g.fillStyle = st.id === s.homeStationId ? "#7fd0ff" : "#cdd8e6";
-          g.fillText((st.id === s.homeStationId ? "⌂ " : "") + st.name, pt.x, pt.y - 30 * z - 4); g.textAlign = "left"; }
+          g.fillText((st.id === s.homeStationId ? "⌂ " : "") + st.name, pt.x, pt.y - 142 * z - 4); g.textAlign = "left"; }   // clear the taller sprite
       } });
     }
     for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i];
@@ -395,9 +533,22 @@ Object.assign(GAME, {
           grd.addColorStop(0, hexA(r.col, 0.3)); grd.addColorStop(1, "rgba(0,0,0,0)");
           g.fillStyle = grd; g.beginPath(); g.arc(pt.x, pt.y, gr, 0, TAU); g.fill();
         }
-        // Single asteroid PNG, recoloured per ore type (r.col from CONFIG.rings)
-        // so gold/silver/copper/platinum/slag read distinct again.
-        if (!ART.drawTint(g, "asteroid", pt.x, pt.y, r.size * 54 * z, r.rot, hexA(r.col, 0.45)))
+        // Clay asteroid variants (neutral grey art) recoloured per ore type
+        // (r.col from CONFIG.rings). Variant is hashed off the stable rock id so
+        // it never flickers; exotic/elite ores get the crystal-studded rock, the
+        // very largest rocks read as planetoids ("large terrain bodies"). Tints
+        // are baked per (key,color) — a handful of cached canvases, no per-frame
+        // cost. Legacy single-PNG then procedural as fallbacks.
+        const rh = (parseInt(String(r.id).slice(2), 10) || 0);
+        const rKey = r.size >= 1.7 ? "planetoid_" + "abc"[rh % 3]
+          : (r.type === "gold" || r.type === "platinum" || r.type === "iridium" ||
+             r.type === "cryonite" || r.type === "solarite") ? "asteroid_crystal"
+          : "asteroid_" + "abc"[rh % 3];
+        // ×44 (was ×54, 2026-07-17 look/feel pass): visual radius ≈ size*22 now
+        // sits on the size*20 physics/tow radius instead of 35% fat — rocks read
+        // lighter and grabs land where the pixels are.
+        if (!ART.drawTint(g, rKey, pt.x, pt.y, r.size * 44 * z, r.rot, hexA(r.col, 0.45)) &&
+            !ART.drawTint(g, "asteroid", pt.x, pt.y, r.size * 44 * z, r.rot, hexA(r.col, 0.45)))
           SPRITES.draw(g, this.spriteKey(r), pt.x, pt.y, r.size * 20 / 26 * z, r.rot);   // procedural fallback
         if (r.hitFlash > 0) { g.globalAlpha = r.hitFlash * 2.5; g.fillStyle = "#ffffff";
           g.beginPath(); g.arc(pt.x, pt.y, r.size * 20 * z, 0, TAU); g.fill(); g.globalAlpha = 1; }
@@ -409,11 +560,11 @@ Object.assign(GAME, {
     for (const j of s.junk) {
       if (!j.active || !isWorldVisible(j.x, j.y, j.r)) continue;
       const pt = this.S(j.x, j.y);
-      // Real PNG hero shot per junk type (junk_can/panel/crate/debris), sized to
-      // ~5× the collision radius so the framed object reads near the procedural
-      // footprint; falls back to the baked sprite headless / pre-load.
+      // Real PNG hero shot per junk type (junk_can/panel/crate/debris). ×3.6
+      // (was ×5, 2026-07-17 look/feel pass): salvage should read as pickups a
+      // notch under the ore rocks, not compete with them for the screen.
       items.push({ y: j.y, f: () => {
-        if (!ART.draw(g, j.key, pt.x, pt.y, j.r * 5 * z, j.rot))
+        if (!ART.draw(g, j.key, pt.x, pt.y, j.r * 3.6 * z, j.rot))
           SPRITES.draw(g, j.key, pt.x, pt.y, j.r * 2.6 / SPRITES.defs[j.key].w * z, j.rot); } }); }
     for (const b of s.enemyBases) {
       if (!isWorldVisible(b.x, b.y, b.r * 2)) continue;
@@ -421,6 +572,8 @@ Object.assign(GAME, {
       items.push({ y: b.y, f: () => this.drawEnemyBase(g, b, pt, z) });
     }
     this.drawOutposts(g, items, isWorldVisible, z);
+    this.drawObstacles(g, items, isWorldVisible, z);   // large non-minable terrain bodies
+    this.drawSites(g, items, isWorldVisible, z);       // region landmark sites (game/sites.js)
     const shipS = this.S(s.x, s.y);
     items.push({ y: s.y, f: () => {
       const glow = Math.max(s.charge, s.flare);
@@ -430,8 +583,11 @@ Object.assign(GAME, {
         grd.addColorStop(0, chargeColor(glow)); grd.addColorStop(1, "rgba(0,0,0,0)");
         g.fillStyle = grd; g.beginPath(); g.arc(gx, gy, gr, 0, TAU); g.fill(); }
       if (s.invuln > 0 && (s.t * 10 | 0) % 2) g.globalAlpha = 0.45;
-      const shipArt = "ship_" + ((this.activeShip() && this.activeShip().hullKey) || "vulture");
-      if (!ART.draw(g, shipArt, shipS.x, shipS.y, CONFIG.shipR * 5.4 * z, s.heading, true))
+      // Clay hulls are top-down nose-right (not the old side-view art), so no
+      // upright flip; width steps up per hull so the progression reads in flight.
+      const hullKey = (this.activeShip() && this.activeShip().hullKey) || "vulture";
+      const hullW = { vulture: 5.0, atlas: 6.0, aegis: 6.8 }[hullKey] || 5.4;
+      if (!ART.draw(g, "ship_" + hullKey, shipS.x, shipS.y, CONFIG.shipR * hullW * z, s.heading))
         SPRITES.draw(g, "ship", shipS.x, shipS.y, 0.68 * z, s.heading);   // procedural fallback (headless / pre-load)
       g.globalAlpha = 1;
       if (s.hp.shield > 0 && s.hp.shieldMax > 0) {

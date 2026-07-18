@@ -1,13 +1,20 @@
 /*=== HARNESS:SAVE ===========================================================*/
-// Persistence — one JSON blob in localStorage["space_hauler_save"]. The world
-// itself regenerates deterministically (setSeed(42) in init), so the save only
-// carries what the PLAYER changed: purse, ships + per-ship loadouts, cargo
-// (ore + refined bars), inventory, companion fleet, outpost ownership/fortify
-// state, the political map, charted space, and the unlock-stat counters.
-// serializeGame()/applySaveData() are pure data (headless-testable); only
-// saveGame()/loadGame() touch localStorage, and both fail soft (private
-// browsing → console.warn, the game plays on without persistence).
-const SAVE_KEY = "space_hauler_save";
+// Persistence — THREE JSON slots in localStorage["space_hauler_save_1..3"] plus
+// a card-metadata index ["space_hauler_saves_meta"] the title screen reads
+// without parsing full blobs. The world itself regenerates deterministically
+// (setSeed(42) in init), so a save only carries what the PLAYER changed: purse,
+// ships + per-ship loadouts, cargo (ore + refined bars), inventory, companion
+// fleet, outpost ownership/fortify state, the political map, charted space,
+// the chosen faction, and the unlock-stat counters.
+// serializeGame()/applySaveData() are pure data (headless-testable); the slot
+// plumbing goes through _saveStore() (localStorage, or an injected mock in the
+// selfTest) and fails soft everywhere (private browsing → console.warn, the
+// game plays on without persistence). The pre-slot single save
+// ["space_hauler_save"] auto-migrates to slot 1 on boot (migrateLegacySave).
+const SAVE_SLOTS = 3;
+const SAVE_KEY_LEGACY = "space_hauler_save";           // pre-slot single-save key
+const SAVE_META_KEY = "space_hauler_saves_meta";
+const saveSlotKey = n => "space_hauler_save_" + n;
 
 Object.assign(GAME, {
   // Snapshot the run as a plain JSON-safe object. Returns live references —
@@ -21,6 +28,7 @@ Object.assign(GAME, {
       v: 1, savedAt: (typeof Date !== "undefined" && Date.now) ? Date.now() : 0,
       // ---- player ----
       credits: s.credits,
+      playerFaction: s.playerFaction || null,   // chosen at the title screen's faction pick (game/title.js)
       ships: s.ships, activeShipId: s.activeShipId,   // hull ownership + per-ship 6-slot loadouts (covers ship/equipped)
       inventory: s.inventory,
       ore: s.ore, refinedBars: s.refinedBars,          // the cargo hold
@@ -30,6 +38,10 @@ Object.assign(GAME, {
       outposts: s.outposts.map(o => ({ id: o.id, owner: o.owner, faction: o.faction,
         discovered: !!o.discovered, shield: o.shield, armor: o.armor, hull: o.hull,
         modules: o.modules || [], stationedDrones: o.stationedDrones || [] })),
+      sites: (s.sites || []).map(t => ({ id: t.id, discovered: !!t.discovered,
+        guardRecs: t.guardRecs.map(r => ({ frac: r.frac, alive: !!r.alive })),
+        emp: t.emplacement ? { destroyed: !!t.emplacement.destroyed,
+          armor: t.emplacement.hp.armor, hull: t.emplacement.hp.hull } : null })),
       regionControllers: controllers,
       politicsEvents: (s.politicsEvents || []).slice(0, POLITICS.maxEvents),
       stations: stations.map(st => ({ id: st.id, discovered: !!st.discovered, warpActive: !!st.warpActive })),
@@ -45,6 +57,11 @@ Object.assign(GAME, {
       planetCargo: s.planetCargo || {},         // crops loaded aboard the ship
       seedBag: s.seedBag || {},                 // seeds travel with the ship
       questState: s.questState || null,         // City Hall jobs (active + offers)
+      // ---- station region quests (game/quests.js) ----
+      quests: (s.quests || []).map(q => this._serializeQuest(q)),   // held quests incl. tier/boost progress
+      activeQuestId: s.activeQuestId != null ? s.activeQuestId : null,
+      // ---- territory objectives (game/objectives.js) ----
+      territoryObjectives: this._serializeObjectives(),   // pirate/battle counters + one-time milestone flags
       // ---- stats (unlock conditions) ----
       capturedOutpostCount: s.capturedOutpostCount || 0,
       maxDangerReached: s.maxDangerReached || 1,
@@ -65,6 +82,7 @@ Object.assign(GAME, {
     const s = this.state, stations = ForgeWorld.getStations();
     // ---- player ----
     if (typeof data.credits === "number") s.credits = data.credits;
+    s.playerFaction = typeof data.playerFaction === "string" ? data.playerFaction : null;   // pre-faction saves → unaligned
     // ---- skills / XP (set BEFORE the ships block so its recomputeDerived picks
     // up perk bonuses into the fresh hp maxes; game/skills.js) ----
     if (typeof data.xp === "number") s.xp = data.xp;
@@ -123,6 +141,24 @@ Object.assign(GAME, {
       if (typeof rec.armor === "number") o.armor = clamp(rec.armor, 0, o.armorMax);
       if (typeof rec.hull === "number") o.hull = clamp(rec.hull, 1, o.hullMax);   // 0 would re-trigger the capture net
     }
+    // ---- region sites (deterministic world gen → records match by id; only
+    // discovery + the garrison's fate are player-made; pre-site saves skip) ----
+    if (Array.isArray(data.sites)) for (const rec of data.sites) {
+      const t = this.siteById(rec.id);
+      if (!t) continue;
+      t.discovered = !!rec.discovered;
+      if (Array.isArray(rec.guardRecs)) t.guardRecs.forEach((r, i) => {
+        const rr = rec.guardRecs[i];
+        if (rr) { r.frac = clamp(+rr.frac || 0, 0, 1); r.alive = !!rr.alive; }
+      });
+      // base emplacement: world re-seeds it fresh; only its wear + fate persist
+      if (rec.emp && t.emplacement) {
+        const e = t.emplacement;
+        e.destroyed = !!rec.emp.destroyed;
+        e.hp.armor = clamp(+rec.emp.armor || 0, 0, e.hp.armorMax);
+        e.hp.hull = e.destroyed ? 0 : clamp(+rec.emp.hull || 0, 0, e.hp.hullMax);
+      }
+    }
     // drone id counter must clear everything restored (fleet + outpost berths)
     let maxDrone = 0;
     for (const d of s.playerFleet) maxDrone = Math.max(maxDrone, d.id || 0);
@@ -156,6 +192,15 @@ Object.assign(GAME, {
     if (data.planetCargo && typeof data.planetCargo === "object") s.planetCargo = data.planetCargo;
     if (data.seedBag && typeof data.seedBag === "object") s.seedBag = data.seedBag;
     if (data.questState && typeof data.questState === "object") s.questState = data.questState;
+    // ---- station region quests (absent in older saves → empty log) ----
+    if (Array.isArray(data.quests)) {
+      s.quests = data.quests.map(q => this._serializeQuest(q));   // re-pick fields = sanitize the blob
+      s.nextQuestId = 1 + s.quests.reduce((m, q) => Math.max(m, q.id || 0), 0);
+      s.activeQuestId = s.quests.some(q => q.id === data.activeQuestId) ? data.activeQuestId : null;
+    }
+    // ---- territory objectives (absent in older saves → fresh counters; restoring
+    // the claimed flags BEFORE any milestone sweep is the no-double-grant guard) ----
+    this._applyObjectivesData(data.territoryObjectives);
     // ---- stats (unlock conditions) ----
     s.capturedOutpostCount = data.capturedOutpostCount || 0;
     s.maxDangerReached = clamp(data.maxDangerReached || 1, 1, 9);
@@ -170,33 +215,98 @@ Object.assign(GAME, {
     return true;
   },
 
-  // ---- localStorage plumbing (fail-soft everywhere) ----
-  saveGame() {
-    if (HEADLESS || this._selfTesting) return false;   // the test harness must never clobber a real save
+  // ---- slot plumbing (fail-soft everywhere) ----
+  _activeSlot: 1,   // the slot saveGame/clearSave target; set by loadGame / the title's new-game flow
+  // storage handle: real localStorage, or _storeOverride (a mock the selfTest injects)
+  _saveStore() {
+    if (this._storeOverride) return this._storeOverride;
+    try { return typeof localStorage !== "undefined" ? localStorage : null; }
+    catch (e) { return null; }
+  },
+  slotUsed(n) {
+    const store = this._saveStore(); if (!store) return false;
+    try { return store.getItem(saveSlotKey(n)) != null; } catch (e) { return false; }
+  },
+  readSlot(n) {
+    const store = this._saveStore(); if (!store) return null;
+    try { const raw = store.getItem(saveSlotKey(n)); return raw ? JSON.parse(raw) : null; }
+    catch (e) { console.warn("slot " + n + " unreadable:", e); return null; }
+  },
+  readSlotsMeta() {
+    const store = this._saveStore(); if (!store) return {};
+    try { const m = JSON.parse(store.getItem(SAVE_META_KEY) || "null"); return m && typeof m === "object" ? m : {}; }
+    catch (e) { return {}; }
+  },
+  // title-card metadata derived from a SERIALIZED blob (works for migrated saves too)
+  slotMetaFrom(data) {
+    let territoriesHeld = 0;
+    if (data.regionControllers) for (const id in data.regionControllers) if (data.regionControllers[id] === "player") territoriesHeld++;
+    return {
+      faction: data.playerFaction || null,
+      credits: data.credits || 0,
+      level: data.level || 1,
+      outpostsOwned: Array.isArray(data.outposts) ? data.outposts.filter(o => o.owner === "player").length : 0,
+      territoriesHeld,
+      timePlayed: data.timePlayed || 0,
+      lastSaved: data.savedAt || 0,
+    };
+  },
+  writeSlot(n, data) {
+    const store = this._saveStore(); if (!store) return false;
     try {
-      if (typeof localStorage === "undefined") { console.warn("save skipped: no localStorage"); return false; }
-      localStorage.setItem(SAVE_KEY, JSON.stringify(this.serializeGame()));
+      store.setItem(saveSlotKey(n), JSON.stringify(data));
+      const meta = this.readSlotsMeta();
+      meta[n] = this.slotMetaFrom(data);
+      store.setItem(SAVE_META_KEY, JSON.stringify(meta));
       return true;
     } catch (e) { console.warn("save failed (private browsing?):", e); return false; }
   },
-  loadGame() {
+  // one-time boot migration: pre-slot space_hauler_save → slot 1 (then the old
+  // key is deleted). Never clobbers — an occupied slot 1 leaves the legacy key be.
+  migrateLegacySave() {
+    const store = this._saveStore(); if (!store) return false;
+    try {
+      const raw = store.getItem(SAVE_KEY_LEGACY);
+      if (!raw) return false;
+      if (this.slotUsed(1)) { console.warn("legacy save found but slot 1 is occupied — not migrating"); return false; }
+      if (!this.writeSlot(1, JSON.parse(raw))) return false;
+      store.removeItem(SAVE_KEY_LEGACY);
+      console.log("space_hauler: migrated legacy single-slot save → slot 1");
+      return true;
+    } catch (e) { console.warn("legacy save migration failed:", e); return false; }
+  },
+  saveGame() {
+    if (HEADLESS || this._selfTesting) return false;   // the test harness must never clobber a real save
+    if (this.state && this.state.titleOpen) return false;   // no run to save while the title screen is up
+    if (!this._saveStore()) { console.warn("save skipped: no localStorage"); return false; }
+    return this.writeSlot(this._activeSlot || 1, this.serializeGame());
+  },
+  loadGame(slot) {
     if (HEADLESS) return false;
-    let raw = null;
-    try { if (typeof localStorage === "undefined") return false; raw = localStorage.getItem(SAVE_KEY); }
-    catch (e) { console.warn("load skipped: localStorage unavailable:", e); return false; }
-    if (!raw) return false;
-    let data = null;
-    try { data = JSON.parse(raw); } catch (e) { console.warn("save corrupt — starting fresh:", e); return false; }
+    const n = slot || this._activeSlot || 1;
+    const data = this.readSlot(n);
+    if (!data) return false;
     if (!this.applySaveData(data)) return false;
+    this._activeSlot = n;
+    // wake up at the saved home port (position itself isn't persisted; the
+    // default home is Homeport Mira, a faction pick moves it — game/title.js)
+    const homeSt = ForgeWorld.getStations().find(st => st.id === this.state.homeStationId);
+    if (homeSt) this._spawnAtStation(homeSt);
     toast("SAVE LOADED", "#57d1c9", 2);
     return true;
   },
-  clearSave() {
-    try { if (typeof localStorage !== "undefined") localStorage.removeItem(SAVE_KEY); }
-    catch (e) { console.warn("clear save failed:", e); }
+  clearSave() {   // clears the ACTIVE slot only (its meta card too)
+    const store = this._saveStore(); if (!store) return;
+    try {
+      const n = this._activeSlot || 1;
+      store.removeItem(saveSlotKey(n));
+      const meta = this.readSlotsMeta();
+      delete meta[n];
+      store.setItem(SAVE_META_KEY, JSON.stringify(meta));
+    } catch (e) { console.warn("clear save failed:", e); }
   },
 
-  // SAVE / NEW GAME buttons in the loadout (main dock) header
+  // SAVE / MENU buttons in the loadout (main dock) header
   wireSaveUI() {
     if (HEADLESS || typeof document === "undefined") return;
     const save = document.getElementById("loSaveBtn"), fresh = document.getElementById("loNewGame");
@@ -207,9 +317,8 @@ Object.assign(GAME, {
       } else toast("save unavailable", "#ff5060", 1);
     });
     if (fresh) fresh.addEventListener("click", () => {
-      if (!confirm("Start over? All progress will be lost.")) return;
-      this.clearSave();
-      location.reload();
+      if (!confirm("Return to the title screen? Unsaved progress will be lost.")) return;
+      location.reload();   // boot lands on the title — saves stay in their slots
     });
   },
 });

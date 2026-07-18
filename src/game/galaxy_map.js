@@ -19,13 +19,14 @@ Object.assign(GAME, {
     s.galaxyMapOpen = true;
     this.mapZoomReset();   // always open on the full-system view
     s.mapSetWaypointMode = false;   // never open already armed
+    s.mapTerritoryPanel = null;     // objectives panel starts closed
     input.ax = input.ay = 0; s.thrusting = false; s.holdT = 0; s.charge = 0;
     sfx("grab");
   },
   closeGalaxyMap() {
     const s = this.state;
     if (!s.galaxyMapOpen) return;
-    s.galaxyMapOpen = false; s.mapSetWaypointMode = false; sfx("drop");
+    s.galaxyMapOpen = false; s.mapSetWaypointMode = false; s.mapTerritoryPanel = null; sfx("drop");
   },
   toggleGalaxyMap() { if (this.state.galaxyMapOpen) this.closeGalaxyMap(); else this.openGalaxyMap(); },
 
@@ -125,6 +126,7 @@ Object.assign(GAME, {
       return true;
     }
     if (s.mapSetWaypointMode) { this._setNavWaypointAt(x, y); return true; }   // armed → drop it here
+    if (this.galaxyMapTerritoryClick(x, y)) return true;   // Phase 6: wedge tap → objectives panel
     return true;
   },
 
@@ -288,6 +290,16 @@ Object.assign(GAME, {
       if (o.owner === "player") { g.strokeStyle = "#e8fdf9"; g.lineWidth = 0.8; g.stroke(); }
     }
 
+    // region sites: typed glyphs — ⬡ asteroid cluster, ✕ shipwreck, ✦ alien derelict
+    g.font = "bold 9px monospace"; g.textAlign = "center";
+    for (const t of (s.sites || [])) {
+      if (!t.discovered) continue;
+      const p = this.mapPoint(t.x, t.y), def = SITE_DEFS[t.type];
+      g.fillStyle = def.mapCol;
+      g.fillText(def.glyph, p.x, p.y + 3);
+    }
+    g.textAlign = "left";
+
     // station nodes (names surface once zoomed in — read objectives at a glance)
     for (const st of stations) {
       if (!st.discovered) continue;
@@ -423,7 +435,7 @@ Object.assign(GAME, {
     const discovered = stations.filter(st => st.discovered).length;
     const marked = (s.markedStations || []).filter(id => { const st = stations.find(x => x.id === id); return st && !st.discovered; }).length;
     g.fillStyle = "#5a6a82"; g.font = "9px monospace"; g.textAlign = "center";
-    g.fillText(`Stations charted: ${discovered}/8` + (marked ? `   ·   ${marked} waypoint${marked > 1 ? "s" : ""}` : ""), CONFIG.W / 2, CONFIG.H - 42);
+    g.fillText(`Stations charted: ${discovered}/${stations.length}` + (marked ? `   ·   ${marked} waypoint${marked > 1 ? "s" : ""}` : ""), CONFIG.W / 2, CONFIG.H - 42);
     g.fillText((m.zoom > 1.0001 ? "drag to pan · " : "") + "pinch / scroll to zoom · ⌖ sets a waypoint", CONFIG.W / 2, CONFIG.H - 10);
     g.textAlign = "left";
 
@@ -440,6 +452,9 @@ Object.assign(GAME, {
 
     // zoom controls (drawn last so they sit above the map)
     this._drawMapZoomControls(g);
+
+    // Phase 6: territory objectives panel — topmost (game/objectives.js)
+    this.drawTerritoryPanelOverlay(g);
   },
 
   // bottom-right cluster: [+] [−] [⌂] [⌖] with a live "N.N×" readout above
@@ -517,6 +532,7 @@ Object.assign(GAME, {
         drawCol = blink > 0.5 ? col : (POLITICS.factionCol[r.contestFrom] || col);
         alpha = 0.14 + blink * 0.16;
       }
+      if (r.id === s.mapTerritoryPanel) alpha = Math.max(alpha, 0.34);   // Phase 6: selected wedge pops
       const a0 = r.minAngle * D, a1 = r.maxAngle * D;
       g.fillStyle = hexA(drawCol, alpha);
       g.beginPath();

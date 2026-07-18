@@ -33,13 +33,15 @@ MODULES = [
 # (init/update/draw/selfTest/boot) last.
 GAME_FILES = [
     "core/config.js", "content/catalog.js", "content/planet_data.js", "game/sprites.js", "core/camera.js", "core/input.js", "core/physics.js",
-    "world/stars.js", "world/planets.js", "world/ores.js", "world/fields.js", "world/regions.js", "world/junk.js", "world/rendering.js",
+    "world/stars.js", "world/planets.js", "world/ores.js", "world/fields.js", "world/regions.js", "world/junk.js", "world/obstacles.js", "world/rendering.js",
     "game/audio.js", "game/player.js", "game/economy.js", "game/item_icons.js", "game/ui.js", "game/encounters.js", "game/enemy_bases.js", "game/outposts.js",
-    "game/regions.js", "game/politics.js", "game/victory.js", "game/tutorial.js",
-    "game/drones.js", "game/ships.js", "game/contracts.js", "game/fleet.js", "game/npc_traders.js", "game/trade_routes.js", "game/galaxy_map.js",
+    "game/regions.js", "game/sites.js", "game/lineage.js", "game/politics.js", "game/victory.js", "game/tutorial.js",
+    "game/drones.js", "game/ships.js", "game/contracts.js", "game/quests.js", "game/fleet.js", "game/npc_traders.js", "game/trade_routes.js", "game/galaxy_map.js", "game/objectives.js",
     "game/save.js",
+    "game/title.js",
     "game/skills.js",
     "game/planet_surface.js",
+    "game/phase7.js",
     "main.js",
 ]
 
@@ -273,6 +275,8 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   .ctBtnRow{display:flex;gap:8px;margin-top:2px;flex-wrap:wrap}
   .ctBtnRow .ghBtn:disabled{opacity:.45;cursor:default}
   .ctAbandon{border-color:#5a2a34;color:#ff8a8a}
+  #qsHeld,#qsList{display:flex;flex-direction:column;gap:8px}
+  .ctCard.qActive{border-color:#57e6ff;box-shadow:inset 0 0 14px rgba(87,230,255,.14)}
 
   /* ---- STATION BAY · fleet tab (DOM overlay; role-assignment command board) ---- */
   #fleetPanel{position:fixed;inset:0;display:none;flex-direction:column;z-index:20;touch-action:none;
@@ -571,6 +575,40 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   #openingScene.show.fade{opacity:0}
   #openingSceneImg{width:100%;height:100%;object-fit:cover}
 
+  /* ---- TITLE screen (boot landing: NEW GAME / LOAD GAME · faction pick ·
+     save-slot cards; game/title.js drives the pages) ---- */
+  #titlePanel{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:55;
+    background:linear-gradient(rgba(4,7,14,.5),rgba(3,5,10,.82)),url(sprites/opening_scene.png) center/cover no-repeat,#05070d;
+    color:#e8edf4;font-family:ui-monospace,Menlo,Consolas,monospace;
+    user-select:none;-webkit-user-select:none;overflow-y:auto}
+  #titlePanel.show{display:flex}
+  #titleBox{display:flex;flex-direction:column;align-items:center;gap:18px;padding:30px 40px;max-width:94vw;margin:16px 0;
+    border:1px solid #1c3a52;border-radius:16px;background:rgba(6,10,18,.7);
+    box-shadow:0 0 60px rgba(87,155,209,.16)}
+  #titleLogo{font-size:30px;font-weight:700;letter-spacing:8px;color:#8fd0ff;text-align:center;
+    text-shadow:0 0 22px rgba(87,155,255,.55)}
+  #titleSub{font-size:10px;letter-spacing:2px;color:#7f8ea6;text-align:center}
+  .titlePage{display:flex;flex-direction:column;align-items:center;gap:12px}
+  .titleHead{font-size:12px;font-weight:700;letter-spacing:3px;color:#57d1c9}
+  #titleHome .ghBtn{min-width:220px;padding:13px 18px;font-size:13px;letter-spacing:2px}
+  #titleLoad:disabled{opacity:.35;cursor:default}
+  #titleFactionRow,#titleSlotRow{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+  .titleCard{display:flex;flex-direction:column;align-items:center;gap:8px;width:176px;padding:14px 12px;
+    border:1px solid #2a3a52;border-radius:12px;background:rgba(10,16,26,.85);cursor:pointer;text-align:center}
+  .titleCard:hover{border-color:#57d1c9;box-shadow:0 0 16px rgba(87,209,201,.35)}
+  .titleCard img{width:64px;height:64px}
+  .titleCard .tcName{font-size:13px;font-weight:700;letter-spacing:1.5px}
+  .titleCard .tcBlurb{font-size:10px;line-height:1.5;color:#9aa7b8}
+  .titleCard .tcHome{font-size:9px;color:#7f8ea6;letter-spacing:.5px}
+  .titleCard.empty{cursor:default;opacity:.55}
+  .titleCard.empty:hover{border-color:#2a3a52;box-shadow:none}
+  .tsSlotLbl{font-size:10px;font-weight:700;letter-spacing:2px;color:#57d1c9}
+  .tsRow{display:flex;justify-content:space-between;gap:12px;width:100%;font-size:10px}
+  .tsRow span{color:#7f8ea6}
+  .tsRow b{color:#dff4fd}
+  .tsDate{font-size:9px;color:#5a6b80}
+  @media(max-width:480px){ #titleBox{padding:20px 14px} #titleLogo{font-size:22px;letter-spacing:5px} .titleCard{width:44vw} }
+
   /* ---- TUTORIAL coach marks (first-run contextual tips; GAME.renderTutorialDOM
      positions the panel near the UI element each tip explains) ---- */
   #tutPanel{position:fixed;display:none;z-index:15;max-width:min(300px,calc(100vw - 24px));
@@ -667,7 +705,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     <button class="ghTab" data-tab="contracts">✦ Jobs</button>
     <button class="ghTab" data-tab="skills">◆ Skills</button>
     <button class="ghBtn" id="loSaveBtn">SAVE</button>
-    <button class="ghBtn" id="loNewGame" style="border-color:#5a2a34;color:#ff8a8a">NEW GAME</button>
+    <button class="ghBtn" id="loNewGame">MENU</button>
     <button class="ghBtn go" id="loLaunch">Launch ▸</button>
   </div>
   <div id="loBody">
@@ -789,6 +827,14 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     <button class="ghBtn go" id="ctLaunch">Launch ▸</button>
   </div>
   <div id="ctBody">
+    <div class="ghCol" id="qsHeldWrap">
+      <h2>Quest log — the ACTIVE quest drives the map waypoint</h2>
+      <div id="qsHeld"></div>
+    </div>
+    <div class="ghCol" id="qsListWrap">
+      <h2>Quest board — region jobs across this station's territory</h2>
+      <div id="qsList"></div>
+    </div>
     <div class="ghCol" id="ctActiveWrap">
       <h2>Active contract — turn in when complete</h2>
       <div id="ctActive"></div>
@@ -946,6 +992,28 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
 <!-- ===== OPENING scene (intro cutscene; GAME.showOpeningScene on a brand-new game) ===== -->
 <div id="openingScene"><img id="openingSceneImg" alt=""></div>
 
+<!-- ===== TITLE screen (boot landing; game/title.js drives the pages + cards) ===== -->
+<div id="titlePanel">
+  <div id="titleBox">
+    <div id="titleLogo">SPACE HAULER</div>
+    <div id="titleSub">HAUL &middot; FIGHT &middot; CONQUER THE PIE</div>
+    <div class="titlePage" id="titleHome">
+      <button class="ghBtn go" id="titleNew">NEW GAME</button>
+      <button class="ghBtn" id="titleLoad">LOAD GAME</button>
+    </div>
+    <div class="titlePage" id="titleFactions" style="display:none">
+      <div class="titleHead">CHOOSE YOUR FACTION</div>
+      <div id="titleFactionRow"></div>
+      <button class="ghBtn" id="titleFacBack">&#9666; BACK</button>
+    </div>
+    <div class="titlePage" id="titleSlots" style="display:none">
+      <div class="titleHead" id="titleSlotsHead">LOAD GAME</div>
+      <div id="titleSlotRow"></div>
+      <button class="ghBtn" id="titleSlotBack">&#9666; BACK</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== VICTORY overlay (all 10 political regions player-controlled; GAME.renderVictoryPanel) ===== -->
 <div id="victoryPanel">
   <div id="vicBox">
@@ -1036,6 +1104,26 @@ def check():
     const trok = Array.isArray(trf) && trf.length === 0;
     console.log((trok ? 'GREEN  ' : 'FAIL   ') + 'GAME.tradeRoutesSelfTest' + (trok ? '' : ' ' + JSON.stringify(trf)));
     if (!trok) bad++;
+    const lnf = globalThis.GAME.lineageSelfTest ? globalThis.GAME.lineageSelfTest() : ['lineageSelfTest missing'];
+    const lnok = Array.isArray(lnf) && lnf.length === 0;
+    console.log((lnok ? 'GREEN  ' : 'FAIL   ') + 'GAME.lineageSelfTest' + (lnok ? '' : ' ' + JSON.stringify(lnf)));
+    if (!lnok) bad++;
+    const stf = globalThis.GAME.sitesSelfTest ? globalThis.GAME.sitesSelfTest() : ['sitesSelfTest missing'];
+    const stok = Array.isArray(stf) && stf.length === 0;
+    console.log((stok ? 'GREEN  ' : 'FAIL   ') + 'GAME.sitesSelfTest' + (stok ? '' : ' ' + JSON.stringify(stf)));
+    if (!stok) bad++;
+    const qsf = globalThis.GAME.questsSelfTest ? globalThis.GAME.questsSelfTest() : ['questsSelfTest missing'];
+    const qsok = Array.isArray(qsf) && qsf.length === 0;
+    console.log((qsok ? 'GREEN  ' : 'FAIL   ') + 'GAME.questsSelfTest' + (qsok ? '' : ' ' + JSON.stringify(qsf)));
+    if (!qsok) bad++;
+    const obf = globalThis.GAME.objectivesSelfTest ? globalThis.GAME.objectivesSelfTest() : ['objectivesSelfTest missing'];
+    const obok = Array.isArray(obf) && obf.length === 0;
+    console.log((obok ? 'GREEN  ' : 'FAIL   ') + 'GAME.objectivesSelfTest' + (obok ? '' : ' ' + JSON.stringify(obf)));
+    if (!obok) bad++;
+    const p7f = globalThis.GAME.phase7SelfTest ? globalThis.GAME.phase7SelfTest() : ['phase7SelfTest missing'];
+    const p7ok = Array.isArray(p7f) && p7f.length === 0;
+    console.log((p7ok ? 'GREEN  ' : 'FAIL   ') + 'GAME.phase7SelfTest' + (p7ok ? '' : ' ' + JSON.stringify(p7f)));
+    if (!p7ok) bad++;
     console.log(bad ? ('SELFTEST FAILED (' + bad + ')') : 'ALL GREEN');
     process.exit(bad ? 1 : 0);
     """

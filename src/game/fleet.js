@@ -179,14 +179,26 @@ Object.assign(GAME, {
                  y: s.y - Math.sin(s.heading) * FLEET.retreatOffset };
       } else goal = this.fleetSlotPos(d, s);
 
-      let dvx = goal.x - d.x, dvy = goal.y - d.y;
+      // Formation follow is a velocity controller: FEED-FORWARD the ship's own
+      // velocity (the slot is rigidly attached to the ship, so it moves at the
+      // ship's speed) plus a proportional pull toward the slot to close residual
+      // gap. Without the feed-forward the old `targetV = gap` law needed a gap
+      // equal to the ship's speed to keep pace — so escorts trailed ~700u behind
+      // a fast tug, then snapped back ("sit there → respawn"). Attack/retreat
+      // chase an independent point, so they skip the feed-forward.
+      const follow = !(d.state === "attack" || d.state === "retreat");
+      const shipSpd = Math.hypot(s.vx, s.vy);
+      const cap = Math.max(FLEET.maxSpeed, shipSpd * 1.25 + 200);   // headroom above ship speed to close
+      const kP = 3.5;
+      let dvx = (follow ? s.vx : 0) + (goal.x - d.x) * kP;
+      let dvy = (follow ? s.vy : 0) + (goal.y - d.y) * kP;
       const dm = Math.hypot(dvx, dvy);
-      if (dm > FLEET.maxSpeed) { dvx = dvx / dm * FLEET.maxSpeed; dvy = dvy / dm * FLEET.maxSpeed; }
+      if (dm > cap) { dvx = dvx / dm * cap; dvy = dvy / dm * cap; }
       const keep = Math.pow(FLEET.damping, dt * 60);
       d.vx = d.vx * keep + dvx * (1 - keep);
       d.vy = d.vy * keep + dvy * (1 - keep);
       const sp = Math.hypot(d.vx, d.vy);
-      if (sp > FLEET.maxSpeed) { d.vx = d.vx / sp * FLEET.maxSpeed; d.vy = d.vy / sp * FLEET.maxSpeed; }
+      if (sp > cap) { d.vx = d.vx / sp * cap; d.vy = d.vy / sp * cap; }
       d.x += d.vx * dt; d.y += d.vy * dt;
     }
   },
@@ -224,13 +236,11 @@ Object.assign(GAME, {
       g.strokeStyle = grd; g.lineWidth = Math.max(1.5, 3 * z); g.lineCap = "round";
       g.beginPath(); g.moveTo(bx, by); g.lineTo(bx - Math.cos(ang) * tl, by - Math.sin(ang) * tl); g.stroke();
       g.lineCap = "butt";
-      // hull triangle — coloured by quality tier
-      g.fillStyle = col; g.strokeStyle = "#0d1017"; g.lineWidth = 1;
-      g.beginPath();
-      g.moveTo(p.x + Math.cos(ang) * sz, p.y + Math.sin(ang) * sz);
-      g.lineTo(p.x + Math.cos(ang + 2.5) * sz, p.y + Math.sin(ang + 2.5) * sz);
-      g.lineTo(p.x + Math.cos(ang - 2.5) * sz, p.y + Math.sin(ang - 2.5) * sz);
-      g.closePath(); g.fill(); g.stroke();
+      // hull — clay tier sprite first (drone_t0/1/2, cooler as tiers advance;
+      // width grows a touch per tier), procedural wedge as fallback (the trail
+      // above already renders the drive, so the fallback skips engine bloom)
+      if (!ART.draw(g, "drone_t" + (d.tier || 0), p.x, p.y, sz * (2.8 + (d.tier || 0) * 0.4), ang))
+        this.drawDroneShape(g, p.x, p.y, ang, sz, col, { thrust: false });
       // shield ring + health bar + name tag (alien bar geometry, friendly colors)
       if (d.maxShield > 0 && d.shield > 0) {
         g.globalAlpha = 0.6 * Math.min(1, d.shield / d.maxShield);

@@ -9,19 +9,52 @@
 // drones (tap the outpost while docked). Hold more than reclaimFreeHolds and
 // the factions send reconquest waves — real squads if you're there to fight,
 // abstract drone-defense resolution if you're not.
-SPRITES.define("outpost", { w: 96, h: 96, brief: "small hex outpost platform, 3/4 iso",
+// Procedural outpost — a compact hexagonal docking deck (distinct from the
+// station's round rings) with support struts, a raised hub tower, rim lights,
+// a stubby solar fin, and an amber beacon. Neutral grey; the ownership ring +
+// orbiting drones (drawOutposts) carry the faction colour on top.
+SPRITES.define("outpost", { w: 128, h: 128, brief: "hex outpost deck + hub tower",
   bake(g, w, h) {
-    const cx = 48, cy = 52, rx = 30, ry = 13;
-    g.strokeStyle = "#3a4658"; g.lineWidth = 7;
-    g.beginPath(); g.ellipse(cx, cy + 2, rx, ry, 0, 0, TAU); g.stroke();
-    g.strokeStyle = "#7d8ba3"; g.lineWidth = 5;
-    g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, TAU); g.stroke();
-    for (let i = 0; i < 3; i++) { const a = i / 3 * TAU + 0.5;
-      g.strokeStyle = "#55688a"; g.lineWidth = 3; g.beginPath();
-      g.moveTo(cx, cy - 12); g.lineTo(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry); g.stroke(); }
-    g.fillStyle = "#232c3e"; g.beginPath(); g.arc(cx, cy - 12, 9, 0, TAU); g.fill();
-    g.strokeStyle = "#9db8d9"; g.lineWidth = 2; g.stroke();
-    g.fillStyle = "#ffd24a"; g.beginPath(); g.arc(cx, cy - 12, 3.2, 0, TAU); g.fill();
+    const cx = 64, cy = 74, rx = 44, ry = 19, hubY = cy - 22, P = ry / rx, rot = 0.12;
+    g.lineJoin = "round"; g.lineCap = "round";
+    // foreshortened hexagon deck path at scale k, y-offset dy
+    const hexPath = (k, dy) => {
+      g.beginPath();
+      for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + rot;
+        const px = cx + Math.cos(a) * rx * k, py = cy + dy + Math.sin(a) * ry * k;
+        i ? g.lineTo(px, py) : g.moveTo(px, py); }
+      g.closePath();
+    };
+    // deck underside (extruded thickness) + top plate
+    hexPath(1, 7); g.fillStyle = "#1b2331"; g.fill();
+    hexPath(1, 0); g.fillStyle = "#37455e"; g.fill(); g.strokeStyle = "#6d82a8"; g.lineWidth = 2.5; g.stroke();
+    hexPath(0.66, -1); g.fillStyle = "#2b3850"; g.fill(); g.strokeStyle = "#455574"; g.lineWidth = 1.5; g.stroke();
+    // rim lights at the hex vertices (amber/cyan)
+    for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + rot;
+      g.fillStyle = i % 2 === 0 ? "#ffd27a" : "#7fd0ff";
+      g.beginPath(); g.arc(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, 2, 0, TAU); g.fill(); }
+    // stubby solar fin off one side
+    g.strokeStyle = "#48597c"; g.lineWidth = 3; g.beginPath(); g.moveTo(cx, hubY + 6); g.lineTo(cx + rx + 8, hubY + 2); g.stroke();
+    g.fillStyle = "#16294a"; g.fillRect(cx + rx + 6, hubY - 8, 16, 20);
+    g.strokeStyle = "#3f6db0"; g.lineWidth = 1; g.strokeRect(cx + rx + 6, hubY - 8, 16, 20);
+    g.beginPath(); g.moveTo(cx + rx + 14, hubY - 8); g.lineTo(cx + rx + 14, hubY + 12); g.stroke();
+    // support struts: hub apex → alternating deck vertices
+    for (let i = 0; i < 3; i++) { const a = i / 3 * TAU + rot + 0.2;
+      g.strokeStyle = "#3d4c6c"; g.lineWidth = 4; g.beginPath(); g.moveTo(cx, hubY); g.lineTo(cx + Math.cos(a) * rx * 0.94, cy + Math.sin(a) * ry * 0.94); g.stroke();
+      g.strokeStyle = "#6d82a8"; g.lineWidth = 1.6; g.beginPath(); g.moveTo(cx, hubY); g.lineTo(cx + Math.cos(a) * rx * 0.94, cy + Math.sin(a) * ry * 0.94); g.stroke(); }
+    // raised hub tower: base + drum + glowing core
+    g.fillStyle = "#33405e"; g.beginPath(); g.ellipse(cx, hubY + 5, 16, 7, 0, 0, TAU); g.fill();
+    g.strokeStyle = "#5570a0"; g.lineWidth = 1.3; g.stroke();
+    g.fillStyle = "#3c4a6a"; g.beginPath(); g.ellipse(cx, hubY, 11, 5.2, 0, 0, TAU); g.fill();
+    const glow = g.createRadialGradient(cx, hubY - 2, 1, cx, hubY - 2, 13);
+    glow.addColorStop(0, "rgba(127,208,255,0.9)"); glow.addColorStop(1, "rgba(127,208,255,0)");
+    g.fillStyle = glow; g.beginPath(); g.arc(cx, hubY - 2, 13, 0, TAU); g.fill();
+    g.fillStyle = "#213050"; g.beginPath(); g.arc(cx, hubY - 2, 5, 0, TAU); g.fill();
+    g.strokeStyle = "#7fd0ff"; g.lineWidth = 1.5; g.stroke();
+    g.fillStyle = "#bfe9ff"; g.beginPath(); g.arc(cx, hubY - 2, 2.2, 0, TAU); g.fill();
+    // antenna + amber beacon
+    g.strokeStyle = "#8fa6cc"; g.lineWidth = 1.4; g.beginPath(); g.moveTo(cx, hubY - 7); g.lineTo(cx, hubY - 22); g.stroke();
+    g.fillStyle = "#ffd24a"; g.beginPath(); g.arc(cx, hubY - 23, 2.2, 0, TAU); g.fill();
   },
 });
 
@@ -42,6 +75,7 @@ Object.assign(GAME, {
     let nid = 1;
     for (const region of order) {
       if (region.event && region.event.type === "station") continue;   // main hubs keep their region
+      if (region.exotic) continue;   // exotic ore veins keep their sector settlement-free
       if (region.dist < 6000) continue;                                // not in the star's glare
       const a = rnd() * TAU, jd = half * (0.25 + rnd() * 0.7);         // drift toward cell edges/borders
       const x = region.cx + Math.cos(a) * jd, y = region.cy + Math.sin(a) * jd;
@@ -507,26 +541,43 @@ Object.assign(GAME, {
       if (!o.discovered || !isWorldVisible(o.x, o.y, 120)) continue;
       const pt = this.S(o.x, o.y), col = this.outpostFactionCol(o);
       items.push({ y: o.y, f: () => {
-        if (!ART.draw(g, o.owner === "player" ? "outpost_player" : "outpost_enemy", pt.x, pt.y, Math.max(42, 86 * z), 0))
-          SPRITES.draw(g, "outpost", pt.x, pt.y, Math.max(0.35, z), 0);   // procedural fallback (headless / pre-load)
-        // ownership ring — bright, readable at any zoom
+        // Per-civ clay outpost first (outpost_vex/krag/nox, sprites/space/) —
+        // captured player outposts fly the pad of the player's chosen civ
+        // (s.playerFaction, game/title.js); pre-faction saves (null) and a
+        // missing civ PNG (warn-once) keep the neutral outpost_player pad.
+        // Legacy outpost_enemy then procedural as fallbacks. 130→170px @ z=1
+        // (Phase 2 size bump) with a 24px screen-size floor so a held pad
+        // never vanishes at max zoom-out; ring/drones/label key off oW and
+        // follow the floor.
+        const oW = Math.max(24, 170 * z);
+        let oKey = o.owner === "player" ? "outpost_player" : "outpost_" + o.owner;
+        if (o.owner === "player" && s.playerFaction) {
+          const fk = "outpost_" + s.playerFaction;
+          if (!ART.ready || ART.has(fk)) oKey = fk;
+          else ART.warnMissing(fk, "outpost_player");
+        }
+        if (!ART.draw(g, oKey, pt.x, pt.y, oW, 0) &&
+            !(o.owner !== "player" && ART.draw(g, "outpost_enemy", pt.x, pt.y, oW, 0)))
+          SPRITES.draw(g, "outpost", pt.x, pt.y, oW * 1.5 / 128, 0);   // procedural fallback (native 128, deck ≈ ownership ring)
+        // ownership ring — hugs the platform edge (line width keeps a floor so
+        // the stroke never vanishes, matching the ship's shield ring)
+        const oR = oW * 0.53;
         g.strokeStyle = col; g.lineWidth = Math.max(1.2, 2 * z); g.globalAlpha = 0.85;
-        g.beginPath(); g.ellipse(pt.x, pt.y, Math.max(10, 34 * z), Math.max(10, 34 * z) * P, 0, 0, TAU); g.stroke();
+        g.beginPath(); g.ellipse(pt.x, pt.y, oR, oR * P, 0, 0, TAU); g.stroke();
         g.globalAlpha = 1;
         if (o.underAttack) { const pulse = 0.5 + 0.5 * Math.sin(s.t * 6);
           g.strokeStyle = `rgba(255,80,96,${0.4 + pulse * 0.5})`; g.lineWidth = Math.max(1.5, 3 * z);
-          g.beginPath(); g.ellipse(pt.x, pt.y, Math.max(14, 46 * z), Math.max(14, 46 * z) * P, 0, 0, TAU); g.stroke(); }
-        // stationed guard drones orbit as teal wedges
+          g.beginPath(); g.ellipse(pt.x, pt.y, oW * 0.72, oW * 0.72 * P, 0, 0, TAU); g.stroke(); }
+        // stationed guard drones orbit the platform as little cyan craft
         for (let i = 0; i < o.droneGuards.length; i++) {
           const a = s.t * 0.7 + i / CONFIG.outpostDroneMax * TAU;
-          const dx = pt.x + Math.cos(a) * 26 * Math.max(0.4, z), dy = pt.y + Math.sin(a) * 26 * Math.max(0.4, z) * P;
-          g.fillStyle = "#57d1c9";
-          g.beginPath(); g.moveTo(dx + 5, dy); g.lineTo(dx - 4, dy - 3.5); g.lineTo(dx - 4, dy + 3.5); g.closePath(); g.fill();
+          const dx = pt.x + Math.cos(a) * oW * 0.41, dy = pt.y + Math.sin(a) * oW * 0.41 * P;
+          this.drawDroneShape(g, dx, dy, a + Math.PI / 2, 5.5 * z, "#57d1c9", { thrust: false });
         }
         if (z > 0.10) { g.font = `bold ${Math.max(8, 10 * z) | 0}px monospace`; g.textAlign = "center";
           g.fillStyle = col;
           const tag = o.owner === "player" ? "★ " : "◆ ";
-          g.fillText(tag + "OUTPOST " + this.regionLabel(this.regionGet(o.regionId)), pt.x, pt.y - 34 * z - 6);
+          g.fillText(tag + "OUTPOST " + this.regionLabel(this.regionGet(o.regionId)), pt.x, pt.y - oR - 6);
           g.textAlign = "left"; }
       } });
     }
@@ -551,12 +602,9 @@ Object.assign(GAME, {
         }
         const sp = Math.hypot(d.vx || 0, d.vy || 0);
         const ang = sp > 8 ? Math.atan2(d.vy, d.vx) : s.t * 0.5;
-        g.fillStyle = (DRONES.tierCol && DRONES.tierCol[d.tier]) || "#22cccc"; g.strokeStyle = "#0d1017"; g.lineWidth = 1;   // colour by quality tier
-        g.beginPath();
-        g.moveTo(p.x + Math.cos(ang) * sz, p.y + Math.sin(ang) * sz);
-        g.lineTo(p.x + Math.cos(ang + 2.5) * sz, p.y + Math.sin(ang + 2.5) * sz);
-        g.lineTo(p.x + Math.cos(ang - 2.5) * sz, p.y + Math.sin(ang - 2.5) * sz);
-        g.closePath(); g.fill(); g.stroke();
+        const dcol = (DRONES.tierCol && DRONES.tierCol[d.tier]) || "#22cccc";   // colour by quality tier
+        if (!ART.draw(g, "drone_t" + (d.tier || 0), p.x, p.y, sz * (2.8 + (d.tier || 0) * 0.4), ang))
+          this.drawDroneShape(g, p.x, p.y, ang, sz, dcol);
         const barW = 26 * z, barY = p.y - sz - 8 * z;
         g.fillStyle = "#1c2430"; g.fillRect(p.x - barW / 2, barY, barW, 3 * z);
         g.fillStyle = "#7bd88f"; g.fillRect(p.x - barW / 2, barY, barW * clamp(d.hp / d.maxHp, 0, 1), 3 * z);

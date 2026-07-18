@@ -2,9 +2,38 @@
 // Game loop: init → update → draw, wiring every Forge module together, plus the
 // headless selfTest that plays the whole loop in Node.
 Object.assign(GAME, {
+  // Age-of-sail retune: slow, heavy, fuel-hungry guns. Applied ONCE to the shared
+  // weapon catalog (idempotent — init() re-runs in selfTests) BEFORE loadDB, so
+  // every generated weapon — player and alien alike — inherits the new cadence.
+  // rate ×2 + damage ×2 is DPS-neutral; fuelPerShot ×2.3 is the opening-fire tax.
+  tuneCombatCatalog() {
+    const cat = SPACE_HAULER_CATALOG, T = CONFIG.combat;
+    if (cat._combatTuned) return;
+    const r2 = v => Math.round(v * 100) / 100;
+    const scaleW = w => {
+      if (!w) return;
+      if (w.fireRate_ms) w.fireRate_ms = Math.round(w.fireRate_ms * T.fireRateMult);
+      for (const L of ["dmgShield", "dmgArmor", "dmgHull"]) if (w[L]) w[L] = r2(w[L] * T.dmgMult);
+      if (w.fuelPerShot) w.fuelPerShot = Math.round(w.fuelPerShot * T.fuelPerShotMult);
+    };
+    for (const key in cat.bases) {
+      const b = cat.bases[key];
+      scaleW(b.weapon);
+      // named weapon variants carry additive stat deltas — scale them in step so
+      // a Pulse Lance / Bore Hammer keeps its relative identity against the new base
+      if (b.modifiers) for (const m of b.modifiers) {
+        const md = m.mods; if (!md) continue;
+        if (md.fireRate_ms) md.fireRate_ms = Math.round(md.fireRate_ms * T.fireRateMult);
+        for (const L of ["dmgShield", "dmgArmor", "dmgHull"]) if (md[L]) md[L] = r2(md[L] * T.dmgMult);
+        if (md.fuelPerShot) md.fuelPerShot = Math.round(md.fuelPerShot * T.fuelPerShotMult);
+      }
+    }
+    cat._combatTuned = true;
+  },
   init() {
     const prevMode = this.state ? this.state.mode : "constant";
     setSeed(42);
+    this.tuneCombatCatalog();                       // slow/heavy gun retune (idempotent, pre-load)
     ForgeItemSystem.loadDB(SPACE_HAULER_CATALOG);   // inject game catalogue into the generic engine
     ForgeEquipment.initEquipment(CONFIG.equipSlots);
     ForgeCombat.initCombat();
@@ -17,13 +46,29 @@ Object.assign(GAME, {
     const planets = this.makePlanets();
     for (const p of planets) {
       const st = stations[p.stationIdx];
-      const stAngle = Math.atan2(p.y, p.x) + 0.3;
+      // Outward-of-planet placement, EXCEPT when that would leave the region
+      // grid (dist > WORLD_RADIUS − a sector margin — hit by Nox Prime once
+      // planet radii grew): those flip to the sunward side so every station
+      // keeps a region cell (regions.js asserts one station event per station).
+      let stAngle = Math.atan2(p.y, p.x) + 0.3;
       const stDist = p.r * 2.8;
+      if (p.orbit + stDist > CONFIG.WORLD_RADIUS - CONFIG.sectorSize)
+        stAngle += Math.PI - 0.6;   // mirror to the inward side, same 0.3 skew
       st.pos.x = p.x + Math.cos(stAngle) * stDist;
       st.pos.y = p.y + Math.sin(stAngle) * stDist;
       st.name = p.name + " Station";
     }
     stations[0].name = "Homeport Mira";
+    // Deep-space stations (CONFIG.deepSpaceStations): free-floating quest hubs
+    // for the two territories with no planet. Pushed into the live ForgeWorld
+    // array with the genStations object shape BEFORE store/NPC/junk/region
+    // seeding, so every station consumer treats them like the planet-bound 8.
+    for (const dsDef of CONFIG.deepSpaceStations) {
+      const dsA = dsDef.angleDeg * Math.PI / 180;
+      stations.push({ id: dsDef.stationIdx, name: dsDef.name,
+        pos: { x: Math.cos(dsA) * dsDef.dist, y: Math.sin(dsA) * dsDef.dist },
+        discovered: false, warpActive: false, reputation: 0, stock: [], npcMiners: [] });
+    }
     const homePos = { x: stations[0].pos.x, y: stations[0].pos.y };
     this._oreCenter = homePos;
 
@@ -45,13 +90,18 @@ Object.assign(GAME, {
       invuln: 0, flash: 0, shieldFlash: 0, dead: false, fuelOut: false, warned: false, rationsGiven: false,
       credits: CONFIG.debugStartCredits, inventory: [], inventoryMax: 60, ore: {},
       homeStationId: stations[0].id, refineBonus: 0,
-      tows: [], rocks: [], rockFree: [], junk: [], junkFree: [], planets: planets, loot: [], miners: [], aliens: [],
+      playerFaction: null,   // chosen at the title screen's faction pick (persisted; game/title.js)
+      titleOpen: false,      // world idles under the title screen (session-only; set by showTitleScreen)
+      tows: [], rocks: [], rockFree: [], junk: [], junkFree: [], respawnQueue: [], planets: planets, loot: [], miners: [], aliens: [],
       fields: [], nextFieldId: 1,
       onPlanet: false, nearPlanetName: null, currentPlanetName: null, planetProgress: {},
       regions: [], regionById: null, regionGrid: null, currentRegionId: null,
       outposts: [], outpostShots: [], _reclaimT: null,
       atOutpost: null, dockKind: "station", outpostDockId: null,
       enemyBases: [], junkClusters: [], _stationDebris: 0, _moonList: [],
+      obstacles: [], nextObstacleId: 1,   // large non-minable terrain bodies (world/obstacles.js)
+      sites: [], nextSiteId: 1,           // region landmark sites (game/sites.js)
+      empShots: [], empTorpedoes: [], nextTorpedoId: 1,   // site base-emplacement projectiles (game/sites.js)
       nextRockId: 1, weaponCd: 0,
       atStation: false, docked: false, dockStationId: stations[0].id, dockTab: "loadout", warpOverlay: false,
       markedStations: [],   // station ids flagged from the warp screen → waypoints on the galaxy map (persisted)
@@ -93,8 +143,10 @@ Object.assign(GAME, {
     this.initDrones(this.state);
     this.initFleet(this.state);
     this.initContracts(this.state);
+    this.initQuests(this.state);   // Phase 5: station region quests (game/quests.js)
     this.initNpcTraders(this.state);
     this.initPolitics(this.state);   // faction politics: named regions + border skirmish clock
+    this.initObjectives(this.state);   // Phase 6: per-territory passive objectives (game/objectives.js)
     // default starter loadout (5 of 6 slots)
     const _sr = (n) => ForgeItemSystem.seedRng(n);
     const starters = [
@@ -161,6 +213,8 @@ Object.assign(GAME, {
     s.enemyBases = this.makeEnemyBases();
     this.seedRegions();         // static sector grid → every region gets ≥1 streaming field
     this.seedOutposts();        // organic faction outposts (~1 per 5 regions)
+    this.seedSites();           // region landmark sites (after outposts → exclusion, before obstacles → clearance)
+    this.seedObstacles();       // large non-minable terrain bodies (after outposts → clearance)
     this.seedExtraNebulas();    // after alien seeding so extras don't multiply squads
     this.updateRegions();       // set the ship's starting region
     this.tickFields(0);         // activate whatever fields already surround the ship's start
@@ -194,6 +248,7 @@ Object.assign(GAME, {
 
   update(dt) {
     const s = this.state;
+    if (s.titleOpen) return;     // boot menu up — the sim (and its clocks) wait for NEW GAME / LOAD GAME
     if (s.victoryOpen) return;   // EMPIRE ESTABLISHED — world frozen under the victory overlay
     if (input.restart) { input.restart = false; this.init(); this.loadGame(); this.initTutorial(this.state); return; }   // R matches page reload: back to the save (fresh world without one)
     if (input.warpToggle) { input.warpToggle = false; if (!s.warpOverlay) this.openWarpOverlay(); else this._closeWarpOverlay(); }
@@ -286,6 +341,7 @@ Object.assign(GAME, {
 
     this.updateRegions();  // track the ship's current region (Region Event Manager)
     this.tickFields(dt);   // stream mining fields in/out around the ship
+    this.tickRespawns(dt); // re-scatter deposited zone rocks/junk after their delay
     for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i]; if (!r.active) continue;
       r.rot += r.spinV * dt; r.x += r.vx * dt; r.y += r.vy * dt;
       if (r.hitFlash > 0) r.hitFlash = Math.max(0, r.hitFlash - dt); }
@@ -302,6 +358,7 @@ Object.assign(GAME, {
     this.updateFleet(dt);   // Phase 5: formation following + fleet combat AI
     this.updateEnemyBases(dt);
     this.updateOutposts(dt);
+    this.updateSites(dt);   // site discovery + garrison streaming (game/sites.js)
     // outpost turret shots: move + hit player (hostile) or aliens (friendly —
     // fired by captured platforms; kills settle via updateAliens' loot sweep)
     if (s.outpostShots) {
@@ -334,6 +391,8 @@ Object.assign(GAME, {
     this.updateLoot(dt);
     this.updateEncounters(dt, s);
     this.updateContracts(dt);   // Phase 4: escort convoys + defense raid waves
+    this.updateQuests(dt);      // Phase 5: quest objectives + active-quest waypoint/boost
+    this.updateObjectives(dt);  // Phase 6: territory objectives — battle windows + milestone sweep
     for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i]; if (!r.active || !r.mined) continue;
       r.mined = false; r.towedBy = null; this.respawnRock(i); }
 
@@ -360,6 +419,7 @@ Object.assign(GAME, {
     for (let i = 0; i < s.junk.length; i++) { const j = s.junk[i]; if (!j.active || this.isTowed("junk", i)) continue;
       if (this.circleHit(s, CONFIG.shipR, CONFIG.shipMass, j, j.r, CONFIG.junkMass) && s.invuln <= 0 && !s.atStation) this.damageShip(1); }
     this.rockPairPass(nearRocks);
+    this.updateObstacles(dt);   // drift the terrain bodies + bounce the ship off any it hits
 
     // nav waypoint reached → clear it (and its HUD arrow)
     if (s.navWaypoint && Math.hypot(s.x - s.navWaypoint.x, s.y - s.navWaypoint.y) < 240) {
@@ -399,6 +459,7 @@ Object.assign(GAME, {
       return;
     }
     this.drawWorld(g);
+    this.drawEmpProjectiles(g);   // site emplacement missiles / torpedoes / beams (game/sites.js)
     this.drawDronesWorld(g);      // Phase 3: in-flight trade drones (flat plane)
     this.drawFleetWorld(g);       // Phase 5: teal fleet wingmen (flat plane)
     this.drawTradeRoutesWorld(g);    // dashed outpost trade lanes (under the freighters)
@@ -406,12 +467,14 @@ Object.assign(GAME, {
     this.drawTradersWorld(g);     // Phase 6: NPC cargo wedges (flat plane)
     this.drawEncounterMarkers(g);
     this.drawContractWorld(g);    // Phase 4: escort freighter + bounty flagship dressing
+    this.drawQuestWorld(g);       // Phase 5: pulsing reticles on the active quest's objectives
     ForgeHUD.drawHUD(this.buildHudState());
     this.drawXpBar(g);            // ambient global-XP hairline atop the HUD (game/skills.js)
     this.drawEncounterIcons(g);   // overlays ForgeHUD's minimap
     this.drawEnemyBasesMinimap(g);   // hostile red triangles on the same disc
     this.drawDronesMinimap(g);    // cyan trade-drone dots on the same disc
     this.drawFleetMinimap(g);     // Phase 5: teal fleet triangles on the same disc
+    this.drawObstaclesMinimap(g); // grey terrain-body blips on the same disc
     this.drawTradersMinimap(g);   // Phase 6: white trader squares on the same disc
     this.drawContractMinimap(g);  // gold escort dot + bounty reticle on the same disc
     this.drawTradeMarkers(g);     // Phase 7: on-screen ring / edge arrow + ETA for trade runs
@@ -422,6 +485,7 @@ Object.assign(GAME, {
     this.drawContractHUD(g);      // Phase 4: active-contract box, top-right
     this.drawTraderAlert(g);      // Phase 6: blinking "trader under attack" edge note
     this.drawTradeRouteAlert(g);  // blinking "trade route under attack" edge note (trade_routes.js)
+    this.drawEmpAlert(g);         // emplacement "LOCKED ON" klaxon + torpedo-inbound count (game/sites.js)
     this.drawPoliticsTicker(g);   // faction politics: news ticker, top-center
     if (s.flash > 0) { g.fillStyle = `rgba(255,60,60,${(s.flash / CONFIG.flashT) * 0.32})`; g.fillRect(0, 0, CONFIG.W, CONFIG.H); }
     if (s.tradeNetworkComplete) {
@@ -585,12 +649,130 @@ Object.assign(GAME, {
     if (s.rocks[3].fieldId) throw new Error("expected a legacy ring rock at index 3");
     this.respawnRock(3);
     if (!s.rocks[3].active || s.rocks[3].fieldId) throw new Error("legacy respawn must stay a live non-field rock");
+    // exotic ore veins: rare homogeneous pockets that never share a sector with
+    // a station or an outpost (the premium-find layer over the ambient ore mix)
+    const EXOTICS = ["iridium", "cryonite", "solarite", "voidium"];
+    const veins = fieldsOf("exotic");
+    if (veins.length < 8 || veins.length > 120) throw new Error("exotic vein count out of band: " + veins.length);
+    for (const f of veins) {
+      if (EXOTICS.indexOf(f.oreType) < 0) throw new Error("exotic vein bad ore: " + f.oreType);
+      if (f.oreType !== this.exoticRingFor(Math.hypot(f.x, f.y)).type) throw new Error("exotic vein off its distance band");
+      if (f.cap < CONFIG.exoticCapMin || f.cap > CONFIG.exoticCapMax) throw new Error("exotic vein cap: " + f.cap);
+      const vr = s.regionById.get(f.regionId);
+      if (!vr || !vr.exotic) throw new Error("exotic vein region not flagged");
+      if (vr.event && vr.event.type === "station") throw new Error("exotic vein in a station sector");
+      if (vr.outpostId) throw new Error("exotic vein sharing a sector with an outpost");
+    }
+    if (s.outposts.some(o => { const orr = s.regionById.get(o.regionId); return orr && orr.exotic; }))
+      throw new Error("outpost seeded into an exotic vein sector");
+    // activate a vein → every rock is the vein's stamped ore, bonus-tagged
+    const ev = veins[0];
+    if (ev.active) this.deactivateField(ev);
+    ev.stock = ev.cap; this.activateField(ev);
+    const evRocks = s.rocks.filter(r => r.active && r.fieldId === ev.id);
+    if (evRocks.length !== Math.floor(ev.cap)) throw new Error("exotic vein spawn count: " + evRocks.length);
+    for (const r of evRocks) {
+      if (r.type !== ev.oreType) throw new Error("exotic vein rock type: " + r.type + " vs " + ev.oreType);
+      if (!r.ringBonus) throw new Error("exotic vein rock missing bonus");
+    }
+    this.deactivateField(ev);
+    // a PLAYER-towed field rock survives its field streaming out — the tow
+    // chain references rocks by index, so freeing the slot mid-haul would let
+    // the next activation swap a different rock into the player's beam
+    ev.stock = ev.cap; this.activateField(ev);
+    const towIdx = s.rocks.findIndex(r => r.active && r.fieldId === ev.id);
+    const towRock = s.rocks[towIdx];
+    s.tows = [{ arr: "rocks", i: towIdx, dangerLevel: 1 }];
+    this.deactivateField(ev);
+    if (s.rocks[towIdx] !== towRock || !towRock.active) throw new Error("player-towed rock freed by field deactivation");
+    if (s.rocks.some((r, i) => r.active && r.fieldId === ev.id && i !== towIdx)) throw new Error("non-towed vein rocks should stream out");
+    s.tows = [];
+    this.respawnRock(towIdx);   // consume the orphan: dormant-field path frees the slot + decrements stock
+
+    // ore variety pass: 4 precious ores widen the general map; distance-band mix
+    // (CONFIG.oreBands) drives it, and each band names only valid non-exotic ores
+    const PRECIOUS = ["hematite", "titanium", "malachite", "cobalt"];
+    for (const t of PRECIOUS) {
+      const rg = this.ringByType(t);
+      if (!rg) throw new Error("missing precious ore: " + t);
+      if (rg.rarity === "exotic") throw new Error("precious ore mis-tagged exotic: " + t);
+      if (!CONFIG.oreNames[t]) throw new Error("precious ore missing name: " + t);
+      if (!SPRITES.defs["rock_" + t]) throw new Error("precious ore missing sprite: " + t);
+    }
+    if (this.ringByType("copper").value >= this.ringByType("silver").value) throw new Error("ore value order broke");
+    if (!CONFIG.oreBands || CONFIG.oreBands.length < 2) throw new Error("oreBands missing");
+    const EXOTIC_SET = new Set(EXOTICS);
+    for (const band of CONFIG.oreBands) {
+      let sum = 0;
+      for (const t in band.w) {
+        if (!this.ringByType(t)) throw new Error("oreBand names unknown ore: " + t);
+        if (EXOTIC_SET.has(t)) throw new Error("oreBand must not list exotic ore: " + t);
+        sum += band.w[t];
+      }
+      if (sum <= 0) throw new Error("oreBand has no weight");
+    }
+    if (!(CONFIG.exoticSprinkleChance > 0 && CONFIG.exoticSprinkleChance < 0.02)) throw new Error("exotic sprinkle chance out of band");
+    // industrial economy is unchanged: only the classic four refine into bars
+    if (DRONES.barTypes.join(",") !== "copper,silver,gold,platinum") throw new Error("bar economy changed: " + DRONES.barTypes);
+    if (ForgeStore.BAR_TYPES.join(",") !== "copper,silver,gold,platinum") throw new Error("store bar types changed: " + ForgeStore.BAR_TYPES);
+    // zoneOreRing yields real non-exotic rings and genuine variety (≥6 distinct
+    // types across the bands). Sampled here at the END-adjacent point; the RNG it
+    // consumes is fine because the remaining sections re-init the state anyway.
+    const seenOre = new Set();
+    for (const d of [12000, 30000, 60000]) for (let k = 0; k < 400; k++) {
+      const rg = this.zoneOreRing(d);
+      if (!rg || !rg.type) throw new Error("zoneOreRing returned junk");
+      if (EXOTIC_SET.has(rg.type)) throw new Error("zoneOreRing leaked an exotic: " + rg.type);
+      seenOre.add(rg.type);
+    }
+    if (seenOre.size < 6) throw new Error("ore variety too low: " + seenOre.size + " types [" + [...seenOre].join(",") + "]");
+
+    // ── obstacle terrain bodies: seeded, clear, heavy, non-minable, collidable ──
+    const obs = s.obstacles;
+    if (!Array.isArray(obs) || obs.length < CONFIG.obstacleCount * 0.75) throw new Error("obstacle count too low: " + (obs ? obs.length : "none"));
+    const oRMin = Math.min.apply(null, CONFIG.obstacleTiers.map(t => t.rMin));
+    const oRMax = Math.max.apply(null, CONFIG.obstacleTiers.map(t => t.rMax));
+    const homeC = this._oreCenter || { x: 0, y: 0 };
+    for (const o of obs) {
+      if (o.r < oRMin - 1 || o.r > oRMax + 1) throw new Error("obstacle radius out of tiers: " + o.r);
+      if (Math.abs(o.mass - o.r * o.r * CONFIG.obstacleMassK) > 1) throw new Error("obstacle mass wrong: " + o.mass);
+      if (Math.hypot(o.x, o.y) > CONFIG.WORLD_RADIUS + o.r) throw new Error("obstacle outside disc");
+      if (this.dist(o.x, o.y, homeC.x, homeC.y) < CONFIG.obstacleClearHome - 1) throw new Error("obstacle inside the home bubble");
+      for (const st of ForgeWorld.getStations()) if (this.dist(o.x, o.y, st.pos.x, st.pos.y) < CONFIG.obstacleClearStation) throw new Error("obstacle on a station");
+    }
+    // obstacles live in their own array — never in the minable/lockable/towable pools
+    if (obs.some(o => s.rocks.indexOf(o) >= 0 || s.junk.indexOf(o) >= 0 || s.aliens.indexOf(o) >= 0)) throw new Error("obstacle leaked into a minable/lockable array");
+    // fast ram: the ship bounces OUT + takes damage; the heavy body barely moves
+    this.init(); s = this.state; s.aliens = []; s.atStation = false;
+    const ob = s.obstacles[0];
+    s.x = ob.x - 6; s.y = ob.y; s.vx = 220; s.vy = 0; s.invuln = 0;   // overlapping, closing fast
+    const preSh = s.hp.shield, obX0 = ob.x;
+    this.updateObstacles(1 / 60);
+    if (this.dist(s.x, s.y, ob.x, ob.y) < ob.r) throw new Error("ship not pushed clear of the obstacle");
+    if (Math.abs(ob.x - obX0) > 5) throw new Error("heavy obstacle shoved too far: " + (ob.x - obX0));
+    if (s.hp.shield >= preSh) throw new Error("a fast ram should deal damage (shield should drop)");   // Shield soaks first
+    // slow bump: a free nudge, no damage
+    this.init(); s = this.state; s.aliens = []; s.atStation = false;
+    const ob2 = s.obstacles[0];
+    s.x = ob2.x + ob2.r - 4; s.y = ob2.y; s.vx = 12; s.vy = 0; s.invuln = 0;
+    const preSh2 = s.hp.shield;
+    this.updateObstacles(1 / 60);
+    if (s.hp.shield !== preSh2) throw new Error("a slow bump should not damage");
+    // drift: a body with velocity moves when ticked
+    this.init(); s = this.state;
+    const ob3 = s.obstacles[0], dx0 = ob3.x; ob3.vx = 3;
+    this.updateObstacles(1);
+    if (Math.abs(ob3.x - dx0) < 0.5) throw new Error("obstacle did not drift");
     if (s.planets.length !== CONFIG.solarPlanets.length) throw new Error("planet count: " + s.planets.length);
-    for (const p of s.planets) { if (p.orbit < 5000) throw new Error("planet orbit too small"); if (p.r < 600 || p.r > 2200) throw new Error("planet radius: " + p.r); }
-    // junk field: 600–1100 floaters across halos / lanes / stations / hotspots / fill
+    for (const p of s.planets) { if (p.orbit < 5000) throw new Error("planet orbit too small"); if (p.r < 800 || p.r > 2800) throw new Error("planet radius: " + p.r); }   // range tracks solarPlanets r (+25% 2026-07-17)
+    // junk field: 420–800 STATIC floaters across halos / lanes / stations /
+    // hotspots / fill (band retuned with the 2026-07-17 −30% clutter pass;
+    // streamed field junk + freed tombstones are excluded — the array length
+    // is a high-water mark once fields have cycled)
     const jz = (z) => s.junk.filter(j => j.zone === z);
     const sts0 = ForgeWorld.getStations();
-    if (s.junk.length < 600 || s.junk.length > 1100) throw new Error("junk count out of band: " + s.junk.length);
+    const staticJunk = s.junk.filter(j => j.active && !j.fieldId).length;
+    if (staticJunk < 420 || staticJunk > 800) throw new Error("junk count out of band: " + staticJunk);
     if (s._stationDebris < CONFIG.stationDebrisMin * sts0.length || s._stationDebris > CONFIG.stationDebrisMax * sts0.length) throw new Error("station debris: " + s._stationDebris);
     for (let i = 0; i < sts0.length; i++) {
       const deb = jz("station_" + i);
@@ -862,6 +1044,44 @@ Object.assign(GAME, {
     if (!flyTo({ x: home.pos.x, y: home.pos.y }, () => s.atStation, 9000)) throw new Error("never reached home station");
     if (s.tows.length !== 0) throw new Error("haul not auto-banked");
     if (!s.ore.junk || s.ore.junk.count !== 1) throw new Error("ore not auto-stored: " + JSON.stringify(s.ore));
+
+    // ===== 15b) dock zone refuses NEW grabs (anti "mine from the pad" exploit) =====
+    // Auto-deposit + tap-to-tow from the pad banked rocks without ever flying out;
+    // grabs must be refused in a dock zone while releases/deposits still work.
+    this.init(); s = this.state; s.aliens = []; s.encounters = [];
+    const homeD = this.homeStationObj();
+    s.x = homeD.pos.x; s.y = homeD.pos.y; s.vx = s.vy = 0; step();   // sit on the pad → atStation
+    if (!s.atStation) throw new Error("expected atStation on the pad");
+    const padRock = s.rocks[0];
+    padRock.x = s.x + 80; padRock.y = s.y;                            // grabbable right beside the pad
+    if (this.grabTow("rocks", 0) !== false || s.tows.length) throw new Error("dock-zone grab must be refused");
+    s.outposts = [];                                                  // isolate: no outpost dock rings in the way
+    s.x = homeD.pos.x + CONFIG.dockR + 300; s.vx = s.vy = 0; step();  // hop off the pad → open space
+    if (s.atStation) throw new Error("should be clear of the dock ring");
+    padRock.x = s.x + 80; padRock.y = s.y;
+    if (!this.grabTow("rocks", 0)) throw new Error("open-space grab should work");
+    this.dropAllTows();
+
+    // ===== 15c) depositing at a station QUEUES a delayed respawn, never instant =====
+    // (anti "spam-mine the home base" loop: a towed zone rock/junk banked at a
+    // station frees its slot now and re-scatters only after depositRespawnDelay.)
+    this.init(); s = this.state; s.aliens = []; s.encounters = []; s.respawnQueue.length = 0;
+    const depRockI = s.rocks.findIndex(r => r.active && !r.fieldId);
+    const depJunkI = s.junk.findIndex(j => j.active && !j.fieldId);
+    if (depRockI < 0 || depJunkI < 0) throw new Error("no non-field rock/junk to test deposit respawn");
+    s.tows = [{ arr: "rocks", i: depRockI, dangerLevel: 1 }, { arr: "junk", i: depJunkI, dangerLevel: 1 }];
+    this.depositTows();
+    if (s.rocks[depRockI].active) throw new Error("deposited rock slot must free, not instantly respawn");
+    if (s.junk[depJunkI].active) throw new Error("deposited junk slot must free, not instantly respawn");
+    if (s.respawnQueue.length !== 2) throw new Error("deposit should queue 2 delayed respawns: " + s.respawnQueue.length);
+    if (s.respawnQueue.some(e => e.t !== CONFIG.depositRespawnDelay)) throw new Error("queued respawn delay wrong");
+    const rockN0 = s.rocks.filter(r => r.active).length, junkN0 = s.junk.filter(j => j.active).length;
+    this.tickRespawns(CONFIG.depositRespawnDelay - 1);
+    if (s.respawnQueue.length !== 2) throw new Error("deposit respawns fired too early");
+    this.tickRespawns(2);
+    if (s.respawnQueue.length !== 0) throw new Error("respawn queue did not drain past the delay");
+    if (s.rocks.filter(r => r.active).length !== rockN0 + 1) throw new Error("rock did not re-scatter after delay");
+    if (s.junk.filter(j => j.active).length !== junkN0 + 1) throw new Error("junk did not re-scatter after delay");
 
     // ===== 16) SELL ore + TRADE NETWORK WIN =====
     this.init(); s = this.state;
@@ -1889,6 +2109,67 @@ Object.assign(GAME, {
     // a headless saveGame must fail SOFT, never throw (no localStorage in Node)
     if (this.saveGame() !== false) throw new Error("headless saveGame must return false");
 
+    // ===== 21d-2) SAVE SLOTS: playerFaction round-trip · legacy-key migration
+    // → slot 1 · 3 independent slots + meta cards · faction home ports =====
+    this.init(); s = this.state;
+    if (s.playerFaction !== null) throw new Error("playerFaction must boot null");
+    s.playerFaction = "nox"; s.credits = 777;
+    const facSnap = JSON.parse(JSON.stringify(this.serializeGame()));
+    this.init(); s = this.state;
+    if (!this.applySaveData(facSnap)) throw new Error("applySaveData rejected the faction save");
+    if (s.playerFaction !== "nox") throw new Error("playerFaction not restored: " + s.playerFaction);
+    // migration: a mock store (injected via _storeOverride) holding only the legacy key
+    const mkStore = () => { const m = new Map(); return {
+      getItem: k => m.has(k) ? m.get(k) : null,
+      setItem: (k, v) => m.set(k, String(v)),
+      removeItem: k => m.delete(k) }; };
+    this._storeOverride = mkStore();
+    this._storeOverride.setItem("space_hauler_save", JSON.stringify(facSnap));
+    if (!this.migrateLegacySave()) throw new Error("legacy migration must run");
+    if (this._storeOverride.getItem("space_hauler_save") !== null) throw new Error("legacy key must be deleted after migration");
+    const mig = this.readSlot(1);
+    if (!mig || mig.credits !== 777 || mig.playerFaction !== "nox") throw new Error("legacy save must land intact in slot 1");
+    const migMeta = this.readSlotsMeta();
+    if (!migMeta[1] || migMeta[1].faction !== "nox" || migMeta[1].credits !== 777 || migMeta[1].territoriesHeld !== 0)
+      throw new Error("migration must stamp the slot-1 meta card: " + JSON.stringify(migMeta[1]));
+    if (this.migrateLegacySave()) throw new Error("migration must be one-shot");
+    // 3 slots save + load independently, each with its own meta card
+    for (let n = 1; n <= SAVE_SLOTS; n++) {
+      const d = JSON.parse(JSON.stringify(facSnap));
+      d.credits = 1000 + n; d.playerFaction = CONFIG.factions[n - 1];
+      if (!this.writeSlot(n, d)) throw new Error("writeSlot " + n + " failed");
+    }
+    for (let n = 1; n <= SAVE_SLOTS; n++) {
+      const d = this.readSlot(n);
+      if (!d || d.credits !== 1000 + n || d.playerFaction !== CONFIG.factions[n - 1])
+        throw new Error("slot " + n + " must round-trip independently");
+      this.init(); s = this.state;
+      if (!this.applySaveData(d) || s.credits !== 1000 + n || s.playerFaction !== CONFIG.factions[n - 1])
+        throw new Error("slot " + n + " must restore onto a fresh world");
+    }
+    const slotsMeta = this.readSlotsMeta();
+    for (let n = 1; n <= SAVE_SLOTS; n++)
+      if (!slotsMeta[n] || slotsMeta[n].credits !== 1000 + n || slotsMeta[n].faction !== CONFIG.factions[n - 1])
+        throw new Error("slot " + n + " meta card wrong: " + JSON.stringify(slotsMeta[n]));
+    if (!this.slotUsed(2)) throw new Error("slotUsed must see a written slot");
+    delete this._storeOverride;
+    if (this.slotUsed(2)) throw new Error("slotUsed must fail soft without a store");
+    // faction home ports: three distinct own-wedge stations; krag keeps Homeport Mira
+    const facHomes = {};
+    for (const f of CONFIG.factions) {
+      const st = this.factionHomeStation(f);
+      if (!st) throw new Error("no home station for " + f);
+      const reg = politicalRegionAt(st.pos.x, st.pos.y);
+      if (!reg || reg.faction !== f) throw new Error(f + " home must sit in its own wedge: " + (reg && reg.id));
+      facHomes[f] = st;
+    }
+    if (facHomes.krag.id !== ForgeWorld.getStations()[0].id) throw new Error("krag home must stay Homeport Mira");
+    if (new Set(Object.values(facHomes).map(st => st.id)).size !== 3) throw new Error("faction homes must be distinct");
+    this._spawnAtStation(facHomes.vex);
+    if (Math.hypot(s.x - facHomes.vex.pos.x, s.y - (facHomes.vex.pos.y + 40)) > 1)
+      throw new Error("_spawnAtStation must move the ship to the berth");
+    if (getDangerLevel(s.x, s.y) !== politicalRegionAt(s.x, s.y).dangerLevel) throw new Error("spawn danger lookup broken");
+
     // ===== 21e) ENDGAME: empire progress · faction collapse · 10/10 victory
     // pause + resume · lifetime clock/earnings · save round trip =====
     this.init(); s = this.state;   // pristine map — founders hold everything
@@ -2034,16 +2315,14 @@ if (HEADLESS) {
   addEventListener("resize", fit);
   addEventListener("orientationchange", () => { setTimeout(fit, 100); setTimeout(fit, 300); });
   if (window.visualViewport) visualViewport.addEventListener("resize", fit);
-  GAME.wireUI(canvas, ctx); GAME.wireLoadoutDOM(); GAME.wireDroneDOM(); GAME.wireContractsDOM(); GAME.wireFleetDOM(); GAME.wireStoreDOM(); GAME.wireWarpDOM(); GAME.wireShipsDOM(); GAME.wireFortifyDOM(); GAME.wireSkillsUI(); GAME.wireVictoryDOM(); GAME.wireSaveUI(); GAME.wireTutorialDOM(); GAME.init();
-  GAME.loadGame();   // restore a saved run before the first frame renders (no-op without a save)
-  GAME.initTutorial(GAME.state);   // first-run coach marks: brand-new game only (a loaded save marks them done)
-  // Preload the external AI PNG art (sprites/*.png). The frame loop shows a
-  // "Loading assets…" card until ART.ready, then a brand-new run opens with the
-  // intro scene. Safety timeout: never let a stalled image block boot forever.
-  ART.load(() => {
-    const s = GAME.state;
-    if (s && s.tutorialActive) GAME.showOpeningScene();   // tutorialActive ⇒ fresh game (a loaded save marks it done)
-  });
+  GAME.wireUI(canvas, ctx); GAME.wireLoadoutDOM(); GAME.wireDroneDOM(); GAME.wireContractsDOM(); GAME.wireFleetDOM(); GAME.wireStoreDOM(); GAME.wireWarpDOM(); GAME.wireShipsDOM(); GAME.wireFortifyDOM(); GAME.wireSkillsUI(); GAME.wireVictoryDOM(); GAME.wireSaveUI(); GAME.wireTutorialDOM(); GAME.wireTitleDOM(); GAME.init();
+  GAME.migrateLegacySave();   // pre-slot space_hauler_save → slot 1 (one-time; logs to console)
+  GAME.showTitleScreen();     // boot lands on the title — NEW GAME / LOAD GAME drive the run from there
+  // Preload the external AI PNG art (sprites/*.png) behind the title screen
+  // (its hero shot is a plain CSS background, loaded by the browser itself).
+  // The intro cutscene now fires from the title's new-game flow (_beginRun).
+  // Safety timeout: never let a stalled image block boot forever.
+  ART.load(() => {});
   setTimeout(() => { ART.ready = true; }, 6000);
   setInterval(() => GAME.saveGame(), 5 * 60 * 1000);   // belt-and-suspenders auto-save
   // Web Audio unlocks only inside a user gesture; left attached so a

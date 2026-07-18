@@ -17,10 +17,15 @@
 // image's native aspect ratio and, for ships, mirrors vertically instead of
 // rolling belly-up when the heading points left.
 const ART_MANIFEST = {
-  // Ships — gameplay (side-view hero shots, nose-right)
-  ship_vulture: "sprites/vulture_tug.png",
-  ship_atlas:   "sprites/atlas_freighter.png",
-  ship_aegis:   "sprites/aegis_battlecruiser.png",
+  // Ships — player hulls (clay top-down, nose-right, sprites/space/ via
+  // pipeline.py `fleet`; superseded the old side-view hero shots)
+  ship_vulture: "sprites/space/ship_vulture.png",
+  ship_atlas:   "sprites/space/ship_atlas.png",
+  ship_aegis:   "sprites/space/ship_aegis.png",
+  // Player drone quality tiers (clay top-down; colours match DRONES.tierCol)
+  drone_t0:     "sprites/space/drone_t0.png",
+  drone_t1:     "sprites/space/drone_t1.png",
+  drone_t2:     "sprites/space/drone_t2.png",
   ship_vex:     "sprites/vex_fighter.png",
   ship_krag:    "sprites/krag_raider.png",
   ship_nox:     "sprites/nox_phantom.png",
@@ -29,19 +34,76 @@ const ART_MANIFEST = {
   ship_vulture_menu: "sprites/vulture_tug_menu.png",
   ship_atlas_menu:   "sprites/atlas_freighter_menu.png",
   ship_aegis_menu:   "sprites/aegis_battlecruiser_menu.png",
-  // World
-  station_vex:    "sprites/station_vex.png",
-  station_krag:   "sprites/station_krag.png",
-  station_nox:    "sprites/station_nox.png",
+  // World — clay space packs (sprites/space/, pipeline.py `space <civ>`)
+  // supersede the old hero-shot station PNGs; per-civ outposts + battle-group
+  // ship classes are new with the clay line.
+  station_vex:    "sprites/space/station_vex.png",
+  station_krag:   "sprites/space/station_krag.png",
+  station_nox:    "sprites/space/station_nox.png",
+  outpost_vex:    "sprites/space/outpost_vex.png",
+  outpost_krag:   "sprites/space/outpost_krag.png",
+  outpost_nox:    "sprites/space/outpost_nox.png",
+  ship_vex_fighter:  "sprites/space/ship_vex_fighter.png",
+  ship_vex_raider:   "sprites/space/ship_vex_raider.png",
+  ship_vex_gunship:  "sprites/space/ship_vex_gunship.png",
+  ship_vex_carrier:  "sprites/space/ship_vex_carrier.png",
+  ship_krag_fighter: "sprites/space/ship_krag_fighter.png",
+  ship_krag_raider:  "sprites/space/ship_krag_raider.png",
+  ship_krag_gunship: "sprites/space/ship_krag_gunship.png",
+  ship_krag_carrier: "sprites/space/ship_krag_carrier.png",
+  ship_nox_fighter:  "sprites/space/ship_nox_fighter.png",
+  ship_nox_raider:   "sprites/space/ship_nox_raider.png",
+  ship_nox_gunship:  "sprites/space/ship_nox_gunship.png",
+  ship_nox_carrier:  "sprites/space/ship_nox_carrier.png",
   outpost_player: "sprites/outpost_player.png",
   outpost_enemy:  "sprites/outpost_enemy.png",
   asteroid:       "sprites/asteroid_ore.png",
+  // Clay world bodies (sprites/space/, pipeline.py `world`): ore rocks (neutral
+  // grey, tinted per ore at draw time), planet globes per CONFIG.planetDefs
+  // type, moon + big-planetoid variants.
+  asteroid_a:       "sprites/space/asteroid_a.png",
+  asteroid_b:       "sprites/space/asteroid_b.png",
+  asteroid_c:       "sprites/space/asteroid_c.png",
+  asteroid_crystal: "sprites/space/asteroid_crystal.png",
+  planet_cratered:  "sprites/space/planet_cratered.png",
+  planet_lava:      "sprites/space/planet_lava.png",
+  planet_tan_gas:   "sprites/space/planet_tan_gas.png",
+  planet_ice:       "sprites/space/planet_ice.png",
+  planet_life:      "sprites/space/planet_life.png",
+  planet_desert:    "sprites/space/planet_desert.png",
+  planet_purple_gas:"sprites/space/planet_purple_gas.png",
+  planet_dark:      "sprites/space/planet_dark.png",
+  planet_gas_giant: "sprites/space/planet_gas_giant.png",
+  moon_a:           "sprites/space/moon_a.png",
+  moon_b:           "sprites/space/moon_b.png",
+  moon_c:           "sprites/space/moon_c.png",
+  planetoid_a:      "sprites/space/planetoid_a.png",
+  planetoid_b:      "sprites/space/planetoid_b.png",
+  planetoid_c:      "sprites/space/planetoid_c.png",
   // Inert junk/salvage floaters — keys match CONFIG.junkTypes / j.key exactly so
-  // the world draw site can blit ART.draw(g, j.key, …) directly.
-  junk_can:       "sprites/junk_can.png",
-  junk_panel:     "sprites/junk_panel.png",
-  junk_crate:     "sprites/junk_crate.png",
-  junk_debris:    "sprites/junk_debris.png",
+  // the world draw site can blit ART.draw(g, j.key, …) directly. Clay versions
+  // from pipeline.py `world junk`.
+  junk_can:       "sprites/space/junk_can.png",
+  junk_panel:     "sprites/space/junk_panel.png",
+  junk_crate:     "sprites/space/junk_crate.png",
+  junk_debris:    "sprites/space/junk_debris.png",
+  // Region-site landmarks (pipeline.py `sites`, Phase 4): asteroid-cluster
+  // rocks, human shipwreck parts, derelict alien station. Placed by
+  // game/sites.js at region centres.
+  asteroid_chunk_1: "sprites/space/asteroid_chunk_1.png",
+  asteroid_chunk_2: "sprites/space/asteroid_chunk_2.png",
+  asteroid_chunk_3: "sprites/space/asteroid_chunk_3.png",
+  asteroid_chunk_4: "sprites/space/asteroid_chunk_4.png",
+  asteroid_chunk_5: "sprites/space/asteroid_chunk_5.png",
+  asteroid_chunk_6: "sprites/space/asteroid_chunk_6.png",
+  wreck_bow:        "sprites/space/wreck_bow.png",
+  wreck_hull:       "sprites/space/wreck_hull.png",
+  wreck_stern:      "sprites/space/wreck_stern.png",
+  wreck_debris:     "sprites/space/wreck_debris.png",
+  alien_body:       "sprites/space/alien_body.png",
+  alien_wing:       "sprites/space/alien_wing.png",
+  alien_glyph:      "sprites/space/alien_glyph.png",
+  alien_conduit:    "sprites/space/alien_conduit.png",
   warp_gate:      "sprites/warp_gate.png",
   nebula_blue:    "sprites/nebula_blue.png",
   nebula_red:     "sprites/nebula_red.png",
@@ -127,7 +189,7 @@ const STORY_KEYS = new Set([
 // PLANET_DEFS[planet].tileset picks the prefix at draw time (planets without
 // their own art keep tileset:'mira'). Only listed sets are fetched — never
 // register a set whose PNGs aren't on disk or every boot 404s nine times.
-const TERRAIN_TILESETS = ['mira'];
+const TERRAIN_TILESETS = ['mira', 'vesper', 'cinder', 'dusk', 'sorn'];
 const TERRAIN_VARIANTS = [
   'grass_base', 'grass_pebbles', 'soil_tilled', 'soil_seedling',
   'crop_harvest', 'road_dirt', 'path_stone', 'water_stream', 'wildflowers',
@@ -211,13 +273,43 @@ const MIRA_BLDG_KEYS = new Set([
 // pipeline.py `buildings <sheet> <planet>` with the faction accent from the
 // lore spec. drawMiraBldg tries the planet set first, then the shared pool
 // above. Add a set name here only once its PNGs are on disk.
-const BLDG_SETS = [];
+const BLDG_SETS = ['vesper', 'cinder', 'dusk', 'sorn'];
 for (const set of BLDG_SETS)
   for (const key of [...MIRA_BLDG_KEYS]) {
     const k = key.replace('bldg_', `bldg_${set}_`);
     ART_MANIFEST[k] = `sprites/${set}/${k}.png`;
     MIRA_BLDG_KEYS.add(k);
   }
+
+// Clay space pack (stations / outposts / battle-group ships) — always renders,
+// like the terrain + building sets: these ARE the polished art line, not the
+// dormant hero-shot gameplay PNGs the GAMEPLAY_SPRITES gate exists for.
+const SPACE_CLAY_KEYS = new Set();
+for (const f of ['vex', 'krag', 'nox']) {
+  SPACE_CLAY_KEYS.add(`station_${f}`);
+  SPACE_CLAY_KEYS.add(`outpost_${f}`);
+  for (const c of ['fighter', 'raider', 'gunship', 'carrier'])
+    SPACE_CLAY_KEYS.add(`ship_${f}_${c}`);
+}
+// player hulls + drone tiers (pipeline.py `fleet`)
+for (const k of ['ship_vulture', 'ship_atlas', 'ship_aegis',
+                 'drone_t0', 'drone_t1', 'drone_t2'])
+  SPACE_CLAY_KEYS.add(k);
+// world bodies (pipeline.py `world`): junk, ore rocks, planets, moons
+for (const k of ['junk_can', 'junk_panel', 'junk_crate', 'junk_debris',
+                 'asteroid_a', 'asteroid_b', 'asteroid_c', 'asteroid_crystal',
+                 'planet_cratered', 'planet_lava', 'planet_tan_gas', 'planet_ice',
+                 'planet_life', 'planet_desert', 'planet_purple_gas', 'planet_dark',
+                 'planet_gas_giant', 'moon_a', 'moon_b', 'moon_c',
+                 'planetoid_a', 'planetoid_b', 'planetoid_c'])
+  SPACE_CLAY_KEYS.add(k);
+// region-site landmarks (pipeline.py `sites`): asteroid clusters, shipwreck,
+// derelict alien station — placed by game/sites.js
+for (const k of ['asteroid_chunk_1', 'asteroid_chunk_2', 'asteroid_chunk_3',
+                 'asteroid_chunk_4', 'asteroid_chunk_5', 'asteroid_chunk_6',
+                 'wreck_bow', 'wreck_hull', 'wreck_stern', 'wreck_debris',
+                 'alien_body', 'alien_wing', 'alien_glyph', 'alien_conduit'])
+  SPACE_CLAY_KEYS.add(k);
 
 // Fetch-gate the dormant gameplay art: draw()/drawTint() refuse these keys while
 // GAMEPLAY_SPRITES is false, so fetching them would spend ~18 MB of boot
@@ -226,7 +318,8 @@ for (const set of BLDG_SETS)
 if (!GAMEPLAY_SPRITES)
   for (const k of Object.keys(ART_MANIFEST))
     if (!STORY_KEYS.has(k) && !MIRA_TERRAIN_KEYS.has(k) && !SLAB_KEYS.has(k) &&
-        !PROP_KEYS.has(k) && !NODE_KEYS.has(k) && !MIRA_BLDG_KEYS.has(k))
+        !PROP_KEYS.has(k) && !NODE_KEYS.has(k) && !MIRA_BLDG_KEYS.has(k) &&
+        !SPACE_CLAY_KEYS.has(k))
       delete ART_MANIFEST[k];
 
 const ART = {
@@ -310,13 +403,25 @@ const ART = {
   },
   has(key) { return !!this.get(key); },
 
+  // Warn ONCE when an expected skin PNG never loaded (404/missing file after
+  // load() settled) — the draw site falls back to generic art; this surfaces
+  // the misconfiguration without spamming the console every frame. No-op while
+  // images are still loading and under HEADLESS (where get() is always null).
+  _warned: {},
+  warnMissing(key, fallbackKey) {
+    if (HEADLESS || !this.ready || this._warned[key] || this.get(key)) return;
+    this._warned[key] = true;
+    console.warn("ART: missing sprite '" + key + "' — falling back to '" + fallbackKey + "'");
+  },
+
   // Blit a PNG centered at (sx,sy) in SCREEN space, sized to `wPx` wide with the
   // image's native aspect ratio preserved (these are 16:9 hero shots). rot spins
   // about the center. `upright` (ship art): a left-facing heading mirrors the
   // sprite vertically so a side-view hull never flies belly-up. Returns true if
   // it actually drew — the caller falls back on false.
   draw(g, key, sx, sy, wPx, rot, upright) {
-    if (!GAMEPLAY_SPRITES && !STORY_KEYS.has(key)) return false;   // gameplay art off → procedural fallback
+    if (!GAMEPLAY_SPRITES && !STORY_KEYS.has(key) && !SPACE_CLAY_KEYS.has(key))
+      return false;   // gameplay art off → procedural fallback
     const im = this.get(key); if (!im) return false;
     const hPx = wPx * (im.naturalHeight / im.naturalWidth);
     g.save();
@@ -495,7 +600,8 @@ const ART = {
   // colour, e.g. a semi-transparent rgba from hexA). Falls back (returns false)
   // whenever the PNG isn't ready, so the caller keeps its procedural fallback.
   drawTint(g, key, sx, sy, wPx, rot, tint) {
-    if (!GAMEPLAY_SPRITES && !STORY_KEYS.has(key)) return false;   // gameplay art off → procedural fallback
+    if (!GAMEPLAY_SPRITES && !STORY_KEYS.has(key) && !SPACE_CLAY_KEYS.has(key))
+      return false;   // gameplay art off → procedural fallback
     const src = this.tinted(key, tint); if (!src) return false;
     const iw = src.width, ih = src.height;
     const hPx = wPx * (ih / iw);

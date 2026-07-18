@@ -88,7 +88,11 @@ Object.assign(GAME, {
     if (h.hull > h.hullMax) h.hull = h.hullMax;
     s.fuelMax = d.fuelMax;
     if (s.fuel > s.fuelMax) s.fuel = s.fuelMax;
-    s.towsCap = Math.min(6, d.tractorSlots);
+    // Phase 6: +1 permanent slot per claimed 3-shipwreck territory milestone —
+    // added to the hard cap too, so the reward is never dead on a maxed fit
+    const cargoBonus = this.objectiveCargoBonus ? this.objectiveCargoBonus() : 0;
+    d.tractorSlots += cargoBonus;
+    s.towsCap = Math.min(6 + cargoBonus, d.tractorSlots);
     if (this.reapplyDroneStats) this.reapplyDroneStats(s);   // drone-skill max HP/shield/fuel (skills.js)
     return d;
   },
@@ -187,13 +191,16 @@ Object.assign(GAME, {
     if (!target) return;
     if (typeof target.hp === "number") { this.fireAtRock(target, w); return; }
     if (target.kind === "outpost") { this.fireAtOutpost(target, w); return; }
+    if (target.kind === "emplacement") { this.fireAtEmplacement(target, w); return; }
+    if (target.kind === "torpedo") { this.fireAtTorpedo(target, w); return; }
     // Range gate: only fire if target is within weapon range (range affixes + skill range mult)
     const weapRange = (w.weapon.range || 800) * (1 + (s.derived.weaponRange || 0) / 100) * this.wpnRangeMult(w.weapon.type);
     const tgtDist = Math.hypot(target.x - s.x, target.y - s.y);
     if (tgtDist > weapRange) { s._outOfRange = 60; return; }  // blink HUD indicator, don't fire
     s._outOfRange = 0;
-    const shipState = { x: s.x, y: s.y, weaponDmg: s.derived.weaponDmg, fireRate: s.derived.fireRate,
-                        fuel: s.fuel, fuelCostK: s.derived.fuelCostK };
+    // territoryDamageMult: Phase 6 +10% in wedges whose 50-pirate milestone is claimed
+    const shipState = { x: s.x, y: s.y, weaponDmg: s.derived.weaponDmg * this.territoryDamageMult(s.x, s.y),
+                        fireRate: s.derived.fireRate, fuel: s.fuel, fuelCostK: s.derived.fuelCostK };
     this.applyWpnMods(shipState, w.weapon.type);   // per-weapon skill perks (dmg/fuel/crit/hit/layer/aoe)
     const preShield = target.hp.shield;   // which layer the hit sound lands on
     const res = ForgeCombat.fireWeapon(w, target, s.aliens, shipState);
@@ -270,6 +277,10 @@ Object.assign(GAME, {
         for (const a of s.aliens) if (a._baseId === al.id && a.state === "IDLE") ForgeFaction.activateGroup(a, s.aliens);
       } else if (al.kind === "outpost") {
         this._provokeOutpost(al);
+      } else if (al.kind === "emplacement") {
+        this._provokeSite(this.siteById(al.siteId));   // waking the platform wakes the garrison
+      } else if (al.kind === "torpedo") {
+        /* just a lock — torpedoes have no group */
       } else ForgeFaction.activateGroup(al, s.aliens);
       sfx("grab"); toast("acquiring lock…");
     } else toast("target out of scan range");
@@ -292,8 +303,8 @@ Object.assign(GAME, {
     const wrapper = { id: o.id, x: o.x, y: o.y,
       hp: { shield: o.shield, shieldMax: o.shieldMax, armor: o.armor, armorMax: o.armorMax,
             hull: o.hull, hullMax: o.hullMax, res: { shield: 0, armor: 0, hull: 0 }, _sinceHit: 0 } };
-    const shipState = { x: s.x, y: s.y, weaponDmg: s.derived.weaponDmg, fireRate: s.derived.fireRate,
-                        fuel: s.fuel, fuelCostK: s.derived.fuelCostK };
+    const shipState = { x: s.x, y: s.y, weaponDmg: s.derived.weaponDmg * this.territoryDamageMult(s.x, s.y),
+                        fireRate: s.derived.fireRate, fuel: s.fuel, fuelCostK: s.derived.fuelCostK };
     this.applyWpnMods(shipState, w.weapon.type);   // per-weapon skill perks
     const res = ForgeCombat.fireWeapon(w, wrapper, [], shipState);
     if (res.ok) {
@@ -309,6 +320,44 @@ Object.assign(GAME, {
         toast(tag, res.crit ? "#ffd27a" : res.glancing ? "#9aa7b8" : "#ff8f6b");
       }
       if (o.hull <= 0) this._captureOutpostByForce(o);
+    } else if (res.reason === "insufficient fuel") { toast("no fuel to fire"); }
+  },
+  // Player weapons vs a site base emplacement. The platform carries a real 3-layer
+  // hp block (armor+hull), so it wraps like an alien but resolves to _destroyEmplacement
+  // (loot payout) at hull 0 — never onAlienKilled. Firing wakes the site garrison.
+  fireAtEmplacement(emp, w) {
+    const s = this.state;
+    if (emp.destroyed) { ForgeCombat.clearLock(); return; }
+    const wrapper = { id: emp.id, x: emp.x, y: emp.y, hp: emp.hp };   // applyDamage mutates emp.hp in place
+    const shipState = { x: s.x, y: s.y, weaponDmg: s.derived.weaponDmg * this.territoryDamageMult(s.x, s.y),
+                        fireRate: s.derived.fireRate, fuel: s.fuel, fuelCostK: s.derived.fuelCostK };
+    this.applyWpnMods(shipState, w.weapon.type);
+    const res = ForgeCombat.fireWeapon(w, wrapper, [], shipState);
+    if (res.ok) {
+      AUDIO.play("shoot"); s.fuel = shipState.fuel;
+      s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState); s.flare = Math.max(s.flare, 0.4);
+      this._provokeSite(this.siteById(emp.siteId));
+      if (res.hit) {
+        AUDIO.play(emp.hp.armor > 0 ? "hit_shield" : "hit_armor");
+        const tag = res.crit ? "CRIT " + res.damage : res.glancing ? "graze " + res.damage : "-" + res.damage;
+        toast(tag, res.crit ? "#ffd27a" : res.glancing ? "#9aa7b8" : "#ff8f6b");
+      }
+      if (emp.hp.hull <= 0) this._destroyEmplacement(emp);
+    } else if (res.reason === "insufficient fuel") { toast("no fuel to fire"); }
+  },
+  // Shoot down an inbound torpedo drone (its own small hull pool). Death is settled
+  // by _updateEmpProjectiles the next frame (burst + delist + clear lock).
+  fireAtTorpedo(tp, w) {
+    const s = this.state;
+    const wrapper = { id: tp.id, x: tp.x, y: tp.y, hp: tp.hp };
+    const shipState = { x: s.x, y: s.y, weaponDmg: s.derived.weaponDmg * this.territoryDamageMult(s.x, s.y),
+                        fireRate: s.derived.fireRate, fuel: s.fuel, fuelCostK: s.derived.fuelCostK };
+    this.applyWpnMods(shipState, w.weapon.type);
+    const res = ForgeCombat.fireWeapon(w, wrapper, [], shipState);
+    if (res.ok) {
+      AUDIO.play("shoot"); s.fuel = shipState.fuel;
+      s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState); s.flare = Math.max(s.flare, 0.4);
+      if (res.hit) { AUDIO.play("hit_armor"); burst(tp.x, tp.y, "#ff9a3c", 4); }
     } else if (res.reason === "insufficient fuel") { toast("no fuel to fire"); }
   },
   lockRock(rockIdx) {
@@ -362,6 +411,7 @@ Object.assign(GAME, {
     this.onContractKill(al);   // Phase 4: strike/pirate/bounty progress
     this.onTraderRaiderKilled(al);   // Phase 6: "save the convoy" bonus check
     this.onFactionShipKilled(al);    // faction politics: kill ledger → patrol aggression
+    this.onObjectiveKill(al);        // Phase 6: territory pirate/battle ledgers (game/objectives.js)
     // Auto-advance: if the active weapon is armed, immediately scan for the next target
     if (this.activeWeaponItem()) setTimeout(() => this.scanNearestEnemy(), 200);
   },
@@ -406,9 +456,21 @@ Object.assign(GAME, {
       const d = this.shipTo(s.junk[i]); if (d < bd) { bd = d; best = { arr: "junk", i }; } }
     return best;
   },
+  // dock zones (station dockR / outpost dockR) auto-deposit tows, so grabbing
+  // NEW tows inside one would bank rocks/junk without ever flying to them.
+  // Blocking the grab (not the deposit) forces the intended loop: fly out,
+  // tractor the haul, pull it back in. Releasing a tow is always allowed.
+  inDockZone() {
+    const s = this.state;
+    if (s.atStation) return true;
+    if (s.outposts) for (const o of s.outposts)
+      if (this.dist(s.x, s.y, o.x, o.y) < CONFIG.outpostDockR) return true;
+    return false;
+  },
   grabTow(arr, i) {
     const s = this.state;
     if (this.isTowed(arr, i)) return false;
+    if (this.inDockZone()) { toast("tractor offline in dock zone — haul from open space"); sfx("warn"); return false; }
     if (s.tows.length >= s.towsCap) { toast(`tractor full (${s.towsCap})`); sfx("warn"); return false; }
     const b = arr === "rocks" ? s.rocks[i] : s.junk[i];
     // stamp the sec rating of the grab site — turn-in yields scale by where the

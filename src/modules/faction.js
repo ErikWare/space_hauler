@@ -253,9 +253,40 @@
     }
   }
 
+  // Heavy-body avoidance. When the game tags an alien with `_avoid` (a list of
+  // {x,y,r} circles — the site chunks it should flank around), blend a repulsion
+  // into the pursuit heading so it curves around cover instead of grinding into
+  // it. Each near chunk contributes an outward push plus a one-handed tangential
+  // swirl so a head-on approach deflects to a side rather than stalling. Renormal-
+  // ized to full speed → the alien still commits, just along a curved path. No
+  // `_avoid` (all non-site combat) → returns null and the caller is unchanged.
+  var AV = (typeof CONFIG !== "undefined" && CONFIG) ? CONFIG : {};
+  function avoidBlend(alien, vx, vy, speed) {
+    var list = alien && alien._avoid;
+    if (!list || !list.length || speed <= 0) return null;
+    var pad = AV.avoidPad || 150, tang = AV.avoidTangent || 0.9, wt = AV.avoidWeight || 1.5;
+    var ax = 0, ay = 0, any = false;
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i], dx = alien.x - c.x, dy = alien.y - c.y;
+      var d = Math.hypot(dx, dy) || 0.001, reach = c.r + pad;
+      if (d >= reach) continue;
+      var strength = (reach - d) / pad; if (strength > 1) strength = 1;
+      var nx = dx / d, ny = dy / d;
+      ax += nx * strength; ay += ny * strength;                  // outward from the chunk
+      ax += -ny * strength * tang; ay += nx * strength * tang;   // swirl → flank, no stall
+      any = true;
+    }
+    if (!any) return null;
+    var bx = vx / speed + ax * wt, by = vy / speed + ay * wt;
+    var bl = Math.hypot(bx, by) || 1;
+    return { vx: bx / bl * speed, vy: by / bl * speed };
+  }
+
   function steerTo(alien, tx, ty, speed, delta) {
     var dx = tx - alien.x, dy = ty - alien.y, d = Math.hypot(dx, dy) || 1;
     alien.vx = dx / d * speed; alien.vy = dy / d * speed;
+    var av = avoidBlend(alien, alien.vx, alien.vy, speed);
+    if (av) { alien.vx = av.vx; alien.vy = av.vy; }
     alien.x += alien.vx * delta; alien.y += alien.vy * delta;
     if (d > 1) alien.angle = Math.atan2(dy, dx);
   }
@@ -270,6 +301,8 @@
     else { mx = -uy; my = ux; }                              // tangential orbit
     var m = Math.hypot(mx, my) || 1;
     alien.vx = mx / m * speed; alien.vy = my / m * speed;
+    var av = avoidBlend(alien, alien.vx, alien.vy, speed);
+    if (av) { alien.vx = av.vx; alien.vy = av.vy; }
     alien.x += alien.vx * delta; alien.y += alien.vy * delta;
     alien.angle = Math.atan2(py - alien.y, px - alien.x);
   }

@@ -92,9 +92,11 @@ Object.assign(GAME, {
     const st = ForgeWorld.getStations().find(x => x.id === stationId); if (st) st.reputation = ForgeNPC.getReputation(stationId);
     ForgeEquipment.restockAmmo();
     if (st) this.generateStationContracts(st, s);   // Phase 4: fresh board every dock
+    if (st) this.generateStationQuests(st, s);      // Phase 5: fresh region-quest board too
     // instant full repair on docking — station crew patches the ship
     s.hp.shield = s.hp.shieldMax; s.hp.armor = s.hp.armorMax; s.hp.hull = s.hp.hullMax;
     s.fuel = s.fuelMax;
+    this._loSyncActiveIdx();
     this._openTab("loadout");
     AUDIO.play("dock");
   },
@@ -113,6 +115,7 @@ Object.assign(GAME, {
     // instant full repair on docking — outpost crew patches the ship
     s.hp.shield = s.hp.shieldMax; s.hp.armor = s.hp.armorMax; s.hp.hull = s.hp.hullMax;
     s.fuel = s.fuelMax;
+    this._loSyncActiveIdx();
     this._openTab("loadout");
     AUDIO.play("dock");
   },
@@ -156,7 +159,12 @@ Object.assign(GAME, {
     else if (tab === "fortify") { this.renderFortifyPanel(); }
     else if (tab === "store") {
       ForgeStore.openStore(st, s, {
-        onBuy: (item, price) => { s.inventory = s.inventory; sfx("buy"); toast("+1 " + item.name, "#7bd88f"); toast("-" + price + "cr", "#ffd27a"); this.addXpFromCredits(price); this.gainRep("buy"); this.checkWin(); this.renderStorePanel(); },
+        onBuy: (item, price) => { s.inventory = s.inventory; sfx("buy"); toast("+1 " + item.name, "#7bd88f"); toast("-" + price + "cr", "#ffd27a");
+          // Phase 6: 25-battle territory milestone → 10% refunded at this territory's station
+          const disc = s.dockKind === "station" ? this.territoryDiscount(st) : 0;
+          const back = Math.round(price * disc);
+          if (back > 0) { s.credits += back; toast("◈ territory discount +" + back + "cr", "#57d1c9"); }
+          this.addXpFromCredits(price); this.gainRep("buy"); this.checkWin(); this.renderStorePanel(); },
         onSell: (item, gain) => { sfx("sell"); toast("+" + gain + "cr", "#ffd27a"); this.addXpFromCredits(gain); this.gainRep("sell"); this.checkWin(); this.renderStorePanel(); },
         onBuyFail: () => { sfx("warn"); toast("NOT ENOUGH CREDITS", "#ff5060"); },
         onSetHome: (sid) => { s.homeStationId = sid; s.refineBonus = 0.10; toast("home port set"); sfx("buy"); this.renderStorePanel(); },
@@ -250,6 +258,14 @@ Object.assign(GAME, {
     ui.idx = ((ui.idx % pages.length) + pages.length) % pages.length;
     return pages[ui.idx];
   },
+  // reset the carousel to the ship the player is actually flying — called on
+  // dock so the loadout screen doesn't show a stale scroll position (e.g. the
+  // starter ship) after switching/upgrading the active ship elsewhere
+  _loSyncActiveIdx() {
+    const s = this.state, pages = this._loPages();
+    const idx = pages.findIndex(p => p.kind === "ship" && p.ship.id === s.activeShipId);
+    this._loUI = { idx: idx >= 0 ? idx : 0 };
+  },
   // stat block for a ship page — live derived for the active ship, a stateless
   // applyItemsToStats pass for everything else (never touches the rack)
   _loShipStats(ship) {
@@ -270,9 +286,16 @@ Object.assign(GAME, {
     el.title = ITEM_ICON_LABEL[itemIconKey(item)] || "";
     return el;
   },
+  // Effective sustained DPS of the gun that will ACTUALLY fire. Combat fires ONE
+  // weapon at a time (player.js activeWeaponItem), so the readout reflects the
+  // single best-DPS equipped weapon — never the sum of the whole rack (which
+  // over-reported 2–4× on multi-weapon fits). Accuracy is folded in: the real
+  // fire path rolls hit / glance / crit (combat.js HIT_CHANCE 0.92, CRIT 0.15×
+  // 1.5, GLANCE 0.20×0.5), so a sustained shot lands ~0.91 of its raw damage.
+  _ghDpsAccuracy: 0.92 * (0.15 * 1.5 + 0.85 * (0.20 * 0.5 + 0.80 * 1)),   // ≈0.911
   _ghComputeDps(derived, items) {
     const eq = items || ForgeEquipment.getEquipped().slots;
-    let dps = 0;
+    let best = 0;
     for (const item of eq) {
       if (!item || !item.weapon) continue;
       const w = item.weapon;
@@ -284,11 +307,39 @@ Object.assign(GAME, {
       const dmgMult = (wsk && wsk.dmgMult) || 1;
       const shM = (wsk && wsk.shieldDmgMult) || 1, arM = (wsk && wsk.armorDmgMult) || 1;
       const avgCoeff = (w.dmgShield * shM + w.dmgArmor * arM + (w.dmgHull || 0)) / 3;
-      const dmg = (derived.weaponDmg || 10) * dmgMult * avgCoeff;
+      const dmg = (derived.weaponDmg || 10) * dmgMult * avgCoeff * this._ghDpsAccuracy;
       const cdMs = ForgeCombat.weaponCooldownMs(item, { fireRate: derived.fireRate });
-      dps += dmg / (cdMs / 1000);
+      const wdps = dmg / (cdMs / 1000);
+      if (wdps > best) best = wdps;   // the firing weapon = the ship's best gun, not a sum
     }
-    return Math.round(dps * 10) / 10;
+    return Math.round(best * 10) / 10;
+  },
+  // Per-layer effective DPS for the firing weapon (the ship's best gun): what it
+  // actually does to shield / armor / hull separately, accuracy-corrected. Drives
+  // the loadout matchup readout. Returns null if no weapon is equipped.
+  _ghLayerDps(derived, items) {
+    const eq = items || ForgeEquipment.getEquipped().slots;
+    let bestItem = null, bestDps = -1;
+    for (const item of eq) {
+      if (!item || !item.weapon) continue;
+      const w = item.weapon;
+      const wsk = derived.wpnSkill && derived.wpnSkill[w.type];
+      const dm = (wsk && wsk.dmgMult) || 1;
+      const avg = (w.dmgShield + w.dmgArmor + (w.dmgHull || 0)) / 3;
+      const d = (derived.weaponDmg || 10) * dm * avg / (ForgeCombat.weaponCooldownMs(item, { fireRate: derived.fireRate }) / 1000);
+      if (d > bestDps) { bestDps = d; bestItem = item; }
+    }
+    if (!bestItem) return null;
+    const w = bestItem.weapon;
+    const wsk = derived.wpnSkill && derived.wpnSkill[w.type];
+    const dm = (wsk && wsk.dmgMult) || 1;
+    const shM = (wsk && wsk.shieldDmgMult) || 1, arM = (wsk && wsk.armorDmgMult) || 1;
+    const base = (derived.weaponDmg || 10) * dm * this._ghDpsAccuracy;
+    const perSec = 1000 / ForgeCombat.weaponCooldownMs(bestItem, { fireRate: derived.fireRate });
+    const r1 = v => Math.round(v * 10) / 10;
+    return { shield: r1(base * w.dmgShield * shM * perSec),
+             armor:  r1(base * w.dmgArmor * arM * perSec),
+             hull:   r1(base * (w.dmgHull || 0) * perSec) };
   },
   // Companion-drone loadout summary — shared by the LOADOUT drone page and the
   // FORTIFY berth cards so a fitted module (weapon/repair/utility) always shows
@@ -817,6 +868,18 @@ Object.assign(GAME, {
         const wt = document.createElement("div"); wt.className = "ghWeaponType";
         wt.textContent = "Weapon: " + wtype.toUpperCase();
         lo.stats.appendChild(wt);
+        // Per-layer DPS: a single "DPS" number can't show that a laser shreds
+        // shields but crawls through armor. This split tells the pilot which gun
+        // to bring for which enemy (shield tank vs armor tank vs balanced).
+        const ly = this._ghLayerDps(d, ship.slots);
+        if (ly) {
+          const el = document.createElement("div"); el.className = "ghWeaponType";
+          el.style.fontSize = "11px"; el.style.opacity = "0.85";
+          el.innerHTML = `vs <span style="color:#57d1c9">shield ${ly.shield}</span> · ` +
+            `<span style="color:#ffd24a">armor ${ly.armor}</span> · ` +
+            `<span style="color:#7bd88f">hull ${ly.hull}</span> dps`;
+          lo.stats.appendChild(el);
+        }
       }
     } else {
       const d = page.drone, spec = DRONES.tiers[d.tier];

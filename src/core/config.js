@@ -90,6 +90,14 @@ const CONFIG = {
       },
     },
   },
+  // ---- AGE-OF-SAIL combat retune (GAME.tuneCombatCatalog applies these to the
+  // shared weapon catalog at load; player AND aliens draw from the same bases so
+  // their DPS stays symmetric). rate ×2 + damage ×2 is DPS-NEUTRAL — same kill
+  // times, but each shot is a slow, heavy, committed broadside instead of a
+  // fire-and-forget stream. fuelPerShot ×2.3 puts a premium on opening fire, so
+  // sustained shooting draws down the shared fuel pool you also need for the
+  // shield booster and for escaping. Tune here, rebuild, re-run the TTK sim. ----
+  combat: { fireRateMult: 2.0, dmgMult: 2.0, fuelPerShotMult: 2.3 },
   // ---- weapon projectiles / cooldown fallbacks ----
   rockHp: (mass) => Math.round(mass * 16 + 8),
   junkHp: 14, projLife: 1.4, projR: 5, weaponCd: 0.6,
@@ -99,14 +107,42 @@ const CONFIG = {
   // ---- camera (pitch = foreshortened world-y) ----
   pitch: 0.82, zoom0: 1.0, zoomMin: 0.08, zoomMax: 3.0, zoomStep: 1.18, zoomLerp: 0.12,
   // ---- ORE rings (centered on home station at Mira; ore sells directly) ----
+  // n = legacy home-ring spawn count (n:0 = never seeded at home). Only the
+  // first five (junk→platinum) ring the home station; every other ore is a
+  // map-only find distributed by CONFIG.oreBands (distance-weighted variety).
+  //   INDUSTRIAL (refine→bars, drone economy): copper/silver/gold/platinum
+  //   PRECIOUS   (raw-sell variety, indices 9-12): hematite/titanium/malachite/cobalt
+  //   EXOTIC     (raw-sell, veins + rare map sprinkle, indices 5-8): iridium…voidium
+  // Indices 0-4 are load-bearing (belt/nebula/fieldTier index CONFIG.rings by
+  // position) — APPEND new ores, never reorder the first five.
   rings: [
-    { r: 400,  n: 8, type: "junk",     value: 8,   mass: 1.0, col: "#8a8f98", rarity: "normal" },
-    { r: 1000, n: 7, type: "copper",   value: 30,  mass: 1.4, col: "#c9784a", rarity: "normal" },
-    { r: 2200, n: 6, type: "silver",   value: 90,  mass: 1.8, col: "#c8d4e0", rarity: "rare" },
-    { r: 4000, n: 5, type: "gold",     value: 240, mass: 2.4, col: "#ffd24a", rarity: "unique" },
-    { r: 7000, n: 4, type: "platinum", value: 600, mass: 3.2, col: "#7ff0e8", rarity: "elite" },
+    { r: 400,  n: 8, type: "junk",     value: 8,     mass: 1.0, col: "#8a8f98", rarity: "normal" },
+    { r: 1000, n: 7, type: "copper",   value: 30,    mass: 1.4, col: "#c9784a", rarity: "normal" },
+    { r: 2200, n: 6, type: "silver",   value: 90,    mass: 1.8, col: "#c8d4e0", rarity: "rare" },
+    { r: 4000, n: 5, type: "gold",     value: 240,   mass: 2.4, col: "#ffd24a", rarity: "unique" },
+    { r: 7000, n: 4, type: "platinum", value: 600,   mass: 3.2, col: "#7ff0e8", rarity: "elite" },
+    { r: 0,    n: 0, type: "iridium",  value: 1500,  mass: 3.6, col: "#b78aff", rarity: "exotic" },
+    { r: 0,    n: 0, type: "cryonite", value: 3200,  mass: 4.0, col: "#4a86ff", rarity: "exotic" },
+    { r: 0,    n: 0, type: "solarite", value: 7000,  mass: 4.4, col: "#ff5a4a", rarity: "exotic" },
+    { r: 0,    n: 0, type: "voidium",  value: 15000, mass: 5.0, col: "#ff4ad8", rarity: "exotic" },
+    // precious variety ores — interleave the classic value tiers, own distinct hues
+    { r: 0,    n: 0, type: "hematite", value: 45,    mass: 1.5, col: "#b5533a", rarity: "normal" },
+    { r: 0,    n: 0, type: "titanium", value: 65,    mass: 1.6, col: "#6b7f9c", rarity: "normal" },
+    { r: 0,    n: 0, type: "malachite",value: 150,   mass: 2.0, col: "#3fae72", rarity: "rare"   },
+    { r: 0,    n: 0, type: "cobalt",   value: 430,   mass: 2.8, col: "#4468c8", rarity: "unique" },
   ],
-  oreNames: { junk: "Slag Ore", copper: "Copper Ore", silver: "Silver Ore", gold: "Gold Ore", platinum: "Platinum Ore" },
+  oreNames: { junk: "Slag Ore", copper: "Copper Ore", silver: "Silver Ore", gold: "Gold Ore", platinum: "Platinum Ore",
+              iridium: "Iridium Ore", cryonite: "Cryonite Ore", solarite: "Solarite Ore", voidium: "Voidium Ore",
+              hematite: "Hematite Ore", titanium: "Titanium Ore", malachite: "Malachite Ore", cobalt: "Cobalt Ore" },
+  // Distance-weighted ore mix for ordinary fields (world/ores.js zoneOreRing).
+  // Each band lists {type: weight}; deeper bands trend richer. This is what makes
+  // the general map varied instead of "gold/silver/platinum everywhere". Belt +
+  // nebula fields bypass this (guaranteed gold/platinum paydays).
+  oreBands: [
+    { maxDist: 20000, w: { junk: 12, copper: 30, hematite: 26, titanium: 18, silver: 10, malachite: 4 } },
+    { maxDist: 45000, w: { copper: 8, hematite: 10, titanium: 18, silver: 24, malachite: 20, gold: 10, cobalt: 12 } },
+    { maxDist: 1e9,   w: { titanium: 8, silver: 14, malachite: 20, gold: 15, cobalt: 26, platinum: 17 } },
+  ],
   debugStartCredits: 10000,        // DEBUG: starting purse — drop back to 0 before ship
   ringSpread: 60,
   rarityCol: { normal: "#b8c0cc", rare: "#5fa8ff", unique: "#c77dff", elite: "#ffb020" },
@@ -115,14 +151,26 @@ const CONFIG = {
   STAR_RADIUS: 1800,
   FOG_TILE: 2000,
   solarPlanets: [
-    { name: "Vesper",    orbit: 8000,  r: 800,  type: "cratered",   moons: 0, rings: false, stationIdx: 1, faction: "vex" },
-    { name: "Cinder",    orbit: 14000, r: 1000, type: "lava",       moons: 1, rings: false, stationIdx: 2, faction: "vex" },
-    { name: "Arix",      orbit: 22000, r: 1800, type: "tan_gas",    moons: 2, rings: true,  stationIdx: 3, faction: "vex" },
-    { name: "Dusk",      orbit: 32000, r: 1200, type: "ice",        moons: 1, rings: false, stationIdx: 4, faction: "krag" },
-    { name: "Mira",      orbit: 44000, r: 1400, type: "life",       moons: 2, rings: false, stationIdx: 0, faction: "krag" },
-    { name: "Sorn",      orbit: 58000, r: 1100, type: "desert",     moons: 1, rings: false, stationIdx: 5, faction: "krag" },
-    { name: "Halveth",   orbit: 72000, r: 2000, type: "purple_gas", moons: 3, rings: true,  stationIdx: 6, faction: "nox" },
-    { name: "Nox Prime", orbit: 80000, r: 1600, type: "dark",       moons: 1, rings: false, stationIdx: 7, faction: "nox" },
+    // r +25% (2026-07-17 look/feel pass): planets read too small next to the
+    // clay globes' presence. Stations sit at r*2.8 (main.js) and rings/gravity
+    // scale off r, so everything follows; orbit gaps still clear the rings.
+    { name: "Vesper",    orbit: 8000,  r: 1000, type: "cratered",   moons: 0, rings: false, stationIdx: 1, faction: "vex" },
+    { name: "Cinder",    orbit: 14000, r: 1250, type: "lava",       moons: 1, rings: false, stationIdx: 2, faction: "vex" },
+    { name: "Arix",      orbit: 22000, r: 2250, type: "tan_gas",    moons: 2, rings: true,  stationIdx: 3, faction: "vex" },
+    { name: "Dusk",      orbit: 32000, r: 1500, type: "ice",        moons: 1, rings: false, stationIdx: 4, faction: "krag" },
+    { name: "Mira",      orbit: 44000, r: 1750, type: "life",       moons: 2, rings: false, stationIdx: 0, faction: "krag" },
+    { name: "Sorn",      orbit: 58000, r: 1375, type: "desert",     moons: 1, rings: false, stationIdx: 5, faction: "krag" },
+    { name: "Halveth",   orbit: 72000, r: 2500, type: "purple_gas", moons: 3, rings: true,  stationIdx: 6, faction: "nox" },
+    { name: "Nox Prime", orbit: 80000, r: 2000, type: "dark",       moons: 1, rings: false, stationIdx: 7, faction: "nox" },
+  ],
+  // Deep-space stations — free-floating quest hubs for the two territories the
+  // planet layout leaves stationless (Ashfield 180–210° · Pale March 320–360°;
+  // wedges in game/regions.js). stationIdx continues the ForgeWorld id sequence
+  // after the 8 planet-bound stations; angleDeg/dist must land inside the
+  // territory's wedge and the region grid (main.js pushes them at init).
+  deepSpaceStations: [
+    { name: "Wrecker's Anchorage", territory: "Ashfield",   stationIdx: 8, angleDeg: 195, dist: 36000, faction: "krag" },
+    { name: "Shrine Terminus",     territory: "Pale March", stationIdx: 9, angleDeg: 340, dist: 62000, faction: "nox" },
   ],
   asteroidBelt: { innerR: 37000, outerR: 40000 },   // rock count: beltRocksMin/Max below
   factionZones: {
@@ -152,32 +200,47 @@ const CONFIG = {
   // World Density Pass: ~850 floaters across five zone types — planet halos,
   // orbital lane scatter, station debris fields, hotspot clusters, whole-map
   // fill. Every floater drifts 0.1–0.4 u/s and respawns back into its zone.
-  junkPlanetHaloMin: 25, junkPlanetHaloMax: 38,
+  // counts −30% (2026-07-17 look/feel pass — clay sprites made the old density
+  // read as clutter)
+  junkPlanetHaloMin: 18, junkPlanetHaloMax: 27,
   junkHaloDistMin: 1500, junkHaloDistMax: 4000,
-  junkLaneMin: 20, junkLaneMax: 30, junkLaneSpread: 2000,
-  junkClusterMin: 12, junkClusterMax: 16,
+  junkLaneMin: 14, junkLaneMax: 21, junkLaneSpread: 2000,
+  junkClusterMin: 9, junkClusterMax: 12,
   junkClusterRMin: 200, junkClusterRMax: 400, junkClusterStationGap: 1200,
-  junkHotspotMin: 6, junkHotspotMax: 10,
-  junkFillMin: 70, junkFillMax: 100,
-  stationDebrisMin: 20, stationDebrisMax: 30,
+  junkHotspotMin: 4, junkHotspotMax: 7,
+  junkFillMin: 50, junkFillMax: 70,
+  stationDebrisMin: 14, stationDebrisMax: 21,
   stationDebrisDistMin: 500, stationDebrisDistMax: 800,
   junkDriftMin: 0.1, junkDriftMax: 0.4,
+  // Depositing a towed rock/junk at a station used to respawn it INSTANTLY back
+  // into its zone — right outside the station you were docked at — which let the
+  // player spam-mine home base for free modules. Non-field deposits now free the
+  // slot and queue a delayed respawn (world/ores.js, world/junk.js, game/economy.js)
+  // so the resource has to regenerate over time. Field rocks are unaffected — they
+  // already stream out and regen via fieldRegenPerSec.
+  depositRespawnDelay: 150,   // seconds before a deposited zone rock/junk re-scatters
   junkTypes: [   // keys match ForgeItemSystem drop_map exactly
-    { key: "junk_can",    r: 9 },
-    { key: "junk_panel",  r: 10 },
-    { key: "junk_crate",  r: 9 },
-    { key: "junk_debris", r: 7 },
+    // r drives collision + tap radius AND draw scale (rendering.js j.r×5). Bumped
+    // ~1.5× (2026-07-16) so salvage reads at the same visual weight as ore rocks
+    // (rocks draw at size×54 ≈ 42–90px; junk now ≈ 55–75px) instead of tiny specks.
+    { key: "junk_can",    r: 14 },
+    { key: "junk_panel",  r: 15 },
+    { key: "junk_crate",  r: 13 },
+    { key: "junk_debris", r: 11 },
   ],
   // ---- zone rock density (World Density Pass; ~1000 rocks total) ----
   // asteroidBelt (r=37k–40k between Dusk and Mira) is the payday zone: 200–240
   // gold/platinum bonus rocks. Each planet gets a full-360° ore torus at its
   // orbital radius ±oreRingSpread; each moon a tight cluster; enemy bases a
   // scatter field; the remainder is background clusters of 3–8.
-  beltRocksMin: 200, beltRocksMax: 240,
-  oreRingRocksMin: 50, oreRingRocksMax: 65, oreRingSpread: 3000,
-  moonRocksMin: 8, moonRocksMax: 13, moonRockDist: 600,
-  bgRocksMin: 100, bgRocksMax: 140, bgClusterMin: 3, bgClusterMax: 8,
-  baseRocksMin: 20, baseRocksMax: 28, baseRockDist: 2000,
+  // −30% across static zones (2026-07-17 look/feel pass): with the clay rock
+  // sprites the old density read as clutter — fields should feel like finds,
+  // not wallpaper.
+  beltRocksMin: 140, beltRocksMax: 168,
+  oreRingRocksMin: 35, oreRingRocksMax: 46, oreRingSpread: 3000,
+  moonRocksMin: 6, moonRocksMax: 9, moonRockDist: 600,
+  bgRocksMin: 70, bgRocksMax: 98, bgClusterMin: 3, bgClusterMax: 6,
+  baseRocksMin: 14, baseRocksMax: 20, baseRockDist: 2000,
   // ---- streaming mining fields (world/fields.js) ------------------------------
   // A field is a dormant descriptor + map icon until the ship comes within
   // (field.r + fieldActivatePad); then its `stock` rocks instantiate into
@@ -193,13 +256,105 @@ const CONFIG = {
   // overlap at the edges — a continuous resource fabric, not island clusters.
   // makeFieldRock biases toward the center (fieldSpreadPow) but reaches the rim.
   fieldSpreadPow: 0.7,        // radius = r·u^pow — 0.5 uniform, higher = denser core
-  fieldJunkFrac: 0.45,        // junk floaters spawned per field = frac × rock cap
-  fieldBeltCount: 6,   fieldBeltR: 2400,  fieldBeltCapMin: 170, fieldBeltCapMax: 250,
-  fieldRingPerPlanet: 3, fieldRingR: 2700, fieldRingCapMin: 60, fieldRingCapMax: 110,
-  fieldMoonR: 900,     fieldMoonCapMin: 14, fieldMoonCapMax: 22,
-  fieldBaseR: 1600,    fieldBaseCapMin: 24, fieldBaseCapMax: 36,
-  fieldNebulaR: 1800,  fieldNebulaCapMin: 40, fieldNebulaCapMax: 70,
-  fieldBgRMin: 2400,   fieldBgRMax: 3000, fieldBgCapMin: 30, fieldBgCapMax: 90,
+  fieldJunkFrac: 0.40,        // junk floaters spawned per field = frac × rock cap
+                              // (0.56→0.40 with the 2026-07-17 −30% clutter pass —
+                              // junk thins along with rocks this time)
+  // cap ranges: −20% 2026-07-16, then a further −30% (2026-07-17 look/feel
+  // pass) — the clay sprites carry more visual weight per rock, so fewer sell
+  // the same richness without clutter.
+  fieldBeltCount: 6,   fieldBeltR: 2400,  fieldBeltCapMin: 95, fieldBeltCapMax: 140,
+  fieldRingPerPlanet: 3, fieldRingR: 2700, fieldRingCapMin: 34, fieldRingCapMax: 62,
+  fieldMoonR: 900,     fieldMoonCapMin: 8, fieldMoonCapMax: 13,
+  fieldBaseR: 1600,    fieldBaseCapMin: 13, fieldBaseCapMax: 20,
+  fieldNebulaR: 1800,  fieldNebulaCapMin: 22, fieldNebulaCapMax: 39,
+  fieldBgRMin: 2400,   fieldBgRMax: 3000, fieldBgCapMin: 17, fieldBgCapMax: 50,
+  // ---- exotic ore veins (world/fields.js kind "exotic") ------------------------
+  // Tight, rare pockets of the four exotic ores; the vein's whole stock is ONE
+  // ore. Tier is by distance band (deeper = better), roll chance per band keeps
+  // rarer ores in rarer veins. Veins never land in a station's sector, and
+  // seedOutposts skips any sector holding one (region.exotic) — exotics are
+  // always a trip into open space.
+  exoticOres: [
+    { maxDist: 32000, type: "iridium",  chance: 0.040 },
+    { maxDist: 52000, type: "cryonite", chance: 0.030 },
+    { maxDist: 68000, type: "solarite", chance: 0.022 },
+    { maxDist: 1e9,   type: "voidium",  chance: 0.015 },
+  ],
+  exoticMinDist: 8000,        // keep veins out of the star's glare (cf. outposts' 6000)
+  exoticFieldR: 1300, exoticCapMin: 10, exoticCapMax: 16,
+  // Beyond the veins, a trace of exotic ore is salted into ORDINARY fields
+  // map-wide (past exoticMinDist) — the "AHH what's that?" single-rock surprise.
+  // Type follows the same distance bands as the veins (exoticRingFor). Kept low
+  // so exotics stay a premium find, not a staple.
+  exoticSprinkleChance: 0.0016,
+  // ---- obstacle terrain bodies (world/obstacles.js) ---------------------------
+  // Large, solid, non-minable planetoids scattered in open space — no ore, not
+  // lockable/tappable/towable, they just have mass and get in the way. The ship
+  // bounces off them (elastic circleHit); a fast ram stings (speed-scaled, invuln-
+  // gated), a slow nudge is free. Seeded deterministically at world build, clear
+  // of stations/planets/outposts and the home tutorial bubble; slow drift + spin.
+  obstacleCount: 170,          // total bodies scattered across the disc
+  obstacleMinDist: 2600,       // min spacing between bodies (no clumping)
+  obstacleClearStation: 3200,  // keep clear of station centers
+  obstacleClearPlanet: 2600,   // keep clear of planet surfaces (+ planet.r)
+  obstacleClearOutpost: 1400,  // keep clear of outpost platforms
+  obstacleClearHome: 9000,     // empty tutorial bubble around the start
+  obstacleTiers: [             // radius range + spawn weight per size class
+    { rMin: 90,  rMax: 160, w: 5 },     // small
+    { rMin: 175, rMax: 285, w: 3 },     // medium
+    { rMin: 300, rMax: 470, w: 1.4 },   // large
+  ],
+  obstacleMassK: 0.02,         // mass = r·r·K → very heavy, so the ship bounces off
+  obstacleDriftMax: 5,         // u/s slow drift ("floatable")
+  obstacleSpinMax: 0.12,       // rad/s slow tumble
+  obstacleRamDmg: 8,           // base ram damage; + speed·K, capped, invuln-gated
+  obstacleRamSpeedK: 0.05,     // extra ram damage per u/s of impact speed
+  obstacleRamMax: 34,          // ram damage ceiling
+  obstacleRamMinSpeed: 90,     // impacts slower than this do no damage (just a bump)
+  siteCollK: 0.4,              // site piece solid-core radius as a fraction of its draw width
+  siteMass: 4000,             // pieces collide as effectively immovable walls (ship bounces off)
+  // ---- garrison avoidance steering (faction.js reads alien._avoid, sites.js fills it) ----
+  // Enemies pursuing the player blend a perpendicular repulsion away from nearby
+  // heavy-body circles so they flank around site chunks instead of grinding into
+  // them. Zero footprint when _avoid is unset (all non-site combat unchanged).
+  avoidPad: 150,              // avoidance influence reaches this far past a body's surface
+  avoidWeight: 1.5,           // repulsion strength relative to the unit pursuit vector
+  avoidTangent: 0.9,          // sideways bias so head-on approaches curve rather than stall
+  // ---- site base emplacements (game/sites.js) ---------------------------------
+  // A fixed high-damage weapon platform bolted to the centrepiece of the two
+  // guarded site themes: alien_derelict → charged laser cannon, shipwreck →
+  // missile barrage. Both also launch homing torpedo drones. Resource clusters
+  // stay unarmed. The emplacement has its own hull pool (danger-scaled), is
+  // lockable + destroyable, and every projectile respects line-of-sight so the
+  // site's own heavy chunks are cover. Speeds are world u/s; a thrusting player
+  // tops out ~2300 u/s, so the torpedo (~40% of that) is escapable by a committed
+  // sprint but runs down a maneuvering ship — break it on a chunk instead.
+  empThemeWeapon: { alien_derelict: "laser", shipwreck: "missile" },
+  empHpBase: 560,             // hull pool before danger scaling (×dangerEnemyMult.hp); armor pool = ×0.55
+  empRange: 1500,             // player must be within this for the platform to engage
+  empRegen: 0,                // no self-repair — damage sticks between visits
+  // missile barrage: a cone of dumb-fire missiles, area denial (dodge the gaps)
+  empMissileCdMin: 8000, empMissileCdMax: 12000,   // ms between barrages
+  empMissileCount: [3, 5],    // missiles per barrage (inclusive range)
+  empMissileSpreadDeg: 34,    // half-angle of the firing cone
+  empMissileSpeed: 560,       // medium, clearly dodgeable
+  empMissileDmg: 16,          // per hit before danger scaling — moderate
+  empMissileLife: 6000,       // ms before a missile fizzles
+  empMissileR: 8,             // hit radius vs the ship
+  // charged laser cannon: 3s telegraphed lock, then a near-instant heavy beam
+  empLaserCdMs: 20000,        // ms between shots (the engage window)
+  empLaserLockMs: 3000,       // lock-on charge time — break LoS or leave range to dodge
+  empLaserArmorFrac: 0.5,     // beam deals 50% of max armor as damage (after dropping shields)
+  empLaserBeamMs: 380,        // beam flash duration
+  empLaserR: 26,              // beam impact tolerance around the locked point
+  // homing torpedo drone: slow relentless hunter, one-shots weak ships
+  empTorpedoCdMin: 30000, empTorpedoCdMax: 45000, // ms between launches
+  empTorpedoSpeed: 900,       // ~40% of player sprint — outrun it or break it on terrain
+  empTorpedoTurn: 2.2,        // rad/s tracking — nimble enough to juke
+  empTorpedoDmg: 68,          // massive; danger-scaled
+  empTorpedoR: 14,            // hit radius vs the ship
+  empTorpedoHp: 14,           // shootable — a few laser hits kill it
+  empTorpedoLife: 22000,      // ms before it self-destructs (safety valve)
   // ---- static sector grid + region content (world/regions.js) -----------------
   // The disc is tiled by a fixed square grid; every in-disc cell is a numbered
   // REGION guaranteed at least one resource field. Anchors (belt / planet ring /

@@ -162,10 +162,12 @@ def largest_component(fg):
     return out
 
 
-def cut_out(cell, min_alpha=10, pad=3, max_dim=360):
-    """Cell → tight-cropped RGBA sprite: flood-fill bg, despeckle, feather."""
+def cut_out(cell, min_alpha=10, pad=3, max_dim=360, dark_max=34):
+    """Cell → tight-cropped RGBA sprite: flood-fill bg, despeckle, feather.
+    dark_max: raise (~60) when a sheet came back on textured dark-grey instead
+    of pure black and background chunks survive the default flood."""
     arr = np.asarray(cell, dtype=np.float32)
-    bg = flood_bg(arr)
+    bg = flood_bg(arr, dark_max=dark_max)
     fg = ~bg
     # despeckle: drop foreground pixels with ≤2 foreground neighbours (8-way)
     n = np.zeros(fg.shape, dtype=np.int16)
@@ -212,11 +214,13 @@ Render style: soft matte 3D clay-render — the exact same miniature-diorama mat
 
 CRITICAL EXPOSURE RULE: overall brightness is perfectly uniform across each swatch, edge to edge — depth comes ONLY from tiny per-element shading (each pebble, tuft, ripple shades itself). NO large-scale gradients, NO vignette, NO glow spots, NO dark corners. Every pattern continues past its cell edges (wraps seamlessly).
 
+CRITICAL: absolutely NO text, NO labels, NO captions, NO letters or numbers anywhere in the image. Each swatch is ONE uniform material filling its entire cell edge to edge — never a scene, never a landscape, no horizon, no perspective objects.
+
 Detail is LARGE and chunky so it stays readable when shrunk very small. All nine swatches share one cozy palette and identical exposure under one soft overhead studio light: {palette}.
 
 {cells}
 
-Strictly flat top-down view of each material, zero perspective. Uniform exposure everywhere."""
+Strictly flat top-down view of each material, zero perspective. Uniform exposure everywhere. FINAL RULE, most important: this is a TEXTURE ATLAS — absolutely NO text, NO labels, NO captions, NO names, NO letters anywhere in the image, and every swatch fills its whole cell with one material, never a scene."""
 
 # Per-planet culture specs (content per MARA_PLANET_LORE_SPEC.md — Krag worlds
 # warm/industrial, Vex worlds cold/military; the lore doc's pixel-art style
@@ -236,12 +240,12 @@ Row 3: [7] COBBLES — rounded pale warm-grey clay cobblestones with soft green 
     "vesper": dict(   # Vex fortress world — grey cratered rock, red tactical accents
         palette="grey rock, dark crater shadow, cold chrome, Vex red accents, floodlight white",
         cells="""Row 1: [1] REGOLITH — smooth soft grey clay rock surface, mostly plain, with sparse small rounded impact pocks and fine dust patches. [2] CRATERED REGOLITH — the exact same smooth grey clay rock with a few sharper dark crater pits pressed in sparsely. [3] TILLED REGOLITH — dark grey processed soil combed into straight vertical furrows, precise and uniform.
-Row 2: [4] HYDRO SPROUTS — the exact same dark furrowed regolith with small pale-green clay sprouts in exact vertical rows under thin red marker lines. [5] HYDRO HARVEST — rows of pale grey-green crop stubble over dark regolith, precise spacing. [6] SERVICE ROAD — smooth dark asphalt-grey clay, mostly plain, with one thin red guidance line and faint tread marks.
+Row 2: [4] HYDRO SPROUTS — the exact same dark furrowed regolith with small pale-green clay sprouts in exact vertical rows under thin red marker lines. [5] HYDRO HARVEST — rows of pale grey-green crop stubble over dark regolith, precise spacing. [6] SERVICE ROAD — uniform smooth dark asphalt-grey clay surface filling the whole cell, mostly plain, faint tread marks, one thin straight red guidance line running exactly vertically.
 Row 3: [7] ARMOR PLATING — large smooth black clay deck plates with narrow seams and small recessed bolts, a thin red light line in one seam. [8] COOLANT POOL — still dark steel-blue liquid, mostly plain, with a few small soft wavelets, two close cold tones, NO ripple rings. [9] MARKED REGOLITH — the exact same smooth grey clay rock sparsely dotted with small red-and-white survey markers."""),
     "cinder": dict(   # Vex forge world — basalt islands over lava
         palette="dark basalt, ash grey, molten orange-red lava, terracotta, Vex red trim",
         cells="""Row 1: [1] BASALT FLATS — smooth soft dark-basalt clay surface, mostly plain, with sparse rounded ash-grey dust patches. [2] CLINKER FIELD — the exact same dark basalt clay with a few rounded charcoal clinker stones pressed in sparsely. [3] TILLED ASH — dark umber volcanic soil combed into straight vertical furrows with faint ember-orange warmth deep in the grooves.
-Row 2: [4] SPICE SPROUTS — the exact same furrowed ash soil with small red-orange clay chili sprouts spaced out in neat rows. [5] EMBER HARVEST — rows of warm terracotta spice-pod stubble with dark ash soil visible between rows. [6] FORGE ROAD — smooth packed charcoal clay, mostly plain, with faint pressed tracks and a thin Vex-red edge line.
+Row 2: [4] SPICE SPROUTS — the exact same furrowed ash soil with small red-orange clay chili sprouts spaced out in neat rows. [5] EMBER HARVEST — rows of warm terracotta spice-pod stubble with dark ash soil visible between rows. [6] FORGE ROAD — uniform smooth packed charcoal clay surface filling the whole cell edge to edge, mostly plain, faint pressed tracks, one thin straight Vex-red line running exactly vertically. NO band, NO stripe, NO diagonal.
 Row 3: [7] BASALT PAVERS — rounded dark basalt clay pavers with warm umber seams, gentle occlusion between stones. [8] LAVA — slow molten lava, deep orange-red, mostly smooth glow, with a few small rounded dark crust islands scattered sparsely, soft inner glow, NO flames, NO sparks. [9] VENT FLATS — the exact same dark basalt clay sparsely dotted with tiny glowing ember-orange vent cracks."""),
     "dusk": dict(   # Krag ice world — brutal outside, amber-warm settlements
         palette="soft snow whites, pale ice blues, silver greys, warm timber brown, amber lamplight",
@@ -256,7 +260,7 @@ Row 3: [7] SANDSTONE PAVERS — rounded sun-bleached sandstone clay pavers with 
 }
 
 
-def run_tiles(planet="mira", from_sheet=None):
+def run_tiles(planet="mira", from_sheet=None, strip_bottom=0.0):
     if planet not in PLANET_TILES:
         sys.exit(f"unknown planet '{planet}' — choose from {list(PLANET_TILES)}")
     spec = PLANET_TILES[planet]
@@ -281,6 +285,12 @@ def run_tiles(planet="mira", from_sheet=None):
 
     tiles = {}
     for key, cell in zip(TILE_KEYS, grid_cells(sheet, 3, 3, inset=inset)):
+        if strip_bottom:
+            # The model bakes caption text into the bottom band of each cell on
+            # ~half of all generations, ignoring every no-text prompt rule.
+            # Deterministic salvage (no API cost): crop the band off before the
+            # flatten/seamless passes — the material continues behind it.
+            cell = cell.crop((0, 0, cell.width, int(cell.height * (1 - strip_bottom))))
         arr = np.asarray(cell, dtype=np.float32)
         arr = flatten_lighting(arr)
         arr = seamless(arr)
@@ -521,6 +531,300 @@ def run_props(planet="mira", from_sheet=None):
     print(f"  3. python3 build.py --check")
 
 
+# ──────────────────────────── space fleet + stations ─────────────────────────
+# Per-civilization space sprites: one sheet of warships (battle-group classes
+# matching CLASS_BY_TIER in modules/faction.js — fighter/raider/gunship/carrier,
+# drawn rotated in top-down space, so STRICT top-down + nose RIGHT is required),
+# and one sheet with the civ's orbital station + defense outpost (drawn
+# unrotated, so they use the buildings' 3/4 diorama view). Same clay language
+# as the building packs. Parsed buildings-style → sprites/space/.
+
+SPACE_SHIP_STYLE = """Four stylized 3D spacecraft in soft matte clay-render style, chunky rounded proportions, hand-painted feel, soft saturated colors, one soft key light from the upper left, gentle per-element ambient occlusion, cozy miniature diorama feel like a cartoon fleet game. Arranged in a 2x2 grid, one spacecraft per cell, generous PURE BLACK margin around each — no planet, no stars, no ground, no cast shadow, no text, no labels, no borders.
+
+CRITICAL VIEW RULE: STRICT TOP-DOWN bird's-eye view of every ship, the nose of every ship points to the RIGHT, long axis perfectly horizontal. All four ships share one coherent fleet design language and READ AS THE SAME NAVY at four sizes.
+
+Row 1: [1] ATTACK DRONE — tiny single-seat drone fighter, the smallest and simplest silhouette, compact dart shape, one engine. [2] FRIGATE — small escort warship, slim hull, twin engines, a couple of small gun mounts.
+Row 2: [3] DESTROYER — heavy angular warship, wide armored hull, visible side gun pods and turrets, twin heavy engines. [4] CARRIER — the largest ship: long capital hull with a full-length central flight deck, glowing hangar mouth at the stern, bridge tower, running lights along the deck edges."""
+
+SPACE_STATION_STYLE = """Two stylized 3D space structures in soft matte clay-render style, chunky rounded proportions, hand-painted feel, soft saturated colors, one soft key light from the upper left, gentle per-element ambient occlusion, cozy miniature diorama feel — the same miniature-model language as stylized 3D game buildings. Arranged in one row of two cells, one structure per cell, generous PURE BLACK margin around each — no planet, no stars, no ground, no cast shadow, no text, no labels, no borders. Classic three-quarter view like a miniature model, the SAME camera angle for both.
+
+[1] ORBITAL SPACE STATION — a large majestic space station: central habitat hub, a docking ring with docking arms, antenna masts, glowing window bands, small docked shuttle. The civilization's flagship home in space. [2] DEFENSE OUTPOST — a much smaller automated weapons platform: compact core module on a short truss, two turret mounts, one stubby solar fin, a small beacon light."""
+
+# Ship-specific accent wording (the building accents talk about lamplit windows
+# and basalt walls; ships need hull/engine language in the same palette).
+SPACE_ACCENTS = {
+    "krag": "Fleet style: KRAG industrial working-class navy — riveted rust-iron hull plating, mismatched salvaged armor panels, exposed pipes and welds, warm amber engine glow and amber running lights, chunky asymmetric industrial silhouettes.",
+    "vex":  "Fleet style: VEX military order — smooth black basalt and chrome armor, sharp knife-edge geometry, sealed seamless surfaces, thin glowing red tactical light lines, cold white floodlights, red engine glow, ruthless symmetry.",
+    "nox":  "Fleet style: NOX ancient organic — grown crystalline hulls with NO straight lines, curved membrane and dark iridescent crystal surfaces, bioluminescent teal and violet glow from within, engines glow soft violet, silhouettes like deep-sea creatures.",
+}
+
+
+def run_space(civ, only=None, from_sheet=None, dark_max=34):
+    if civ not in SPACE_ACCENTS:
+        sys.exit(f"unknown civ '{civ}' — choose from {list(SPACE_ACCENTS)}")
+    out_dir = HERE / "space"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    DEBUG.mkdir(parents=True, exist_ok=True)
+    accent = ("\n\n" + SPACE_ACCENTS[civ] +
+              " THIS FLEET STYLE OVERRIDES any material or color named above:"
+              " keep each cell's craft TYPE and role silhouette, render ALL"
+              " materials, colors and lighting in the fleet style. EXACTLY one"
+              " craft per grid cell — no extra craft.")
+    jobs = {
+        "ships":    dict(cols=2, rows=2, style=SPACE_SHIP_STYLE, max_dim=360,
+                         keys=["fighter", "raider", "gunship", "carrier"],
+                         name=lambda k: f"ship_{civ}_{k}.png"),
+        "stations": dict(cols=2, rows=1, style=SPACE_STATION_STYLE, max_dim=480,
+                         keys=["station", "outpost"],
+                         name=lambda k: f"{k}_{civ}.png"),
+    }
+    for job, spec in jobs.items():
+        if only and job != only:
+            continue
+        if from_sheet:
+            sheet = Image.open(from_sheet).convert("RGB")
+            print(f"reprocessing space {job} [{civ}] from {from_sheet}…")
+        else:
+            print(f"generating space {job} [{civ}] sheet…")
+            sheet = generate(spec["style"] + accent)
+            sheet.save(DEBUG / f"space_{job}_{civ}_sheet.png")
+        print(f"  sheet {sheet.size[0]}x{sheet.size[1]}")
+        for key, cell in zip(spec["keys"], grid_cells(sheet, spec["cols"], spec["rows"], inset=4)):
+            spr = cut_out(cell, max_dim=spec["max_dim"], dark_max=dark_max)
+            if spr is None:
+                print(f"  !! {key}: nothing found in cell — regenerate this sheet")
+                continue
+            fname = spec["name"](key)
+            spr.save(out_dir / fname)
+            print(f"  {fname}  {spr.size[0]}x{spr.size[1]}  "
+                  f"({(out_dir/fname).stat().st_size:,} B)")
+    print(f"\nINTEGRATION — space set '{civ}':")
+    print(f"  1. src/game/sprites.js: SPACE_CLAY_KEYS registers ship_/station_/outpost_ {civ} keys")
+    print(f"  2. rendering.js drawEnemyShip + outposts.js draw sprite-first")
+    print(f"  3. python3 build.py --check")
+
+
+# ─────────────────────────── player fleet + drones ───────────────────────────
+# The player's three hulls (menu progression vulture→atlas→aegis, keys =
+# ships.js hullKey) and the three drone quality tiers (drones.js DRONES.tiers,
+# colours follow tierCol: steel blue → teal → purple). Same clay language and
+# STRICT top-down nose-RIGHT convention as the civ fleets (both rotate in
+# space). Quality/coolness escalates left to right in each sheet.
+
+PLAYER_SHIPS_STYLE = """Three stylized 3D spacecraft in soft matte clay-render style, chunky rounded proportions, hand-painted feel, soft saturated colors, one soft key light from the upper left, gentle per-element ambient occlusion, cozy miniature diorama feel like a cartoon fleet game. Arranged in one row of three cells, one spacecraft per cell, generous PURE BLACK margin around each — no planet, no stars, no ground, no cast shadow, no text, no labels, no borders.
+
+CRITICAL VIEW RULE: STRICT TOP-DOWN bird's-eye view of every ship, the nose of every ship points to the RIGHT, long axis perfectly horizontal. All three ships are the SAME independent hauler fleet at three quality tiers — friendly bright teal-cyan livery with warm amber windows and subtle rust-orange accent stripes. Quality, polish and size escalate left to right: tier 1 scrappy, tier 2 professional, tier 3 elite flagship.
+
+[1] VULTURE TUG — small scrappy hauler tug: chunky boxy hull, one oversized engine for its size, mismatched salvaged panel patches, a small towing claw at the bow, lovable underdog. [2] ATLAS FREIGHTER — mid-size cargo freighter: long spine hull with two clamped cargo containers, twin engines, the same teal livery grown clean and professional, warm cabin lights. [3] AEGIS BATTLECRUISER — sleek elite battlecruiser: polished armored hull, integrated gun mounts along the sides, triple engine array with bright glow, the teal livery made regal with chrome and gold trim — clearly the pride of the fleet."""
+
+PLAYER_DRONES_STYLE = """Three tiny stylized 3D combat drones in soft matte clay-render style, chunky rounded proportions, hand-painted feel, soft saturated colors, one soft key light from the upper left, gentle per-element ambient occlusion, cozy miniature diorama feel. Arranged in one row of three cells, one drone per cell, generous PURE BLACK margin around each — no planet, no stars, no ground, no cast shadow, no text, no labels, no borders.
+
+CRITICAL VIEW RULE: STRICT TOP-DOWN bird's-eye view of every drone, the nose of every drone points to the RIGHT. All three are the SAME drone product line at three quality tiers — small pilotless craft, each with one glowing camera eye at the bow. Quality, armament and coolness escalate left to right.
+
+[1] BASIC DRONE — simple utility drone in STEEL BLUE clay: rounded boxy pod, single small thruster, one thin laser barrel, a little dented and plain. [2] REINFORCED DRONE — sleeker drone in bright TEAL clay: rounded aerodynamic pod, twin thrusters, small folded repair arms at the sides, clean panel lines. [3] ARMORED DRONE — combat drone in dark clay with VIOLET-PURPLE glowing accents: chunky layered armor plates, prominent top-mounted cannon, triple thruster block, two small shield-emitter fins — the meanest little machine in the hangar."""
+
+
+def run_fleet(only=None, from_sheet=None, dark_max=34):
+    out_dir = HERE / "space"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    DEBUG.mkdir(parents=True, exist_ok=True)
+    jobs = {
+        "ships":  dict(style=PLAYER_SHIPS_STYLE, max_dim=420,
+                       keys=["vulture", "atlas", "aegis"],
+                       name=lambda k: f"ship_{k}.png"),
+        "drones": dict(style=PLAYER_DRONES_STYLE, max_dim=200,
+                       keys=["t0", "t1", "t2"],
+                       name=lambda k: f"drone_{k}.png"),
+    }
+    for job, spec in jobs.items():
+        if only and job != only:
+            continue
+        if from_sheet:
+            sheet = Image.open(from_sheet).convert("RGB")
+            print(f"reprocessing fleet {job} from {from_sheet}…")
+        else:
+            print(f"generating fleet {job} sheet…")
+            sheet = generate(spec["style"])
+            sheet.save(DEBUG / f"fleet_{job}_sheet.png")
+        print(f"  sheet {sheet.size[0]}x{sheet.size[1]}")
+        for key, cell in zip(spec["keys"], grid_cells(sheet, 3, 1, inset=4)):
+            spr = cut_out(cell, max_dim=spec["max_dim"], dark_max=dark_max)
+            if spr is None:
+                print(f"  !! {key}: nothing found in cell — regenerate this sheet")
+                continue
+            fname = spec["name"](key)
+            spr.save(out_dir / fname)
+            print(f"  {fname}  {spr.size[0]}x{spr.size[1]}  "
+                  f"({(out_dir/fname).stat().st_size:,} B)")
+    print("\nINTEGRATION — player fleet:")
+    print("  1. src/game/sprites.js: SPACE_CLAY_KEYS registers ship_vulture/atlas/aegis + drone_t0/t1/t2")
+    print("  2. rendering.js player ship + fleet.js/outposts.js drone draw sprite-first")
+    print("  3. python3 build.py --check")
+
+
+# ───────────────────────────── space world bodies ────────────────────────────
+# The inert space furniture: junk floaters, ore asteroids (NEUTRAL grey — the
+# engine tints per ore via ART.drawTint's baked cache, so variants stay cheap),
+# planet globes (one per CONFIG.planetDefs type; rings stay procedural on top),
+# moons and large planetoids. All are existing draw calls swapped sprite-first —
+# no new entities, so no perf change beyond a handful of cached tints.
+
+_WORLD_BASE = """{count} stylized 3D space objects in soft matte clay-render style, chunky rounded proportions, hand-painted feel, one soft key light from the upper left, gentle per-element ambient occlusion, cozy miniature diorama feel. Arranged in a {grid} grid, one object per cell, generous PURE BLACK margin around each — no stars, no ground, no cast shadow, no text, no labels, no borders.
+
+"""
+
+WORLD_SHEETS = {
+    "junk": dict(cols=2, rows=2, max_dim=200,
+        keys=["junk_can", "junk_panel", "junk_crate", "junk_debris"],
+        prompt=_WORLD_BASE.format(count="Four", grid="2x2") +
+"""Derelict salvage floating in space, weathered greys and rust with faint teal paint remnants:
+Row 1: [1] SUPPLY CANISTER — a dented cylindrical supply can, chipped paint bands, one bent valve. [2] HULL PANEL — a torn-off hull plate, riveted edge, scorch marks, bent corner.
+Row 2: [3] CARGO CRATE — a battered cubic cargo crate, strap loops, faded hazard stripe. [4] DEBRIS TANGLE — one connected clump of twisted struts, pipe elbows and a broken thruster bell."""),
+    "asteroids": dict(cols=2, rows=2, max_dim=240,
+        keys=["asteroid_a", "asteroid_b", "asteroid_c", "asteroid_crystal"],
+        prompt=_WORLD_BASE.format(count="Four", grid="2x2") +
+"""Asteroids in NEUTRAL matte grey clay (no color cast — the game recolors them), soft crater dents and chunky facets:
+Row 1: [1] ROUND ASTEROID — one chunky rounded asteroid, softly cratered. [2] JAGGED ASTEROID — one angular asteroid with chunky facets and a deep notch.
+Row 2: [3] LUMPY ASTEROID — one potato-shaped asteroid with two smaller lumps fused on. [4] CRYSTAL ASTEROID — one grey asteroid with big faceted pale crystals jutting from cracks."""),
+    # Planet globes are split across five small-grid sheets (4× 2x1 + 1× 1x1)
+    # instead of one 3x3: rendering.js draws them at p.r*2.05*z which reaches
+    # 1000-2900px on screen for the big CONFIG.solarPlanets, and 3x3 cells of a
+    # 1280x720 sheet cap the spheres at ~210px (blurry up close). Two cells per
+    # landscape sheet yields ~500-640px spheres. Same nine concepts and keys as
+    # the original sheet (sprites/mira/_debug/world_planets_sheet.png).
+    "planets_a": dict(cols=2, rows=1, max_dim=700,
+        keys=["planet_cratered", "planet_lava"],
+        prompt=_WORLD_BASE.format(count="Two", grid="2x1 (two cells side by side in one row)") +
+"""Planet globes — each cell ONE perfect sphere seen from space, soft clay-render surface detail that stays simple, chunky and rounded like smooth plasticine (NOT photorealistic rock or cloud texture), NO rings, NO moons, NO atmosphere haze beyond the sphere edge, sphere centered in its cell and LARGE, filling about three quarters of the cell height:
+Left cell: [1] CRATERED WORLD — grey-beige rocky sphere, heavy soft craters.
+Right cell: [2] LAVA WORLD — dark basalt sphere webbed with glowing orange lava cracks."""),
+    "planets_b": dict(cols=2, rows=1, max_dim=700,
+        keys=["planet_tan_gas", "planet_ice"],
+        prompt=_WORLD_BASE.format(count="Two", grid="2x1 (two cells side by side in one row)") +
+"""Planet globes — each cell ONE perfect sphere seen from space, soft clay-render surface detail that stays simple, chunky and rounded like smooth plasticine (NOT photorealistic rock or cloud texture), NO rings, NO moons, NO atmosphere haze beyond the sphere edge, sphere centered in its cell and LARGE, filling about three quarters of the cell height:
+Left cell: [1] TAN GAS GIANT — creamy tan sphere with soft horizontal cloud bands.
+Right cell: [2] ICE WORLD — white-blue sphere with pale ice sheets and deep blue frozen seas."""),
+    "planets_c": dict(cols=2, rows=1, max_dim=700,
+        keys=["planet_life", "planet_desert"],
+        prompt=_WORLD_BASE.format(count="Two", grid="2x1 (two cells side by side in one row)") +
+"""Planet globes — each cell ONE perfect sphere seen from space, soft clay-render surface detail that stays simple, chunky and rounded like smooth plasticine (NOT photorealistic rock or cloud texture), NO rings, NO moons, NO atmosphere haze beyond the sphere edge, sphere centered in its cell and LARGE, filling about three quarters of the cell height:
+Left cell: [1] LIVING WORLD — lush green-and-ocean-blue sphere with soft white cloud swirls.
+Right cell: [2] DESERT WORLD — warm sand-orange sphere with dune bands and dark canyon lines."""),
+    "planets_d": dict(cols=2, rows=1, max_dim=700,
+        keys=["planet_purple_gas", "planet_dark"],
+        prompt=_WORLD_BASE.format(count="Two", grid="2x1 (two cells side by side in one row)") +
+"""Planet globes — each cell ONE perfect sphere seen from space, soft clay-render surface detail that stays simple, chunky and rounded like smooth plasticine (NOT photorealistic rock or cloud texture), NO rings, NO moons, NO atmosphere haze beyond the sphere edge, sphere centered in its cell and LARGE, filling about three quarters of the cell height:
+Left cell: [1] VIOLET GAS GIANT — soft purple sphere with lavender cloud bands and one pale storm oval.
+Right cell: [2] DARK WORLD — near-black ominous sphere with faint violet glow lines, quiet and alien."""),
+    "planets_e": dict(cols=1, rows=1, max_dim=700,
+        keys=["planet_gas_giant"],
+        prompt=_WORLD_BASE.format(count="One", grid="1x1 (a single centered cell)") +
+"""Planet globe — ONE perfect sphere seen from space, soft clay-render surface detail that stays simple, chunky and rounded like smooth plasticine (NOT photorealistic rock or cloud texture), NO rings, NO moons, NO atmosphere haze beyond the sphere edge, sphere centered and LARGE, filling about three quarters of the image height:
+[1] GAS GIANT — pastel lavender-green sphere with gentle bands."""),
+    "moons": dict(cols=3, rows=2, max_dim=300,
+        keys=["moon_a", "moon_b", "moon_c",
+              "planetoid_a", "planetoid_b", "planetoid_c"],
+        prompt=_WORLD_BASE.format(count="Six", grid="3x2") +
+"""Row 1 — MOONS, each ONE small perfect sphere centered in its cell: [1] pale grey cratered moon. [2] icy white-blue moon with frost sheen. [3] rusty tan moon with dark mare patches.
+Row 2 — PLANETOIDS, each ONE huge irregular rock body, far larger and more massive-looking than an asteroid: [4] heavily cratered grey planetoid, almost round but lumpy. [5] elongated jagged planetoid with deep canyon grooves. [6] planetoid with several big boulders fused onto its surface."""),
+}
+
+
+def run_world(only=None, from_sheet=None, dark_max=34):
+    out_dir = HERE / "space"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    DEBUG.mkdir(parents=True, exist_ok=True)
+    for job, spec in WORLD_SHEETS.items():
+        if only and job != only:
+            continue
+        if from_sheet:
+            sheet = Image.open(from_sheet).convert("RGB")
+            print(f"reprocessing world {job} from {from_sheet}…")
+        else:
+            print(f"generating world {job} sheet…")
+            sheet = generate(spec["prompt"])
+            sheet.save(DEBUG / f"world_{job}_sheet.png")
+        print(f"  sheet {sheet.size[0]}x{sheet.size[1]}")
+        for key, cell in zip(spec["keys"], grid_cells(sheet, spec["cols"], spec["rows"], inset=4)):
+            spr = cut_out(cell, max_dim=spec["max_dim"], dark_max=dark_max)
+            if spr is None:
+                print(f"  !! {key}: nothing found in cell — regenerate this sheet")
+                continue
+            spr.save(out_dir / f"{key}.png")
+            print(f"  {key}.png  {spr.size[0]}x{spr.size[1]}  "
+                  f"({(out_dir/f'{key}.png').stat().st_size:,} B)")
+    print("\nINTEGRATION — space world bodies:")
+    print("  1. src/game/sprites.js: SPACE_CLAY_KEYS registers junk/asteroid/planet/moon/planetoid keys")
+    print("  2. rendering.js rocks/planets/moons draw sprite-first (junk keys unchanged)")
+    print("  3. python3 build.py --check")
+
+
+# ───────────────────────────── site landmarks ────────────────────────────────
+# Phase-4 region sites: asteroid clusters, human shipwrecks, and a derelict
+# alien station (two sheets: body + detail). Static space furniture placed at
+# region centers by src/game/sites.js. Raw sheets are ALSO kept in
+# sprites/space/ under fixed names (game-side placeholder logic keys on the
+# cut pieces, but the sheets are part of the deliverable). Same clay language
+# and black-bg parse as the other space sets. NOTE for the parser: subjects
+# must stay mid-tone — a charcoal rock that drops below the flood threshold
+# gets eaten as background, so prompts ask for mid-grey bodies + dark accents.
+
+SITE_SHEETS = {
+    "asteroid_cluster": dict(cols=3, rows=2, max_dim=300, sheet="asteroid_cluster_sheet.png",
+        keys=["asteroid_chunk_1", "asteroid_chunk_2", "asteroid_chunk_3",
+              "asteroid_chunk_4", "asteroid_chunk_5", "asteroid_chunk_6"],
+        prompt=_WORLD_BASE.format(count="Six", grid="3x2") +
+"""Varied space rocks in matte clay-render style — mid-grey to warm charcoal stone (never near-black, the silhouette must stay clearly brighter than the pure black background), each rock veined with thin glowing mineral seams in warm orange and cool teal, soft crater dents and chunky facets:
+Row 1: [1] LARGE JAGGED BOULDER — one big angular boulder, sharp chunky facets, prominent orange mineral veins in the cracks. [2] MEDIUM CRATERED ROCK — one rounded mid-size rock, softly cratered, faint teal vein glints. [3] SMALL TUMBLING FRAGMENT — one small chipped fragment, irregular, a single orange vein.
+Row 2: [4] ELONGATED SHARD — one long splinter-shaped rock, tapered ends, teal veins along its length. [5] FLAT DISC ROCK — one flat rounded disc-shaped rock seen at a slight angle, layered strata edges, orange seam glow between layers. [6] SMALL ROUNDED PEBBLE — one small smooth rounded rock, minimal detail, one tiny teal glint."""),
+    "shipwreck": dict(cols=2, rows=2, max_dim=340, sheet="shipwreck_sheet.png",
+        keys=["wreck_bow", "wreck_hull", "wreck_stern", "wreck_debris"],
+        prompt=_WORLD_BASE.format(count="Four", grid="2x2") +
+"""Derelict human cargo freighter wreckage drifting in space — rust-brown and burnt scorched metal with cold blue-grey shadowed plating, torn edges, dead dark windows, NO lights, NO glow, clearly long-abandoned:
+Row 1: [1] CRUMPLED BOW SECTION — the crushed front nose of a freighter, shattered dark viewport, buckled rusty plating folded like paper. [2] MID-HULL SECTION — a broken mid-body hull segment, torn plating peeled open showing bent ribs and dangling cables, faded hazard stripe remnant.
+Row 2: [3] ENGINE STERN — the rear engine block, two dead cold thruster cones, scorched burnt-metal shrouds, ruptured fuel lines. [4] DEBRIS TANGLE — one connected clump of drifting wreck scatter: bent hull plates, pipe segments and a torn girder fused into a single tangle."""),
+    "alien_station_a": dict(cols=2, rows=1, max_dim=460, sheet="alien_station_a.png",
+        keys=["alien_body", "alien_wing"],
+        prompt=_WORLD_BASE.format(count="Two", grid="2x1 (two cells side by side in one row)") +
+"""Ancient derelict ALIEN space station of an unknown vanished race — organic-geometric hybrid architecture, clearly NON-HUMAN: asymmetric curved spires and tendril-like arms grown rather than built, dark corroded grey-violet shell material pitted with age (mid-tone, never near-black), thin bioluminescent veins of cyan and purple still faintly glowing along the surface seams:
+Left cell: [1] MAIN BODY — the large central mass of the derelict station: a lopsided organic hulk with two bent spires and several short broken tendril stumps, faint cyan-purple vein glow tracing its ridges. [2] DETACHED WING — a torn-off arm section drifting separately: one long curved tendril-wing with a frayed broken root end, the same corroded shell and faint purple vein glow."""),
+    "alien_station_b": dict(cols=2, rows=1, max_dim=300, sheet="alien_station_b.png",
+        keys=["alien_glyph", "alien_conduit"],
+        prompt=_WORLD_BASE.format(count="Two", grid="2x1 (two cells side by side in one row)") +
+"""Close-detail fragments of an ancient derelict ALIEN space station — the same vanished-race design language: organic-geometric corroded grey-violet shell material (mid-tone, never near-black) with bioluminescent cyan and purple accents:
+Left cell: [1] GLYPH PANEL — one intact curved alien wall panel etched with rows of strange glowing cyan glyph symbols, the only part still fully lit, softly radiant. [2] CRACKED CONDUIT NODE — one bulbous organic energy-conduit pod, split by a deep crack leaking faint purple light, corroded shell flaking around the fracture."""),
+}
+
+
+def run_sites(only=None, from_sheet=None, dark_max=34):
+    out_dir = HERE / "space"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    DEBUG.mkdir(parents=True, exist_ok=True)
+    for job, spec in SITE_SHEETS.items():
+        if only and job != only:
+            continue
+        if from_sheet:
+            sheet = Image.open(from_sheet).convert("RGB")
+            print(f"reprocessing site sheet '{job}' from {from_sheet}…")
+        else:
+            print(f"generating site sheet '{job}'…")
+            sheet = generate(spec["prompt"])
+        sheet.save(out_dir / spec["sheet"])
+        print(f"  {spec['sheet']}  {sheet.size[0]}x{sheet.size[1]}")
+        for key, cell in zip(spec["keys"], grid_cells(sheet, spec["cols"], spec["rows"], inset=4)):
+            spr = cut_out(cell, max_dim=spec["max_dim"], dark_max=dark_max)
+            if spr is None:
+                print(f"  !! {key}: nothing found in cell — regenerate this sheet")
+                continue
+            spr.save(out_dir / f"{key}.png")
+            print(f"  {key}.png  {spr.size[0]}x{spr.size[1]}  "
+                  f"({(out_dir/f'{key}.png').stat().st_size:,} B)")
+    print("\nINTEGRATION — site landmarks:")
+    print("  1. src/game/sprites.js: SPACE_CLAY_KEYS registers asteroid_chunk_/wreck_/alien_ keys")
+    print("  2. src/game/sites.js places pieces; rendering.js draws sprite-first")
+    print("  3. python3 build.py --check")
+
+
 # Per-faction accents for future per-planet building packs (lore doc:
 # MARA_PLANET_LORE_SPEC.md). Generate with `buildings <sheet> <planet>` →
 # sprites/<planet>/bldg_<planet>_<key>.png; drawMiraBldg tries the planet set
@@ -534,23 +838,51 @@ PLANET_FACTION = {"mira": "krag", "dusk": "krag", "sorn": "krag",
                   "vesper": "vex", "cinder": "vex",
                   "halveth": "nox", "nox_prime": "nox"}
 
+# Per-planet flavor appended AFTER the faction accent so sibling worlds of the
+# same faction still read distinct (lore: MARA_PLANET_LORE_SPEC.md).
+PLANET_FLAVOR = {
+    "dusk":   " Ice-world variant: every roof, ledge and tank top carries a soft dusting of snow, small icicles hang under the eaves, and the amber window glow burns extra warm against the cold — a settlement huddled against a -80C blizzard world.",
+    "sorn":   " Salvage-desert variant: sun-bleached and sand-scoured surfaces, pale dust drifted against every wall, structures visibly jury-rigged from salvaged machine parts and canvas — a scavenger town built from the bones of old strip-mining industry.",
+    "cinder": " Forge-world variant: ash-smeared surfaces and a faint warm ember underglow reflected from below.",
+}
+
 
 def run_buildings(only=None, set_name=None, from_sheet=None):
     out_dir = HERE / (set_name or "mira")
     prefix = f"bldg_{set_name}_" if set_name else "bldg_"
-    accent = "\n\n" + FACTION_ACCENTS[PLANET_FACTION[set_name]] if set_name else ""
+    # The accent must OVERRIDE the per-cell colors/materials, not just trail
+    # them — a bare trailing accent line loses to strong per-cell color words
+    # (learned on vesper: city/farm sheets came back cozy-timber mira style).
+    accent = ("\n\n" + FACTION_ACCENTS[PLANET_FACTION[set_name]] +
+              PLANET_FLAVOR.get(set_name, "") +
+              " THIS FACTION STYLE OVERRIDES every material and color named in the"
+              " cell descriptions above: keep each cell's building TYPE and"
+              " silhouette, but re-imagine ALL its materials, colors and lighting"
+              " in the faction language. EXACTLY one building per grid cell —"
+              " no extra buildings.") if set_name else ""
     out_dir.mkdir(parents=True, exist_ok=True)
     DEBUG.mkdir(parents=True, exist_ok=True)
     for name, spec in SHEETS.items():
         if only and name != only:
             continue
         tag = f"{name}" + (f" [{set_name}]" if set_name else "")
+        prompt = spec["prompt"]
+        if set_name:
+            # The landmarks sheet bakes its own per-cell KRAG/VEX styling (for
+            # the shared mira pool). For a planet set those cell prefixes beat
+            # the appended accent — strip them so the planet's faction rules.
+            prompt = (prompt
+                      .replace("Faction styling per cell: KRAG structures are industrial working-class — riveted iron, rust-orange weathering, warm amber lamplight, salvaged materials; VEX structures are military — smooth black basalt, sharp geometry, thin glowing red tactical lights:", "One structure per cell:")
+                      .replace("KRAG MEMORIAL OBELISK", "MEMORIAL OBELISK")
+                      .replace("VEX ZIGGURAT", "STEPPED ZIGGURAT")
+                      .replace("KRAG WATER TOWER", "WATER TOWER")
+                      .replace("KRAG BARRACKS", "BARRACKS"))
         if from_sheet:                 # re-cut a saved sheet, no API call
             sheet = Image.open(from_sheet).convert("RGB")
             print(f"reprocessing '{tag}' from {from_sheet}…")
         else:
             print(f"generating '{tag}' sheet…")
-            sheet = generate(spec["prompt"] + accent)
+            sheet = generate(prompt + accent)
             sheet.save(DEBUG / f"{name}{'_'+set_name if set_name else ''}_sheet.png")
         print(f"  sheet {sheet.size[0]}x{sheet.size[1]}")
         for key, cell in zip(spec["keys"], grid_cells(sheet, spec["cols"], spec["rows"], inset=4)):
@@ -574,8 +906,11 @@ if __name__ == "__main__":
     if cmd in ("tiles", "all"):
         # optional 3rd arg: re-cut a saved sheet (no API call), e.g.
         #   pipeline.py tiles mira sprites/mira/_debug/tiles_mira_sheet.png
+        # optional 4th arg 'strip': crop baked caption text off the bottom of
+        # each cell during the re-cut (~22% band)
         run_tiles(planet=arg or "mira",
-                  from_sheet=sys.argv[3] if len(sys.argv) > 3 else None)
+                  from_sheet=sys.argv[3] if len(sys.argv) > 3 else None,
+                  strip_bottom=0.22 if len(sys.argv) > 4 and sys.argv[4] == "strip" else 0.0)
     if cmd == "nodes":
         run_nodes(planet=arg or "mira",
                   from_sheet=sys.argv[3] if len(sys.argv) > 3 else None)
@@ -588,6 +923,31 @@ if __name__ == "__main__":
         #   pipeline.py props mira sprites/mira/_debug/props_mira_sheet.png
         run_props(planet=arg or "mira",
                   from_sheet=sys.argv[3] if len(sys.argv) > 3 else None)
+    if cmd == "space":
+        # pipeline.py space <civ> [ships|stations] [saved_sheet] [dark_max]
+        run_space(arg or "vex",
+                  only=(sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] in ("ships", "stations") else None),
+                  from_sheet=sys.argv[4] if len(sys.argv) > 4 else None,
+                  dark_max=int(sys.argv[5]) if len(sys.argv) > 5 else 34)
+    if cmd == "fleet":
+        # pipeline.py fleet [ships|drones] [saved_sheet] [dark_max]
+        run_fleet(only=(arg if arg in ("ships", "drones") else None),
+                  from_sheet=sys.argv[3] if len(sys.argv) > 3 else None,
+                  dark_max=int(sys.argv[4]) if len(sys.argv) > 4 else 34)
+    if cmd == "world":
+        # pipeline.py world [junk|asteroids|planets_a..planets_e|moons] [saved_sheet] [dark_max]
+        if arg and arg not in WORLD_SHEETS:
+            sys.exit(f"unknown world sheet '{arg}' — one of: {', '.join(WORLD_SHEETS)}")
+        run_world(only=(arg if arg in WORLD_SHEETS else None),
+                  from_sheet=sys.argv[3] if len(sys.argv) > 3 else None,
+                  dark_max=int(sys.argv[4]) if len(sys.argv) > 4 else 34)
+    if cmd == "sites":
+        # pipeline.py sites [asteroid_cluster|shipwreck|alien_station_a|alien_station_b] [saved_sheet] [dark_max]
+        if arg and arg not in SITE_SHEETS:
+            sys.exit(f"unknown site sheet '{arg}' — one of: {', '.join(SITE_SHEETS)}")
+        run_sites(only=arg,
+                  from_sheet=sys.argv[3] if len(sys.argv) > 3 else None,
+                  dark_max=int(sys.argv[4]) if len(sys.argv) > 4 else 34)
     if cmd in ("buildings", "all"):
         # optional 3rd arg: planet building set (faction-accented, namespaced
         # keys), e.g. `buildings city vesper`. Optional 4th arg: re-cut a
