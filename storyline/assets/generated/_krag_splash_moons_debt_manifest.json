@@ -1,0 +1,19 @@
+{
+  "bible": null,
+  "key": "krag_splash_moons_debt",
+  "faction": "krag",
+  "aspect": "wide",
+  "style": "Graphic-novel illustration, bold inked linework, cel-shaded flats with hard shadow edges, limited palette of rust orange, soot charcoal and pale amber, dramatic single key light. Painterly sci-fi comic panel. No text, no speech bubbles, no captions, no lettering, no borders, no panel gutters.",
+  "images": [
+    {
+      "file": "krag_splash_moons_debt_02.png",
+      "scene": "Wide view from low orbit: three moons strip-mined down to the mantle, terraced in vast concentric cuts like chewed bone, hanging over the curve of an industrial homeworld, a small cargo tug silhouetted tiny against them, no people.",
+      "lock_chars": 0
+    },
+    {
+      "file": "krag_splash_moons_debt_03.png",
+      "scene": "Wide view from low orbit: three moons strip-mined down to the mantle, terraced in vast concentric cuts like chewed bone, hanging over the curve of an industrial homeworld, a small cargo tug silhouetted tiny against them, no people.",
+      "lock_chars": 0
+    }
+  ]
+}

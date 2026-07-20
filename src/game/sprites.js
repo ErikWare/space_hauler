@@ -17,8 +17,9 @@
 // image's native aspect ratio and, for ships, mirrors vertically instead of
 // rolling belly-up when the heading points left.
 const ART_MANIFEST = {
-  // Ships — player hulls (clay top-down, nose-right, sprites/space/ via
-  // pipeline.py `fleet`; superseded the old side-view hero shots)
+  // Ships — hauler-line player hulls (clay top-down, nose-right, sprites/space/
+  // via pipeline.py `playerlines`). Their thrust/fire frames and showroom
+  // beauty shots are registered with the other lines in PLAYER_LINE_HULLS below.
   ship_vulture: "sprites/space/ship_vulture.png",
   ship_atlas:   "sprites/space/ship_atlas.png",
   ship_aegis:   "sprites/space/ship_aegis.png",
@@ -30,10 +31,6 @@ const ART_MANIFEST = {
   ship_krag:    "sprites/krag_raider.png",
   ship_nox:     "sprites/nox_phantom.png",
   ship_drone:   "sprites/companion_drone.png",
-  // Ships — menu glamour shots
-  ship_vulture_menu: "sprites/vulture_tug_menu.png",
-  ship_atlas_menu:   "sprites/atlas_freighter_menu.png",
-  ship_aegis_menu:   "sprites/aegis_battlecruiser_menu.png",
   // World — clay space packs (sprites/space/, pipeline.py `space <civ>`)
   // supersede the old hero-shot station PNGs; per-civ outposts + battle-group
   // ship classes are new with the clay line.
@@ -104,6 +101,10 @@ const ART_MANIFEST = {
   alien_wing:       "sprites/space/alien_wing.png",
   alien_glyph:      "sprites/space/alien_glyph.png",
   alien_conduit:    "sprites/space/alien_conduit.png",
+  emp_laser_a:      "sprites/space/emp_laser_a.png",
+  emp_laser_b:      "sprites/space/emp_laser_b.png",
+  emp_missile_a:    "sprites/space/emp_missile_a.png",
+  emp_missile_b:    "sprites/space/emp_missile_b.png",
   warp_gate:      "sprites/warp_gate.png",
   nebula_blue:    "sprites/nebula_blue.png",
   nebula_red:     "sprites/nebula_red.png",
@@ -178,7 +179,6 @@ const ART_MANIFEST = {
 const GAMEPLAY_SPRITES = false;
 const STORY_KEYS = new Set([
   'scene_opening', 'scene_victory',
-  'ship_vulture_menu', 'ship_atlas_menu', 'ship_aegis_menu',
   'portrait_commander', 'portrait_vex', 'portrait_krag', 'portrait_nox', 'portrait_station',
   'icon_vex', 'icon_krag', 'icon_nox',
 ]);
@@ -291,10 +291,29 @@ for (const f of ['vex', 'krag', 'nox']) {
   for (const c of ['fighter', 'raider', 'gunship', 'carrier'])
     SPACE_CLAY_KEYS.add(`ship_${f}_${c}`);
 }
-// player hulls + drone tiers (pipeline.py `fleet`)
-for (const k of ['ship_vulture', 'ship_atlas', 'ship_aegis',
-                 'drone_t0', 'drone_t1', 'drone_t2'])
+// drone tiers (pipeline.py `fleet`; the player hulls moved to PLAYER_LINE_HULLS below)
+for (const k of ['drone_t0', 'drone_t1', 'drone_t2'])
   SPACE_CLAY_KEYS.add(k);
+// Player ship lines (pipeline.py `playerlines`): ALL 12 buyable hulls
+// (CONFIG.hulls keys — the hauler line included since its 2026-07-18 re-cut),
+// each with registered top-down flight frames — idle, 2-frame thrust burn, and
+// one muzzle-flash frame per weapon type (rendering.js swaps them live) — plus
+// showroom beauty/hero shots for the SHIPS market carousel (STORY-gated, so
+// they render even with gameplay art off).
+const PLAYER_LINE_HULLS = ['vulture', 'atlas', 'aegis',
+                           'krag_ironclad', 'krag_warbarge', 'krag_dreadnought',
+                           'vex_lance', 'vex_saber', 'vex_executor',
+                           'nox_veil', 'nox_umbra', 'nox_eclipse'];
+for (const h of PLAYER_LINE_HULLS) {
+  for (const suf of ['', '_thrust', '_thrust_b', '_fire_laser', '_fire_cannon', '_fire_missile']) {
+    ART_MANIFEST['ship_' + h + suf] = 'sprites/space/ship_' + h + suf + '.png';
+    SPACE_CLAY_KEYS.add('ship_' + h + suf);
+  }
+  for (const suf of ['_beauty', '_hero']) {
+    ART_MANIFEST['ship_' + h + suf] = 'sprites/space/ship_' + h + suf + '.png';
+    STORY_KEYS.add('ship_' + h + suf);
+  }
+}
 // world bodies (pipeline.py `world`): junk, ore rocks, planets, moons
 for (const k of ['junk_can', 'junk_panel', 'junk_crate', 'junk_debris',
                  'asteroid_a', 'asteroid_b', 'asteroid_c', 'asteroid_crystal',
@@ -308,7 +327,10 @@ for (const k of ['junk_can', 'junk_panel', 'junk_crate', 'junk_debris',
 for (const k of ['asteroid_chunk_1', 'asteroid_chunk_2', 'asteroid_chunk_3',
                  'asteroid_chunk_4', 'asteroid_chunk_5', 'asteroid_chunk_6',
                  'wreck_bow', 'wreck_hull', 'wreck_stern', 'wreck_debris',
-                 'alien_body', 'alien_wing', 'alien_glyph', 'alien_conduit'])
+                 'alien_body', 'alien_wing', 'alien_glyph', 'alien_conduit',
+                 // site base emplacements (pipeline.py `sites emplacements`) —
+                 // two looks per weapon, picked off the site hash in sites.js
+                 'emp_laser_a', 'emp_laser_b', 'emp_missile_a', 'emp_missile_b'])
   SPACE_CLAY_KEYS.add(k);
 
 // Fetch-gate the dormant gameplay art: draw()/drawTint() refuse these keys while

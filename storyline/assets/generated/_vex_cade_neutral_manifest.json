@@ -1,0 +1,24 @@
+{
+  "bible": null,
+  "key": "vex_cade_neutral",
+  "faction": "vex",
+  "aspect": "tall",
+  "style": "Graphic-novel illustration, bold inked linework, cel-shaded flats with hard shadow edges, limited palette of crimson red, deep navy and gunmetal slate, dramatic single key light. Painterly sci-fi comic panel. No text, no speech bubbles, no captions, no lettering, no borders, no panel gutters.",
+  "images": [
+    {
+      "file": "vex_cade_neutral_01.png",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral expression, a quiet ship compartment with fleet-issue lockers and dim console glow behind him.",
+      "lock_chars": 233
+    },
+    {
+      "file": "vex_cade_neutral_02.png",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral expression, a quiet ship compartment with fleet-issue lockers and dim console glow behind him.",
+      "lock_chars": 233
+    },
+    {
+      "file": "vex_cade_neutral_03.png",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral expression, a quiet ship compartment with fleet-issue lockers and dim console glow behind him.",
+      "lock_chars": 233
+    }
+  ]
+}

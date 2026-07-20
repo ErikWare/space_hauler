@@ -1,0 +1,188 @@
+{
+  "_readme": [
+    "Asset manifest for the visual-novel layer. Source of truth for what art exists,",
+    "what still needs generating, and the Grok lock/scene prompts to generate it with.",
+    "Generate with: python3 storyline/prompts/generate.py --key <manifest_key> [--n 3]",
+    "Outputs land in storyline/assets/generated/<key>_NN.png — pick a candidate by eye",
+    "(the API has no seed; identical calls give different images), copy the winner to",
+    "sprites/, then update the JS mirror VN_ASSETS in src/game/visual_novel.js.",
+    "Statuses: existing = shipped art, wired into the game today.",
+    "          needs-generation = has prompts below, not yet generated/picked.",
+    "          planned = named but not yet prompted (acts 1-3 will fill these in).",
+    "Portrait rules (from prompts/grok-character-template.md): the lock string is",
+    "pasted byte-identical into every image of that character; variants inherit it",
+    "via lock_from and vary ONLY the scene line. Validate any new lock with 3+",
+    "generations before writing scenes against it."
+  ],
+  "version": 1,
+  "generated_dir": "storyline/assets/generated",
+
+  "portraits": {
+    "krag_voss_neutral": {
+      "status": "existing",
+      "file": "sprites/krag_leader.png",
+      "character": "Dockmaster Voss, Krag Combine (Act 0 job-giver)",
+      "faction": "krag",
+      "note": "Legacy 16:9 title art (has baked-in SPACE HAULER lettering; the game crops it out via zoom/pos in VN_ASSETS). Replace with a generated 3:4 portrait when the lock below is validated.",
+      "lock": "VOSS, a massive male Krag alien dockmaster, broad as a cargo door. Slate-grey ridged skin webbed with fine crimson veins, a hairless domed head, small ember-orange eyes that glow like furnace slag. Heavy armor of pale bone plates strapped over his shoulders and chest with brown leather harness belts and steel buckles. One bone pauldron is cracked clean through and mended with a riveted iron staple. Always wears the harness and bone plate, never a helmet. He carries the patient menace of someone who has already survived everything once.",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral expression, dim industrial dock interior behind him.",
+      "aspect": "tall"
+    },
+    "krag_voss_proud":  { "status": "needs-generation", "fallback": "krag_voss_neutral", "faction": "krag", "lock_from": "krag_voss_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, a slow approving almost-smile, chin raised, dim industrial dock interior behind him.", "aspect": "tall" },
+    "krag_voss_angry":  { "status": "needs-generation", "fallback": "krag_voss_neutral", "faction": "krag", "lock_from": "krag_voss_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, furious snarl, ember eyes flaring bright, dim industrial dock interior behind him.", "aspect": "tall" },
+
+    "krag_reva_neutral": {
+      "status": "needs-generation",
+      "fallback": "krag_voss_neutral",
+      "character": "Reva, Krag companion",
+      "faction": "krag",
+      "lock": "REVA, a woman in her late 30s, weathered face, cropped practical hair with a streak of gray at the temple, mismatched salvager gear with visible repairs, pragmatic expression that defaults to unimpressed.",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral unimpressed expression, cluttered salvage bay with stacked scrap and hanging work lamps behind her.",
+      "aspect": "tall"
+    },
+    "krag_reva_warm":  { "status": "needs-generation", "fallback": "krag_reva_neutral", "faction": "krag", "lock_from": "krag_reva_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, a small reluctant smile she did not plan on giving, caught slightly off guard, cluttered salvage bay with stacked scrap and hanging work lamps behind her.", "aspect": "tall" },
+    "krag_reva_grave": { "status": "needs-generation", "fallback": "krag_reva_neutral", "faction": "krag", "lock_from": "krag_reva_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, grave and hollowed out, gaze lowered, every trace of the unimpressed set gone from her face, cluttered salvage bay with stacked scrap and hanging work lamps behind her.", "aspect": "tall" },
+
+    "vex_kael_neutral": {
+      "status": "existing",
+      "file": "sprites/vex_leader.png",
+      "character": "Adjudicator Kael, Vex Dominion tribunal (Act 0 antagonist-adjacent)",
+      "faction": "vex",
+      "lock": "KAEL, a tall gaunt male Vex adjudicator, a humanoid alien. Smooth ash-grey skin, a high hairless crown, sharp cheekbones, pale silver eyes with no visible pupil. Luminous cobalt-blue circuit-like markings sweep from his temples across his brow and scalp. High-collared black dress uniform with polished chrome shoulder guards and a rigid chrome collar. Always in full uniform, posture perfect. His expression is court-martial calm: severe, precise, faintly disappointed.",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral expression, austere tribunal chamber wall behind him.",
+      "aspect": "tall"
+    },
+    "vex_kael_tense":   { "status": "needs-generation", "fallback": "vex_kael_neutral", "faction": "vex", "lock_from": "vex_kael_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, jaw tight, eyes narrowed in controlled tension, austere tribunal chamber wall behind him.", "aspect": "tall" },
+    "vex_kael_angry":   { "status": "needs-generation", "fallback": "vex_kael_neutral", "faction": "vex", "lock_from": "vex_kael_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, cold fury, brow markings glowing harshly bright, austere tribunal chamber wall behind him.", "aspect": "tall" },
+
+    "vex_dren_neutral": {
+      "status": "existing",
+      "file": "sprites/station_commander.png",
+      "character": "Commodore Dren, Vex Special Directorate (Act 0 recruiter)",
+      "faction": "vex",
+      "lock": "DREN, a weathered human fleet commodore, mid-fifties, medium build. Short brown hair grey at the temples, warm brown eyes, an easy creased smile that never looks entirely worry-free. Wears a worn navy-blue fleet jacket with tarnished silver star insignia over an olive field shirt, sleeves scuffed, one elbow patched. Always the jacket, never gloves. He has the relaxed confidence of an officer who stopped fearing paperwork decades ago.",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral expression, starship bridge consoles softly lit behind him.",
+      "aspect": "tall"
+    },
+
+    "vex_cade_neutral": {
+      "status": "needs-generation",
+      "fallback": "vex_dren_neutral",
+      "character": "Cade, Vex companion",
+      "faction": "vex",
+      "lock": "CADE, a man in his early 40s, former military bearing that hasn't quite left despite the civilian clothes, short-cropped hair going silver at the sides, faint scar along jawline, expression of someone who still believes in something.",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral expression, a quiet ship compartment with fleet-issue lockers and dim console glow behind him.",
+      "aspect": "tall"
+    },
+    "vex_cade_warm":  { "status": "needs-generation", "fallback": "vex_cade_neutral", "faction": "vex", "lock_from": "vex_cade_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, an open unguarded smile, the old bearing loosening for a moment, a quiet ship compartment with fleet-issue lockers and dim console glow behind him.", "aspect": "tall" },
+    "vex_cade_grave": { "status": "needs-generation", "fallback": "vex_cade_neutral", "faction": "vex", "lock_from": "vex_cade_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, grave and stricken, jaw locked, the belief in his face visibly costing him, a quiet ship compartment with fleet-issue lockers and dim console glow behind him.", "aspect": "tall" },
+
+    "nox_sive_neutral": {
+      "status": "existing",
+      "file": "sprites/nox_leader.png",
+      "character": "Handler Sive, Nox Covenant (Act 0 handler)",
+      "faction": "nox",
+      "lock": "SIVE, an ageless Nox handler of unreadable gender, humanoid silhouette. Skin like translucent frosted glass with faint star-fields drifting beneath the surface, softly glowing violet eyes, a thin knowing smile. Draped in a hooded midnight-black shawl embroidered with iridescent constellation threads and thin violet circuit lines. The hood is always up. Sive radiates courteous, unhurried menace — the patience of something that has already read the ending.",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral expression, dark cryo-bay frost haze behind them.",
+      "aspect": "tall"
+    },
+    "nox_sive_pleased": { "status": "needs-generation", "fallback": "nox_sive_neutral", "faction": "nox", "lock_from": "nox_sive_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, the thin smile widened a fraction too far, violet eyes brightening, dark cryo-bay frost haze behind them.", "aspect": "tall" },
+
+    "nox_lira_neutral": {
+      "status": "needs-generation",
+      "fallback": "nox_sive_neutral",
+      "character": "Lira, Nox companion",
+      "faction": "nox",
+      "note": "Lock v2. v1 said 'Nox administrative insignia' and 8 of 9 candidates baked a legible 'NOX' word-badge onto her chest, which the shared STYLE block explicitly forbids. Describing the insignia as a wordless geometric sigil is what fixed it — keep it that way.",
+      "lock": "LIRA, a woman in her mid-30s, precise and composed, dark hair pulled back efficiently, a small wordless Nox administrative sigil — a plain geometric violet chevron bearing no letters, words or writing of any kind — half hidden beneath the lapel of a plain civilian jacket, expression of someone taking extremely careful mental notes.",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral composed expression, a dim Nox administrative alcove with thin violet data-light tracing the wall behind her.",
+      "aspect": "tall"
+    },
+    "nox_lira_warm":  { "status": "needs-generation", "fallback": "nox_lira_neutral", "faction": "nox", "lock_from": "nox_lira_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, a brief genuine smile that arrives before she can file it away, a dim Nox administrative alcove with thin violet data-light tracing the wall behind her.", "aspect": "tall" },
+    "nox_lira_grave": { "status": "needs-generation", "fallback": "nox_lira_neutral", "faction": "nox", "lock_from": "nox_lira_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, grave and very still, composure held together by effort alone, a dim Nox administrative alcove with thin violet data-light tracing the wall behind her.", "aspect": "tall" },
+
+    "player_hauler_neutral": {
+      "status": "existing",
+      "file": "sprites/commander_portrait.png",
+      "character": "The protagonist hauler (all three factions, second-person scenes)",
+      "faction": "krag",
+      "lock": "The HAULER, a rugged human pilot, early fifties, square-jawed. Short grey-brown hair, pale blue eyes, old thin white scar lines raked across one cheek and brow. Wears a patched olive-drab pressure suit with a chest harness and mission patches on the shoulders, and carries a scuffed white flight helmet under one arm. Weathered, unglamorous, quietly stubborn — a survivor who keeps hauling.",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral expression, scuffed station corridor behind them.",
+      "aspect": "tall"
+    },
+    "player_hauler_weary": { "status": "needs-generation", "fallback": "player_hauler_neutral", "faction": "krag", "lock_from": "player_hauler_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, exhausted thousand-yard stare, shoulders slumped, scuffed station corridor behind them.", "aspect": "tall" },
+
+    "vex_dren_grim": { "status": "needs-generation", "fallback": "vex_dren_neutral", "faction": "vex", "lock_from": "vex_dren_neutral", "scene": "Chest-up portrait, facing the viewer three-quarters, the easy smile entirely gone, mouth set, eyes tired and level, starship bridge consoles softly lit behind him.", "aspect": "tall", "note": "Act 1 vex_a1_06 — Dren reading the picket log." },
+
+    "explosion_debris_portrait": {
+      "status": "needs-generation", "fallback": "player_hauler_neutral", "faction": "krag", "aspect": "tall",
+      "note": "Explosion set — reaction shot. Standalone lock, NOT lock_from player_hauler_neutral: written as a generic battered pilot rather than the Act 0 protagonist. Switch to lock_from if this should be the same person.",
+      "lock": "A battered space hauler pilot just after their ship took damage. Helmet visor cracked, soot on face.",
+      "scene": "Close portrait, emergency light casting dramatic red glow, expression of grim determination mixed with shock. 3:4 portrait card, painterly space-opera art style, dark moody lighting."
+    }
+  },
+
+  "backgrounds": {
+    "bg_space_contested": { "status": "existing", "file": "sprites/opening_scene.png", "note": "Derelict freighter in an asteroid field — Act 0 contested-space scenes (krag/vex)." },
+    "bg_vex_convoy":      { "status": "existing", "file": "sprites/victory_scene.png", "note": "Massed fleet over the sun — Vex convoy splash." },
+    "bg_krag_dock": {
+      "status": "needs-generation", "fallback": "sprites/station_krag.png", "faction": "krag", "aspect": "wide",
+      "scene": "Interior of a Krag Combine docking bay at night: a battered cargo tug on landing struts venting steam, rust-orange work lamps, chain hoists and ore crates, soot-stained bulkheads, no people."
+    },
+    "bg_vex_tribunal": {
+      "status": "needs-generation", "fallback": "sprites/station_vex.png", "faction": "vex", "aspect": "wide",
+      "scene": "Interior of a Vex Dominion tribunal chamber: a severe raised judgment bench of dark metal, tall crimson banners hanging precise as blades, a single harsh spotlight on an empty floor circle, no people."
+    },
+    "bg_vex_hangar": {
+      "status": "needs-generation", "fallback": "sprites/station_vex.png", "faction": "vex", "aspect": "wide",
+      "scene": "Interior of a Vex Dominion military hangar: one small civilian-tagged tug parked alone in a vast disciplined launch bay, red guide lights on the deck, gantries in shadow, no people."
+    },
+    "bg_nox_cryo": {
+      "status": "needs-generation", "fallback": "sprites/nebula_blue.png", "faction": "nox", "aspect": "wide",
+      "scene": "Interior of a Nox Covenant cryo-bay: an open cryo pod leaking cold vapor, ranks of sealed pods receding into darkness, thin violet light tracing the walls like circuitry, frost on black glass, no people."
+    },
+    "bg_krag_relay": {
+      "status": "needs-generation", "fallback": "bg_space_contested", "faction": "krag", "aspect": "wide",
+      "note": "Act 1 krag_a1_04..06 — the Ember Gate relay, unattended and badly lit.",
+      "scene": "Exterior of a small unmanned deep-space relay station: a rusted lattice mast with a single dish, one amber warning lamp, no windows lit, drifting against a dark starfield with a debris halo, no people."
+    },
+    "bg_vex_picket": {
+      "status": "needs-generation", "fallback": "bg_space_contested", "faction": "vex", "aspect": "wide",
+      "note": "Act 1 vex_a1_03..06 — the border picket line, seen from the cockpit side.",
+      "scene": "Exterior view along a military picket line in space: three disciplined Dominion patrol craft holding formation against an empty starfield, red running lights, a distant border beacon marking the boundary, no people."
+    },
+    "bg_nox_deepdark": {
+      "status": "needs-generation", "fallback": "bg_nox_cryo", "faction": "nox", "aspect": "wide",
+      "note": "Act 1 nox_a1_02..04 — past the last charted beacon; the errand's long leg.",
+      "scene": "Exterior of an unlit mooring spar of dark metal far out in empty space, no lights and no markings, a small tug sealed against it, deep violet nebula haze behind, overwhelming emptiness, no people."
+    },
+    "explosion_debris_field": {
+      "status": "needs-generation", "fallback": "bg_space_contested", "faction": "krag", "aspect": "wide",
+      "note": "Explosion set — the aftermath wide shot.",
+      "scene": "Deep space debris field after a freighter explosion, 5-minute OHLCV trading game art style. Glowing hull fragments tumbling in slow motion, emergency beacon lights blinking amber, gas venting in iridescent plumes against star-field. Widescreen 16:9 cinematic background, painterly space-opera aesthetic, dark moody palette with warm orange-red fire glow."
+    },
+    "explosion_cockpit_impact": {
+      "status": "needs-generation", "fallback": "bg_space_contested", "faction": "krag", "aspect": "wide",
+      "note": "Explosion set — the moment of impact, from inside.",
+      "scene": "Interior cockpit view during ship impact, trading freighter game visual novel scene. Warning lights flooding the cabin red, cracked viewport showing fireball outside, dust and sparks, pilot gripping controls, cinematic widescreen 16:9. Dark space-opera palette, painterly style, high emotional tension."
+    },
+    "explosion_silent_wreck": {
+      "status": "needs-generation", "fallback": "bg_space_contested", "faction": "nox", "aspect": "wide",
+      "note": "Explosion set — the cold aftermath. Nox palette chosen for the blue-black/violet cast the prompt asks for.",
+      "scene": "Silent wreck of a small freighter tumbling in deep space, no fire left — just cold metal and stars. Bodies of cargo containers drifting apart. Haunting, quiet, cinematic 16:9 background. Dark blue-black space palette, painterly style — the emotional aftermath, not the explosion."
+    }
+  },
+
+  "splashes": {
+    "_note": "Bespoke full-bleed panels for key dramatic moments (~10 per faction across acts 1-3). Named here as they are planned; each gets faction, aspect: wide, and a scene prompt when its act is written.",
+    "krag_splash_moons_debt":   { "status": "needs-generation", "fallback": "bg_krag_dock", "faction": "krag", "aspect": "wide", "moment": "Act 1 close (krag_a1_09) — the strip-mined moons revealed as chewed bones over the homeworld.",
+      "scene": "Wide view from low orbit: three moons strip-mined down to the mantle, terraced in vast concentric cuts like chewed bone, hanging over the curve of an industrial homeworld, a small cargo tug silhouetted tiny against them, no people." },
+    "krag_splash_forged_fear":  { "status": "planned", "faction": "krag", "moment": "Act 3 — the forged Vex-invasion intel that justified strip-mining, on the original screen it was faked on." },
+    "vex_splash_nine_seconds":  { "status": "needs-generation", "fallback": "bg_vex_convoy", "faction": "vex", "aspect": "wide", "moment": "Act 1 flashback (vex_a1_04) — convoy VD-77 dying in nine seconds.",
+      "scene": "Wide view of a civilian convoy caught mid-destruction: eleven ships in a ragged line, the lead hulls already blooming into silent fire, lance beams cutting across the formation from off-frame, debris fanning outward, no people." },
+    "vex_splash_order_breaks":  { "status": "planned", "faction": "vex",  "moment": "Act 3 — the tribunal bay empty, banners burning." },
+    "nox_splash_patient_answer":{ "status": "needs-generation", "fallback": "bg_nox_cryo", "faction": "nox", "aspect": "wide", "moment": "Act 1 close (nox_a1_08) — the Patient Answer adrift in the outer dark, pods glowing.",
+      "scene": "Wide view of an enormous dark Covenant vessel running unlit through deep space, its flank lined with rank upon rank of softly glowing violet cryo-pod windows receding into the distance further than the light reaches, a tiny tug silhouetted against it for scale, no people." },
+    "nox_splash_the_experiment":{ "status": "planned", "faction": "nox",  "moment": "Act 3 — the war seen from above, as a ledger." }
+  }
+}

@@ -96,7 +96,6 @@ Object.assign(GAME, {
     // instant full repair on docking — station crew patches the ship
     s.hp.shield = s.hp.shieldMax; s.hp.armor = s.hp.armorMax; s.hp.hull = s.hp.hullMax;
     s.fuel = s.fuelMax;
-    this._loSyncActiveIdx();
     this._openTab("loadout");
     AUDIO.play("dock");
   },
@@ -115,7 +114,6 @@ Object.assign(GAME, {
     // instant full repair on docking — outpost crew patches the ship
     s.hp.shield = s.hp.shieldMax; s.hp.armor = s.hp.armorMax; s.hp.hull = s.hp.hullMax;
     s.fuel = s.fuelMax;
-    this._loSyncActiveIdx();
     this._openTab("loadout");
     AUDIO.play("dock");
   },
@@ -257,14 +255,6 @@ Object.assign(GAME, {
     if (!pages.length) return null;
     ui.idx = ((ui.idx % pages.length) + pages.length) % pages.length;
     return pages[ui.idx];
-  },
-  // reset the carousel to the ship the player is actually flying — called on
-  // dock so the loadout screen doesn't show a stale scroll position (e.g. the
-  // starter ship) after switching/upgrading the active ship elsewhere
-  _loSyncActiveIdx() {
-    const s = this.state, pages = this._loPages();
-    const idx = pages.findIndex(p => p.kind === "ship" && p.ship.id === s.activeShipId);
-    this._loUI = { idx: idx >= 0 ? idx : 0 };
   },
   // stat block for a ship page — live derived for the active ship, a stateless
   // applyItemsToStats pass for everything else (never touches the rack)
@@ -759,9 +749,13 @@ Object.assign(GAME, {
     g.beginPath(); g.arc(cx, cy, W * 0.30, 0, TAU); g.stroke();
     g.setLineDash([]);
     if (page.kind === "ship") {
-      // glamour banner (menu hero shot) for the current hull; baked sprite otherwise
+      // Use the same clay top-down hull art the ship actually flies with
+      // (ship_<hull>), not the superseded side-view "_menu" hero shots — the
+      // loadout was showing the old art for an upgraded hull. Nose-right at
+      // rot=0 like the flight draw; 0.80 spans the cradle ring (the clay PNGs
+      // are tightly cropped, where the old 1280×720 heroes had padding).
       const hull = (page.ship && page.ship.hullKey) || "vulture";
-      if (!ART.draw(g, "ship_" + hull + "_menu", cx, cy, W * 0.94, 0))
+      if (!ART.draw(g, "ship_" + hull, cx, cy, W * 0.80, 0))
         SPRITES.draw(g, "ship", cx, cy, 2.6, -Math.PI / 2);
     } else {
       SPRITES.draw(g, "drone", cx, cy, 2.6, -Math.PI / 2);
@@ -916,13 +910,7 @@ Object.assign(GAME, {
       note.textContent = "cargo empty";
       lo.inv.appendChild(note);
     }
-    const TIER_RANK = { elite: 3, unique: 2, rare: 1, normal: 0 };
-    const invDisplay = s.inventory.map((item, idx) => ({ item, idx })).sort((a, b) => {
-      const tDiff = (TIER_RANK[b.item.tier] || 0) - (TIER_RANK[a.item.tier] || 0);
-      if (tDiff !== 0) return tDiff;
-      return this._invStrength(b.item) - this._invStrength(a.item);
-    });
-    invDisplay.forEach(({ item, idx }) => {
+    this._invSortedForDisplay().forEach(({ item, idx }) => {
       const tile = document.createElement("div"); tile.className = "ghTile"; tile.dataset.inv = String(idx);
       const badge = this._ghBadgeEl(item);
       badge.style.width = "30px"; badge.style.height = "30px"; badge.style.fontSize = "12px"; badge.style.borderRadius = "8px";
@@ -934,6 +922,19 @@ Object.assign(GAME, {
       tile.appendChild(nm);
       tile.style.borderColor = GH_RARITY[item.tier] || "#223047";
       lo.inv.appendChild(tile);
+    });
+  },
+
+  // Cargo display order, shared by every panel that grids the hold (LOADOUT,
+  // FORTIFY): best first — rarity tier, then raw strength within a tier. Returns
+  // {item, idx} pairs carrying the ORIGINAL s.inventory index, because every
+  // tap/drag handler keys off tile.dataset.inv to find the item again.
+  _invSortedForDisplay() {
+    const TIER_RANK = { elite: 3, unique: 2, rare: 1, normal: 0 };
+    return this.state.inventory.map((item, idx) => ({ item, idx })).sort((a, b) => {
+      const tDiff = (TIER_RANK[b.item.tier] || 0) - (TIER_RANK[a.item.tier] || 0);
+      if (tDiff !== 0) return tDiff;
+      return this._invStrength(b.item) - this._invStrength(a.item);
     });
   },
 
@@ -1528,7 +1529,7 @@ Object.assign(GAME, {
       note.textContent = "cargo empty";
       sd.cargo.appendChild(note);
     }
-    s.inventory.forEach((item, idx) => {
+    this._invSortedForDisplay().forEach(({ item, idx }) => {
       const tile = document.createElement("div"); tile.className = "ghTile"; tile.dataset.cargoIdx = String(idx);
       const badge = this._ghBadgeEl(item);
       badge.style.width = "30px"; badge.style.height = "30px"; badge.style.fontSize = "12px"; badge.style.borderRadius = "8px";
@@ -1962,7 +1963,7 @@ Object.assign(GAME, {
       note.textContent = "cargo empty — buy or salvage modules to fortify";
       fo.inv.appendChild(note);
     }
-    s.inventory.forEach((item, idx) => {
+    this._invSortedForDisplay().forEach(({ item, idx }) => {
       const tile = document.createElement("div"); tile.className = "ghTile"; tile.dataset.inv = String(idx);
       const badge = this._ghBadgeEl(item);
       badge.style.width = "30px"; badge.style.height = "30px"; badge.style.fontSize = "12px"; badge.style.borderRadius = "8px";

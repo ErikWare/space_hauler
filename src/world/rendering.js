@@ -586,8 +586,19 @@ Object.assign(GAME, {
       // Clay hulls are top-down nose-right (not the old side-view art), so no
       // upright flip; width steps up per hull so the progression reads in flight.
       const hullKey = (this.activeShip() && this.activeShip().hullKey) || "vulture";
-      const hullW = { vulture: 5.0, atlas: 6.0, aegis: 6.8 }[hullKey] || 5.4;
-      if (!ART.draw(g, "ship_" + hullKey, shipS.x, shipS.y, CONFIG.shipR * hullW * z, s.heading))
+      const hullW = { vulture: 5.0, atlas: 6.0, aegis: 6.8,
+                      krag_ironclad: 6.6, krag_warbarge: 7.6, krag_dreadnought: 8.8,
+                      vex_lance: 6.8, vex_saber: 7.8, vex_executor: 9.0,
+                      nox_veil: 7.8, nox_umbra: 9.0, nox_eclipse: 10.4 }[hullKey] || 5.4;
+      // Faction-line hulls carry real animation frames (pipeline.py playerlines,
+      // frame-registered so the hull never jumps): a muzzle-flash frame per
+      // weapon type while fireAnimT runs, else a 2-frame engine burn while
+      // thrusting. Frames that didn't ship fall back to the idle sprite.
+      let frame = "";
+      if ((s.fireAnimT || 0) > 0 && s.fireAnimType) frame = "_fire_" + s.fireAnimType;
+      else if (s.thrusting) frame = ((s.t * 9 | 0) % 2) ? "_thrust_b" : "_thrust";
+      if (frame && !ART.get("ship_" + hullKey + frame)) frame = "";
+      if (!ART.draw(g, "ship_" + hullKey + frame, shipS.x, shipS.y, CONFIG.shipR * hullW * z, s.heading))
         SPRITES.draw(g, "ship", shipS.x, shipS.y, 0.68 * z, s.heading);   // procedural fallback (headless / pre-load)
       g.globalAlpha = 1;
       if (s.hp.shield > 0 && s.hp.shieldMax > 0) {

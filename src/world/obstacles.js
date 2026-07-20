@@ -69,9 +69,10 @@ Object.assign(GAME, {
       const dx = o.x - s.x, dy = o.y - s.y, reach = o.r + near;
       if (dx * dx + dy * dy > reach * reach) continue;                 // far: skip collision
       const impact = Math.hypot(s.vx - o.vx, s.vy - o.vy);            // closing speed BEFORE resolution
-      if (this.circleHit(s, CONFIG.shipR, CONFIG.shipMass, o, o.r, o.mass)) {
+      if (this.circleHit(s, CONFIG.shipR, this.shipMass(), o, o.r, o.mass)) {
         if (s.invuln <= 0 && !s.atStation && impact > CONFIG.obstacleRamMinSpeed) {
-          this.damageShip(Math.min(CONFIG.obstacleRamMax, CONFIG.obstacleRamDmg + impact * CONFIG.obstacleRamSpeedK));
+          // heavy hulls take reduced terrain-ram damage (still never zero — these are planetoids)
+          this.damageShip(Math.max(1, Math.min(CONFIG.obstacleRamMax, CONFIG.obstacleRamDmg + impact * CONFIG.obstacleRamSpeedK) * this.shipRamMult(3)));
           sfx("crunch");
         }
       }

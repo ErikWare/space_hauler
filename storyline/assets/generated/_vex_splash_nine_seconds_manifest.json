@@ -1,0 +1,19 @@
+{
+  "bible": null,
+  "key": "vex_splash_nine_seconds",
+  "faction": "vex",
+  "aspect": "wide",
+  "style": "Graphic-novel illustration, bold inked linework, cel-shaded flats with hard shadow edges, limited palette of crimson red, deep navy and gunmetal slate, dramatic single key light. Painterly sci-fi comic panel. No text, no speech bubbles, no captions, no lettering, no borders, no panel gutters.",
+  "images": [
+    {
+      "file": "vex_splash_nine_seconds_02.png",
+      "scene": "Wide view of a civilian convoy caught mid-destruction: eleven ships in a ragged line, the lead hulls already blooming into silent fire, lance beams cutting across the formation from off-frame, debris fanning outward, no people.",
+      "lock_chars": 0
+    },
+    {
+      "file": "vex_splash_nine_seconds_03.png",
+      "scene": "Wide view of a civilian convoy caught mid-destruction: eleven ships in a ragged line, the lead hulls already blooming into silent fire, lance beams cutting across the formation from off-frame, debris fanning outward, no people.",
+      "lock_chars": 0
+    }
+  ]
+}

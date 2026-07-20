@@ -35,9 +35,22 @@ const CONFIG = {
   // hulls sell for credits at the station SHIPS market (buyShipUpgrade) and
   // are progression-gated: unlock = cumulative outpost captures OR the highest
   // danger wedge the pilot has ever flown into (either condition suffices).
+  // Four LINES (shipLines below drives the SHIPS market carousel grouping):
+  //   hauler — the freighter-tug progression (starter line, credits only)
+  //   krag   — LOW-output faction yard: battlecruisers. Brawler playstyle —
+  //            thick armor, huge mass (plows rocks aside), ram-forward, cheap.
+  //   vex    — MEDIUM-output faction yard: destroyers. Gun-platform playstyle —
+  //            speed, weapon damage + fire rate, thinner plate.
+  //   nox    — HIGH-output faction yard: carriers. Fleet-command playstyle —
+  //            escortSlots raises the drone escort wing cap (base 3, top 6 =
+  //            the whole hangar), big shields/scan, heaviest mass in the game.
+  // baseShip.mass feeds the ship↔rock/junk/obstacle collision impulse
+  // (physics.circleHit) AND scales ram damage down — heavy hulls shrug off
+  // the debris they shove aside. Faction hulls price in EXOTIC ORE
+  // (cost.ore, deducted from s.ore holdings) on top of credits.
   hulls: {
     vulture: {
-      name: "Vulture Tug", tier: "STARTER",
+      name: "Vulture Tug", tier: "STARTER", line: "hauler",
       desc: "starter hauler — light, thirsty-cheap, and honest about both",
       cost: null, baseTows: 3,
       baseShip: {
@@ -51,10 +64,11 @@ const CONFIG = {
         tractorRange: 600, tractorStr: 1,
         fuelCostK: 1,
         weaponDmg: 10, fireRate: 1, weaponRange: 0,
+        mass: 2,
       },
     },
     atlas: {
-      name: "Atlas Freighter", tier: "MID-TIER",
+      name: "Atlas Freighter", tier: "MID-TIER", line: "hauler",
       desc: "heavy industry hull — big tanks, big tows, forgives your mistakes",
       cost: { credits: 50000 }, baseTows: 4,
       unlock: { outposts: 3, danger: 4 },
@@ -69,10 +83,11 @@ const CONFIG = {
         tractorRange: 700, tractorStr: 1.4,
         fuelCostK: 1,
         weaponDmg: 10, fireRate: 1,
+        mass: 3,
       },
     },
     aegis: {
-      name: "Aegis Warhauler", tier: "HEAVY",
+      name: "Aegis Warhauler", tier: "HEAVY", line: "hauler",
       desc: "combat hull — hard shell, hot guns, null-sec pedigree",
       cost: { credits: 200000 }, baseTows: 3,
       unlock: { outposts: 10, danger: 7 },
@@ -87,8 +102,194 @@ const CONFIG = {
         tractorRange: 600, tractorStr: 1.2,
         fuelCostK: 1,
         weaponDmg: 13, fireRate: 1,
+        mass: 3.5,
       },
     },
+    // ---- KRAG battlecruisers (low-tier yard · armor brawlers) ----
+    krag_ironclad: {
+      name: "Krag Ironclad", tier: "BC MK I", line: "krag",
+      desc: "riveted rust-iron brawler — all armor, all attitude, shoves rocks like furniture",
+      cost: { credits: 38000 }, baseTows: 3,
+      unlock: { outposts: 2, danger: 3 },
+      baseShip: {
+        shieldMax: 1600, shieldRegen: 70, shieldDelay: 3.2,
+        armorMax: 2400, armorRepair: 0,
+        hullMax: 1500,
+        res: { shield: 0, armor: 0.30, hull: 0 },
+        fuelMax: 1600, solarRegen: 2.2,
+        thrust: 95, turnSpeed: 85,
+        scanRange: 950,
+        tractorRange: 650, tractorStr: 1.2,
+        fuelCostK: 1,
+        weaponDmg: 12, fireRate: 1,
+        mass: 4,
+      },
+    },
+    krag_warbarge: {
+      name: "Krag Warbarge", tier: "BC MK II", line: "krag",
+      desc: "layered plate and salvage cranes — a rolling fortress that hauls on the side",
+      cost: { credits: 125000, ore: { iridium: 4 } }, baseTows: 4,
+      unlock: { outposts: 6, danger: 5 },
+      baseShip: {
+        shieldMax: 2000, shieldRegen: 75, shieldDelay: 3.1,
+        armorMax: 3300, armorRepair: 0,
+        hullMax: 2100,
+        res: { shield: 0, armor: 0.35, hull: 0.05 },
+        fuelMax: 1700, solarRegen: 2.4,
+        thrust: 100, turnSpeed: 90,
+        scanRange: 1000,
+        tractorRange: 700, tractorStr: 1.4,
+        fuelCostK: 1,
+        weaponDmg: 15, fireRate: 1,
+        mass: 6,
+      },
+    },
+    krag_dreadnought: {
+      name: "Krag Dreadnought", tier: "BC MK III", line: "krag",
+      desc: "the fortress that flies — a toothed ram prow and enough plate to ignore the map",
+      cost: { credits: 300000, ore: { iridium: 8, cryonite: 4 } }, baseTows: 5,
+      unlock: { outposts: 12, danger: 7 },
+      baseShip: {
+        shieldMax: 2600, shieldRegen: 85, shieldDelay: 3.0,
+        armorMax: 4500, armorRepair: 2,
+        hullMax: 2800,
+        res: { shield: 0.05, armor: 0.40, hull: 0.10 },
+        fuelMax: 1800, solarRegen: 2.6,
+        thrust: 105, turnSpeed: 95,
+        scanRange: 1050,
+        tractorRange: 750, tractorStr: 1.6,
+        fuelCostK: 1,
+        weaponDmg: 18, fireRate: 1,
+        mass: 8,
+      },
+    },
+    // ---- VEX destroyers (medium-tier yard · gun platforms) ----
+    vex_lance: {
+      name: "Vex Lance", tier: "DD MK I", line: "vex",
+      desc: "knife-blade destroyer — first to the fight, first on the trigger",
+      cost: { credits: 75000 }, baseTows: 3,
+      unlock: { outposts: 4, danger: 4 },
+      baseShip: {
+        shieldMax: 2200, shieldRegen: 85, shieldDelay: 2.8,
+        armorMax: 1600, armorRepair: 0,
+        hullMax: 1300,
+        res: { shield: 0.05, armor: 0.20, hull: 0 },
+        fuelMax: 1500, solarRegen: 2,
+        thrust: 130, turnSpeed: 125,
+        scanRange: 1200,
+        tractorRange: 600, tractorStr: 1,
+        fuelCostK: 1,
+        weaponDmg: 16, fireRate: 1.15,
+        mass: 3.5,
+      },
+    },
+    vex_saber: {
+      name: "Vex Saber", tier: "DD MK II", line: "vex",
+      desc: "twin spinal cannons and no patience — the fleet's favorite executioner's blade",
+      cost: { credits: 250000, ore: { iridium: 6, cryonite: 3 } }, baseTows: 3,
+      unlock: { outposts: 10, danger: 6 },
+      baseShip: {
+        shieldMax: 2900, shieldRegen: 95, shieldDelay: 2.6,
+        armorMax: 2100, armorRepair: 0,
+        hullMax: 1700,
+        res: { shield: 0.10, armor: 0.25, hull: 0 },
+        fuelMax: 1600, solarRegen: 2.2,
+        thrust: 140, turnSpeed: 130,
+        scanRange: 1300,
+        tractorRange: 600, tractorStr: 1.1,
+        fuelCostK: 1,
+        weaponDmg: 20, fireRate: 1.25,
+        mass: 5,
+      },
+    },
+    vex_executor: {
+      name: "Vex Executor", tier: "DD MK III", line: "vex",
+      desc: "a siege cannon with a ship built around it — the argument-ender of the Vex navy",
+      cost: { credits: 600000, ore: { cryonite: 8, solarite: 4 } }, baseTows: 4,
+      unlock: { outposts: 16, danger: 8 },
+      baseShip: {
+        shieldMax: 3800, shieldRegen: 110, shieldDelay: 2.4,
+        armorMax: 2700, armorRepair: 0,
+        hullMax: 2200,
+        res: { shield: 0.15, armor: 0.30, hull: 0.05 },
+        fuelMax: 1700, solarRegen: 2.4,
+        thrust: 150, turnSpeed: 135,
+        scanRange: 1400,
+        tractorRange: 650, tractorStr: 1.2,
+        fuelCostK: 1,
+        weaponDmg: 26, fireRate: 1.35,
+        mass: 7,
+      },
+    },
+    // ---- NOX carriers (high-tier yard · fleet command) ----
+    nox_veil: {
+      name: "Nox Veil", tier: "CV MK I", line: "nox",
+      desc: "escort carrier grown from living crystal — your drones come home to it",
+      cost: { credits: 200000, ore: { iridium: 8 } }, baseTows: 4,
+      escortSlots: 4,
+      unlock: { outposts: 8, danger: 6 },
+      baseShip: {
+        shieldMax: 3200, shieldRegen: 100, shieldDelay: 2.6,
+        armorMax: 2200, armorRepair: 0,
+        hullMax: 2000,
+        res: { shield: 0.10, armor: 0.20, hull: 0 },
+        fuelMax: 1800, solarRegen: 2.8,
+        thrust: 110, turnSpeed: 90,
+        scanRange: 1400,
+        tractorRange: 700, tractorStr: 1.3,
+        fuelCostK: 1,
+        weaponDmg: 15, fireRate: 1,
+        mass: 6,
+      },
+    },
+    nox_umbra: {
+      name: "Nox Umbra", tier: "CV MK II", line: "nox",
+      desc: "twin-deck fleet carrier — a wing of five and sensors that see the whole wedge",
+      cost: { credits: 500000, ore: { solarite: 6, cryonite: 6 } }, baseTows: 5,
+      escortSlots: 5,
+      unlock: { outposts: 14, danger: 8 },
+      baseShip: {
+        shieldMax: 4200, shieldRegen: 120, shieldDelay: 2.4,
+        armorMax: 3000, armorRepair: 0,
+        hullMax: 2600,
+        res: { shield: 0.15, armor: 0.25, hull: 0.05 },
+        fuelMax: 2000, solarRegen: 3.2,
+        thrust: 115, turnSpeed: 95,
+        scanRange: 1600,
+        tractorRange: 750, tractorStr: 1.5,
+        fuelCostK: 1,
+        weaponDmg: 19, fireRate: 1.1,
+        mass: 9,
+      },
+    },
+    nox_eclipse: {
+      name: "Nox Eclipse", tier: "CV MK III", line: "nox",
+      desc: "the cathedral supercarrier — six drones, a full hangar aloft, junk parts before its bow",
+      cost: { credits: 1000000, ore: { voidium: 6, solarite: 8 } }, baseTows: 6,
+      escortSlots: 6,
+      unlock: { outposts: 20, danger: 9 },
+      baseShip: {
+        shieldMax: 5500, shieldRegen: 140, shieldDelay: 2.2,
+        armorMax: 3800, armorRepair: 3,
+        hullMax: 3400,
+        res: { shield: 0.20, armor: 0.30, hull: 0.10 },
+        fuelMax: 2200, solarRegen: 3.6,
+        thrust: 120, turnSpeed: 100,
+        scanRange: 1800,
+        tractorRange: 800, tractorStr: 1.8,
+        fuelCostK: 1,
+        weaponDmg: 24, fireRate: 1.15,
+        mass: 12,
+      },
+    },
+  },
+  // SHIPS-market carousel line order + labels (ships.js). Faction yards are
+  // rated by ship output: krag LOW, vex MEDIUM, nox HIGH.
+  shipLines: {
+    hauler: { name: "Hauler Guild",  sub: "freighter-tug line · the working fleet",           col: "#57d1c9" },
+    krag:   { name: "Krag Foundry",  sub: "LOW-tier yard · battlecruisers — armor & mass",    col: "#ff9a5a" },
+    vex:    { name: "Vex Arsenal",   sub: "MED-tier yard · destroyers — speed & firepower",   col: "#ff6b6b" },
+    nox:    { name: "Nox Grove",     sub: "HIGH-tier yard · carriers — fleet command",        col: "#c9b8ff" },
   },
   // ---- AGE-OF-SAIL combat retune (GAME.tuneCombatCatalog applies these to the
   // shared weapon catalog at load; player AND aliens draw from the same bases so
@@ -318,8 +519,9 @@ const CONFIG = {
   // heavy-body circles so they flank around site chunks instead of grinding into
   // them. Zero footprint when _avoid is unset (all non-site combat unchanged).
   avoidPad: 150,              // avoidance influence reaches this far past a body's surface
-  avoidWeight: 1.5,           // repulsion strength relative to the unit pursuit vector
-  avoidTangent: 0.9,          // sideways bias so head-on approaches curve rather than stall
+  avoidPush: 0.35,            // small outward bias layered on the tangent so hulls aren't grazed
+  guardLoseSightT: 3,         // s a garrison guard may lose sight of the player before giving up
+  guardLoseSightDist: 800,    // ...and only past this range, so hugging a chunk never shakes them
   // ---- site base emplacements (game/sites.js) ---------------------------------
   // A fixed high-damage weapon platform bolted to the centrepiece of the two
   // guarded site themes: alien_derelict → charged laser cannon, shipwreck →
@@ -330,13 +532,19 @@ const CONFIG = {
   // tops out ~2300 u/s, so the torpedo (~40% of that) is escapable by a committed
   // sprint but runs down a maneuvering ship — break it on a chunk instead.
   empThemeWeapon: { alien_derelict: "laser", shipwreck: "missile" },
+  // Rarity gate. MOST guarded sites are just a garrison fleet — a base emplacement
+  // is a depth layer, not the default, so meeting one has to feel like walking
+  // into a stronghold. Odds are indexed by the wedge's danger rating (1-9): the
+  // home wedges never fortify, null-sec often does. Rolled deterministically per
+  // region, so a site's fortification is stable across inits and saves.
+  empChanceByDanger: [0, 0, 0.02, 0.06, 0.12, 0.20, 0.30, 0.44, 0.58, 0.72],
   empHpBase: 560,             // hull pool before danger scaling (×dangerEnemyMult.hp); armor pool = ×0.55
   empRange: 1500,             // player must be within this for the platform to engage
   empRegen: 0,                // no self-repair — damage sticks between visits
   // missile barrage: a cone of dumb-fire missiles, area denial (dodge the gaps)
   empMissileCdMin: 8000, empMissileCdMax: 12000,   // ms between barrages
   empMissileCount: [3, 5],    // missiles per barrage (inclusive range)
-  empMissileSpreadDeg: 34,    // half-angle of the firing cone
+  empMissileSpreadDeg: 18,    // half-angle of the firing cone — tight enough to threaten, gapped enough to weave
   empMissileSpeed: 560,       // medium, clearly dodgeable
   empMissileDmg: 16,          // per hit before danger scaling — moderate
   empMissileLife: 6000,       // ms before a missile fizzles

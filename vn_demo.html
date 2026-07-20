@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>VN Scene Review</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; font-family: 'Courier New', monospace; color: #dce8ff; }
+h1 { text-align: center; padding: 20px; color: #8fd0ff; font-size: 13px; letter-spacing: 3px; text-transform: uppercase; }
+.scenes { display: flex; flex-direction: column; gap: 40px; padding: 20px 40px 60px; }
+.scene-label { font-size: 10px; color: #4a6080; letter-spacing: 2px; margin-bottom: 8px; text-transform: uppercase; }
+
+.vn {
+  position: relative; width: 100%; aspect-ratio: 16/9;
+  overflow: hidden; border: 1px solid #1e2a3a; border-radius: 4px;
+}
+.vn-bg { position: absolute; inset: 0; background-size: cover; background-position: center; }
+.vn:not(.splash)::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to right, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.1) 60%, rgba(0,0,0,0) 100%);
+}
+.vn.splash::after {
+  content: ""; position: absolute; inset: 0; background: rgba(0,0,0,0.52);
+}
+.vn-char {
+  position: absolute; top: 4%; width: 28%; aspect-ratio: 3/4;
+  background-size: cover; border-radius: 6px; border: 2px solid #2a3a52; z-index: 2;
+}
+.vn-char.pos-left  { left: 4%; }
+.vn-char.pos-right { right: 4%; }
+.vn-char.pos-center { left: 50%; transform: translateX(-50%); }
+.vn-box {
+  position: absolute; bottom: 0; left: 0; right: 0; padding: 18px 22px 20px;
+  background: linear-gradient(to top, rgba(4,8,16,0.97) 0%, rgba(4,8,16,0.88) 70%, rgba(4,8,16,0) 100%);
+  z-index: 3; min-height: 28%;
+}
+.vn-speaker {
+  font-size: clamp(10px, 1.4vw, 14px); font-weight: bold;
+  letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; color: #8fd0ff;
+}
+.vn-text {
+  font-size: clamp(11px, 1.5vw, 15px); line-height: 1.6; color: #dce8ff; max-width: 72%;
+}
+.vn-text.narr { font-style: italic; color: #a0b8d0; max-width: 80%; }
+.vn-hint {
+  position: absolute; bottom: 10px; right: 16px; font-size: 10px; color: #4a6080;
+  animation: blink 1.4s ease-in-out infinite; z-index: 4;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+.vn-choices {
+  position: absolute; bottom: 18px; left: 0; right: 0;
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 8px; padding: 0 22px; z-index: 4;
+}
+.vn-choice {
+  background: rgba(8,20,40,0.88); border: 1px solid #2a4a70; border-radius: 4px;
+  color: #8fd0ff; font-family: 'Courier New', monospace;
+  font-size: clamp(10px, 1.3vw, 13px); letter-spacing: 0.5px; padding: 8px 16px; cursor: pointer;
+}
+.vn-skip {
+  position: absolute; top: 10px; right: 14px; font-size: 10px; color: #3a5060;
+  letter-spacing: 1.5px; text-transform: uppercase; z-index: 5;
+  background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 3px; border: 1px solid #1e3040;
+}
+</style>
+</head>
+<body>
+<h1>Space Hauler — Visual Novel Act 0 · Scene Review</h1>
+<div class="scenes">
+
+<div>
+  <div class="scene-label">Krag · Scene 1 — Opening splash narration</div>
+  <div class="vn splash">
+    <div class="vn-bg" style="background-image:url('sprites/opening_scene.png');"></div>
+    <div class="vn-skip">SKIP</div>
+    <div class="vn-box">
+      <div class="vn-speaker"></div>
+      <div class="vn-text narr">The Ember Gate corridor. Contested space — which is the polite word for a graveyard that still shoots back.</div>
+    </div>
+    <div class="vn-hint">▶ tap to advance</div>
+  </div>
+</div>
+
+<div>
+  <div class="scene-label">Krag · Scene 2 — Player voice + choice point</div>
+  <div class="vn splash">
+    <div class="vn-bg" style="background-image:url('sprites/opening_scene.png');"></div>
+    <div class="vn-skip">SKIP</div>
+    <div class="vn-box">
+      <div class="vn-speaker" style="color:#57d1c9;">YOU</div>
+      <div class="vn-text">Come on, old girl. Don't die in the dark.</div>
+    </div>
+    <div class="vn-choices">
+      <button class="vn-choice">Dump the salvage. Run empty, run alive.</button>
+      <button class="vn-choice">Keep the load. Outrun them heavy.</button>
+    </div>
+  </div>
+</div>
+
+<div>
+  <div class="scene-label">Krag · Scene 4 — Player portrait (left), dock arrival</div>
+  <div class="vn">
+    <div class="vn-bg" style="background-image:url('sprites/station_krag.png'); background-position:center 30%;"></div>
+    <div class="vn-char pos-left"
+         style="background-image:url('sprites/commander_portrait.png');
+                background-position:center 8%; background-size:auto 180%;
+                border-color:#57d1c9;
+                box-shadow:0 10px 40px rgba(0,0,0,.65),0 0 26px #57d1c955;">
+    </div>
+    <div class="vn-skip">SKIP</div>
+    <div class="vn-box">
+      <div class="vn-speaker" style="color:#57d1c9;">YOU</div>
+      <div class="vn-text">One more run. There's always one more run.</div>
+    </div>
+    <div class="vn-hint">▶ tap to advance</div>
+  </div>
+</div>
+
+<div>
+  <div class="scene-label">Krag · Scene 5 — Voss portrait (right), first offer</div>
+  <div class="vn">
+    <div class="vn-bg" style="background-image:url('sprites/station_krag.png'); background-position:center 30%;"></div>
+    <div class="vn-char pos-right"
+         style="background-image:url('sprites/krag_leader.png');
+                background-position:center 12%; background-size:auto 230%;
+                border-color:#ffb45e;
+                box-shadow:0 10px 40px rgba(0,0,0,.65),0 0 26px #ffb45e55;">
+    </div>
+    <div class="vn-skip">SKIP</div>
+    <div class="vn-box">
+      <div class="vn-speaker" style="color:#ffb45e;">VOSS</div>
+      <div class="vn-text">We don't waste people who refuse to die. You can haul for us or you can starve at my dock. Same offer I make to everyone worth asking.</div>
+    </div>
+    <div class="vn-hint">▶ tap to advance</div>
+  </div>
+</div>
+
+<div>
+  <div class="scene-label">Nox · Scene 6 — Handler Sive portrait (center), closing offer</div>
+  <div class="vn">
+    <div class="vn-bg" style="background-image:url('sprites/nebula_blue.png');"></div>
+    <div class="vn-char pos-center"
+         style="background-image:url('sprites/nox_leader.png');
+                background-position:32% 8%; background-size:auto 140%;
+                border-color:#b48aff;
+                box-shadow:0 10px 40px rgba(0,0,0,.65),0 0 26px #b48aff55;">
+    </div>
+    <div class="vn-skip">SKIP</div>
+    <div class="vn-box">
+      <div class="vn-speaker" style="color:#b48aff;">SIVE</div>
+      <div class="vn-text">Fly well. We will be watching our investment appreciate.</div>
+    </div>
+    <div class="vn-hint">▶ tap to advance</div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

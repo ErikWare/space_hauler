@@ -1,0 +1,24 @@
+{
+  "bible": null,
+  "key": "explosion_debris_field",
+  "faction": "krag",
+  "aspect": "wide",
+  "style": "Graphic-novel illustration, bold inked linework, cel-shaded flats with hard shadow edges, limited palette of rust orange, soot charcoal and pale amber, dramatic single key light. Painterly sci-fi comic panel. No text, no speech bubbles, no captions, no lettering, no borders, no panel gutters.",
+  "images": [
+    {
+      "file": "explosion_debris_field_01.png",
+      "scene": "Deep space debris field after a freighter explosion, 5-minute OHLCV trading game art style. Glowing hull fragments tumbling in slow motion, emergency beacon lights blinking amber, gas venting in iridescent plumes against star-field. Widescreen 16:9 cinematic background, painterly space-opera aesthetic, dark moody palette with warm orange-red fire glow.",
+      "lock_chars": 0
+    },
+    {
+      "file": "explosion_debris_field_02.png",
+      "scene": "Deep space debris field after a freighter explosion, 5-minute OHLCV trading game art style. Glowing hull fragments tumbling in slow motion, emergency beacon lights blinking amber, gas venting in iridescent plumes against star-field. Widescreen 16:9 cinematic background, painterly space-opera aesthetic, dark moody palette with warm orange-red fire glow.",
+      "lock_chars": 0
+    },
+    {
+      "file": "explosion_debris_field_03.png",
+      "scene": "Deep space debris field after a freighter explosion, 5-minute OHLCV trading game art style. Glowing hull fragments tumbling in slow motion, emergency beacon lights blinking amber, gas venting in iridescent plumes against star-field. Widescreen 16:9 cinematic background, painterly space-opera aesthetic, dark moody palette with warm orange-red fire glow.",
+      "lock_chars": 0
+    }
+  ]
+}

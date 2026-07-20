@@ -47,6 +47,85 @@ const QUEST_GODO = {
   sabotage: { mech: "hold",    tgt: "outpost", r: 260, dur: 2.5 },
   assault:  { mech: "hold",    tgt: "outpost", r: 320, dur: 4, need: true },
 };
+// --- Onboarding ("tutor") quests — the Q1-Q10 ladder in storyline/QUEST_DESIGN.md.
+// Unlike godo/chain/multi these are NEVER generated onto a station board:
+// game/onboarding.js grants them one at a time on a new game. The objective is a
+// plain {need, have} counter fed by a tap in whichever system the quest teaches
+// (questTutorDeposit below, called from economy.js depositTows), so a tutor quest
+// needs no per-frame tick at all — updateQuests' branch chain skips it and the
+// shared "objective done → status ready" check at the bottom picks it up.
+const QUEST_TUTOR = {
+  haul_junk: { need: 10, reward: 150, unit: "junk hauled", title: "SALVAGE PICKUP",
+    desc: "Loose debris drifts all through this sector. Tractor it in and tow it back to the dock — ten pieces.",
+    count: (h) => h.junk },
+  haul_rock: { need: 10, reward: 250, unit: "ore rocks hauled", title: "ORE PICKUP",
+    desc: "Ore rocks this time. Same beam, better cargo — tow ten of them back to the dock.",
+    count: (h) => h.rocks },
+  // Q3-Q6, the graded-ore ladder: same verb four times, escalating tier and pay.
+  // These count by ORE TYPE via hauled.types, so they ignore junk floaters for
+  // free (see QUEST_DESIGN.md §7.3 — `junk` is both an array and an ore type).
+  // The four tiers are exactly DRONES.barTypes, so this ladder also stocks the
+  // hold for Q7's refinery lesson.
+  haul_copper: { need: 3, reward: 350, unit: "copper hauled", title: "GRADED CARGO: COPPER",
+    desc: "Graded ore from here on. Copper is the bottom rung and it is everywhere — tow three copper rocks back to the dock.",
+    count: (h) => h.types && h.types.copper },
+  haul_silver: { need: 3, reward: 500, unit: "silver hauled", title: "GRADED CARGO: SILVER",
+    desc: "Silver sits further out than copper and pays about triple. Three rocks, same beam, longer trip.",
+    count: (h) => h.types && h.types.silver },
+  haul_gold: { need: 3, reward: 700, unit: "gold hauled", title: "GRADED CARGO: GOLD",
+    desc: "Gold rings are rich enough to be worth guarding, and somebody is usually guarding them. Bring three rocks home.",
+    count: (h) => h.types && h.types.gold },
+  haul_platinum: { need: 3, reward: 900, unit: "platinum hauled", title: "GRADED CARGO: PLATINUM",
+    desc: "Platinum is the top of the common ladder and deep enough that the trip out is the dangerous part. Three rocks.",
+    count: (h) => h.types && h.types.platinum },
+  // Q7-Q10 — the operative half of the ladder, opened by the Act 0 promotion.
+  // These are STATE quests, not delivery quests: nothing is towed, so nothing
+  // feeds them through questTutorDeposit. Each declares poll(G, s, q) returning
+  // how many of its `need` conditions hold RIGHT NOW, and _questTutorPoll
+  // mirrors that onto q.have for display/serialization.
+  //
+  // Polled on demand rather than on a tick because every one of them is
+  // satisfied AT A DOCK — setDroneRole refuses to run undocked (fleet.js:59),
+  // the refinery is a dock panel (drones.js:534) — and main.js:306 returns from
+  // update() before updateQuests whenever s.docked. A tick-fed counter would
+  // leave the rung reading IN PROGRESS on the very screen the player finished it
+  // on. questObjectiveDone/questProgressText call the poll instead, which is
+  // exactly what the dock's turn-in button (renderQuestsPanel) already reads.
+  // The refine half is a LATCH (vn.seen.onb_refined, set by the refineAllOre
+  // wrapper in game/onboarding.js), not a "do you hold bars" level — because
+  // building the drone this same rung asks for SPENDS those bars
+  // (drones.js:103). A holdings test would un-complete itself the moment the
+  // player did the other half of their own quest. Bars-on-hand still satisfies
+  // it, so a save that refined before the latch existed is not stranded.
+  refine_drone: { need: 2, reward: 1200, unit: "milestones", title: "BARS AND A WINGMAN",
+    desc: "Raw ore is ballast with a price tag. Run it through the station refinery into bars, and put one drone on your wing while you are docked.",
+    poll: (G, s) => (G._tutorRefined(s) ? 1 : 0) + (G.escorts(s).length >= 1 ? 1 : 0),
+    text: (G, s) => `refine ore ${G._tutorRefined(s) ? "✓" : "✗"} · 1 drone escorting ${G.escorts(s).length >= 1 ? "✓" : "✗"}` },
+  wing_two: { need: 2, reward: 400, unit: "drones escorting", title: "WING OF TWO",
+    desc: "One drone is a spare pair of guns. Two is a wing — build and assign a second escort at any dock.",
+    poll: (G, s) => G.escorts(s).length,
+    text: (G, s) => `${Math.min(2, G.escorts(s).length)}/2 drones escorting (assign at a dock)` },
+  // Baselined against the LIFETIME capture counter (outposts.js:182) rather than
+  // against "do you own one": a player who took an outpost during Q1-Q6 should
+  // still be asked to take one now, and capturedOutpostCount only ever rises, so
+  // the delta cannot be undone by losing the outpost back to its faction.
+  take_outpost: { need: 1, reward: 1500, unit: "outposts taken", title: "TAKE THE OUTPOST",
+    desc: "Find an enemy outpost, clear its garrison, and put your flag on the platform. This is not a haul job.",
+    base: (G, s) => s.capturedOutpostCount || 0,
+    poll: (G, s, q) => (s.capturedOutpostCount || 0) - (q.base || 0),
+    text: (G, s, q) => ((s.capturedOutpostCount || 0) - (q.base || 0) >= 1
+      ? "outpost taken" : "no outpost taken yet — clear a garrison and hold the platform") },
+  garrison_outpost: { need: 1, reward: 500, unit: "outposts garrisoned", title: "MAKE IT WORK FOR YOU",
+    desc: "An outpost you cannot hold is a gift to whoever comes next. Station a drone on the platform you took.",
+    poll: (G, s) => ((s.outposts || []).some(o => o.owner === "player"
+      && o.stationedDrones && o.stationedDrones.length >= 1) ? 1 : 0),
+    text: (G, s) => {
+      const o = (s.outposts || []).find(x => x.owner === "player");
+      if (!o) return "no outpost held";
+      const n = (o.stationedDrones || []).length;
+      return `${Math.min(1, n)}/1 drone stationed (tap the outpost to assign)`;
+    } },
+};
 const QUEST_RMULT = {   // reward multipliers — riskier shapes pay more
   extract: 1.15, escort: 1.2, salvage: 1.15, blackbox: 1.35, rescue: 1.35,
   sensor: 1.1, bounty: 1.3, sabotage: 1.25, assault: 1.4,
@@ -205,6 +284,66 @@ Object.assign(GAME, {
     q.description = c.desc(where, lbl);
   },
 
+  // ---- onboarding (tutor) quests -----------------------------------------
+  // Built on demand by game/onboarding.js, not by generateStationQuests. Shape
+  // matches the generated quests field-for-field so every downstream consumer
+  // (log DOM, waypoint, save) treats it as an ordinary held quest.
+  makeTutorQuest(key, station) {
+    const spec = QUEST_TUTOR[key]; if (!spec || !station) return null;
+    const s = this.state;
+    const terr = politicalRegionAt(station.pos.x, station.pos.y);
+    return { id: s.nextQuestId++, kind: "tutor", action: key,
+      stationId: station.id, territory: terr ? terr.name : "",
+      title: spec.title, description: spec.desc, difficulty: 1, reward: spec.reward,
+      regionId: null, siteId: null, outpostId: null, tiers: null, nodes: null,
+      scanT: 0, collected: false, holdT: 0, holdR: null, holdDur: null, needClear: false,
+      need: spec.need, have: 0,
+      // Snapshot for the state rungs that measure a DELTA rather than a level
+      // (Q9 off the lifetime capture counter). Serialized, so the snapshot a
+      // rung was issued against survives a reload.
+      base: spec.base ? spec.base(this, s) | 0 : 0,
+      boosts: {}, status: "offer" };
+  },
+  // Total refined bars on hand, across every bar type (drones.js DRONES.barTypes
+  // is the authority on which ores refine) — Q7's "you have used the refinery" test.
+  _tutorBarsHeld(s) {
+    const bars = (s || this.state).refinedBars || {};
+    let n = 0;
+    for (const k in bars) n += bars[k] | 0;
+    return n;
+  },
+  // "Has this save ever used the refinery?" — the latch set by onboarding.js's
+  // refineAllOre wrapper, or bars simply on hand right now.
+  _tutorRefined(s) {
+    return !!(this._vnSave().seen.onb_refined) || this._tutorBarsHeld(s) > 0;
+  },
+  // Refresh a STATE rung's counter from live state. q.have is a display mirror
+  // for these (the world is the truth), so this is called from
+  // questObjectiveDone/questProgressText rather than from a tick — see the
+  // QUEST_TUTOR Q7-Q10 note on why a tick would read stale at a dock.
+  _questTutorPoll(q) {
+    const spec = QUEST_TUTOR[q.action];
+    if (!spec || !spec.poll) return q.have || 0;
+    q.have = Math.max(0, Math.min(q.need, spec.poll(this, this.state, q) | 0));
+    return q.have;
+  },
+  // Delivery tap — economy.js depositTows hands over what just left the tow
+  // chain as {junk, rocks, types:{<oreType>:n}}. Every held tutor quest whose
+  // spec counts some of it advances; nothing else in the log is touched.
+  // State rungs (Q7-Q10) carry no `count` and are skipped: they are polled.
+  questTutorDeposit(hauled) {
+    const s = this.state;
+    if (!s.quests || !hauled) return;
+    for (const q of s.quests) {
+      if (q.kind !== "tutor" || (q.have || 0) >= q.need) continue;
+      const spec = QUEST_TUTOR[q.action]; if (!spec || !spec.count) continue;
+      const n = spec.count(hauled) | 0;
+      if (n <= 0) continue;
+      q.have = Math.min(q.need, (q.have || 0) + n);
+      toast(`⊚ ${q.have}/${q.need} ${spec.unit}`, "#57e6ff");
+    }
+  },
+
   // ---- lookups ------------------------------------------------------------
   activeQuest() {
     const s = this.state;
@@ -286,6 +425,11 @@ Object.assign(GAME, {
     return n;
   },
   questObjectiveDone(q) {
+    if (q.kind === "tutor") {
+      const sp = QUEST_TUTOR[q.action];
+      if (sp && sp.poll) return this._questTutorPoll(q) >= q.need;
+      return (q.have || 0) >= q.need;
+    }
     if (q.kind === "chain") return q.tiers.every(t => t.done);
     if (q.kind === "multi") return q.nodes.every(n => n.done);
     if (q.action === "scan") return q.scanT >= QUESTS.scanHold;
@@ -300,6 +444,14 @@ Object.assign(GAME, {
     return false;
   },
   questProgressText(q) {
+    if (q.kind === "tutor") {
+      const sp = QUEST_TUTOR[q.action];
+      if (sp && sp.poll) {
+        this._questTutorPoll(q);
+        if (sp.text) return sp.text(this, this.state, q);
+      }
+      return `${q.have || 0}/${q.need} ${sp ? sp.unit : "collected"}`;
+    }
     if (q.kind === "chain") return `${q.tiers.filter(t => t.done).length}/${q.tiers.length} sensors placed`;
     if (q.kind === "multi") return `${q.nodes.filter(n => n.done).length}/${q.nodes.length} objectives done`;
     if (q.action === "scan") return `scan ${Math.round(Math.min(1, q.scanT / QUESTS.scanHold) * 100)}%`;
@@ -317,7 +469,7 @@ Object.assign(GAME, {
   // where the nav waypoint should aim: the next objective, or home when ready
   _questObjectivePoint(q) {
     const s = this.state;
-    if (this.questObjectiveDone(q)) {
+    if (q.kind === "tutor" || this.questObjectiveDone(q)) {
       const st = this._questStation(q);
       return st ? { x: st.pos.x, y: st.pos.y } : null;
     }
@@ -384,6 +536,13 @@ Object.assign(GAME, {
     this.gainRep("delivery");
     toast(`+${q.reward}cr — ${q.title}`, "#ffd24a"); sfx("sell");
     this.checkWin();
+    // onboarding ladder: hand over the next step (game/onboarding.js). Soft hook
+    // so quests.js stays loadable without the onboarding module.
+    if (q.kind === "tutor" && this.onboardQuestTurnedIn) this.onboardQuestTurnedIn(q);
+    // story quest chain: advance companion beats + grant next mission (game/story_quests.js).
+    if (q.kind === "story" && this.storyQuestTurnedIn) this.storyQuestTurnedIn(q);
+    // mercenary contract pool: mark spec complete + refresh next dock (game/merc_quests.js).
+    if (q.kind === "merc" && this.mercQuestTurnedIn) this.mercQuestTurnedIn(q);
     return true;
   },
   setActiveQuest(id) {   // null untracks; the sync below re-aims (or clears) the waypoint
@@ -480,8 +639,8 @@ Object.assign(GAME, {
       if (o && o.owner !== "player") out.push({ regionId: o.regionId, x: o.x, y: o.y,
         groupId: o.id, faction: o.faction, tier: "normal" });
     };
-    if (q.kind === "godo" && q.siteId) addSite(q.siteId);
-    if (q.kind === "godo" && q.outpostId) addOutpost(this.outpostById(q.outpostId));
+    if ((q.kind === "godo" || q.kind === "story") && q.siteId) addSite(q.siteId);
+    if ((q.kind === "godo" || q.kind === "story") && q.outpostId) addOutpost(this.outpostById(q.outpostId));
     if (q.kind === "multi" && q.siteId && !q.nodes.every(n => n.done)) addSite(q.siteId);
     if (q.kind === "chain") for (const t of q.tiers) {
       if (t.done) continue;
@@ -613,6 +772,49 @@ Object.assign(GAME, {
     }
   },
 
+  // ---- HUD: active-quest tracker (top-right, under the contract box) ------
+  // The quest layer's only always-on readout. Everything else it shows is
+  // world-space (drawQuestWorld's reticles, which need the objective on screen)
+  // or dock-only (renderQuestsPanel), so without this the player's progress
+  // lives entirely in transient toasts — a reload, or one missed toast, leaves
+  // a tutor rung looking like it never counted. Shares the top-right column
+  // with drawContractHUD, so it drops a row when a contract is also running.
+  drawQuestHUD(g) {
+    if (HEADLESS) return;
+    const s = this.state, q = this.activeQuest();
+    if (!q || s.docked) return;
+    const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
+    const w = 158 * k, h = 34 * k, x = CONFIG.W - 12 * k - w;
+    const y = (s.contracts && s.contracts[0] ? 232 : 192) * k;   // stack under the contract box
+    const ready = this.questObjectiveDone(q);
+    const st = this._questStation(q);
+    // Fit to the BOX, not to a character count: station names and progress copy
+    // vary wildly in length, and k shrinks the font on narrow canvases, so a
+    // fixed slice(0,24) overflows the border on exactly the lines that matter
+    // ("turn in at <station>"). Measure and trim instead.
+    const maxW = w - 16 * k;
+    const clip = (t) => {
+      if (g.measureText(t).width <= maxW) return t;
+      while (t.length > 1 && g.measureText(t + "…").width > maxW) t = t.slice(0, -1);
+      return t + "…";
+    };
+    g.fillStyle = "rgba(13,16,23,0.85)";
+    g.strokeStyle = ready ? "#7bd88f" : "#57e6ff"; g.lineWidth = 1;
+    g.beginPath(); g.roundRect(x, y, w, h, 6 * k); g.fill(); g.stroke();
+    g.textAlign = "left"; g.textBaseline = "middle";
+    g.font = `bold ${Math.max(8, 9 * k) | 0}px monospace`;
+    g.fillStyle = "#e8edf4";
+    g.fillText(clip("◇ " + q.title), x + 8 * k, y + 10 * k);
+    g.font = `${Math.max(8, 9 * k) | 0}px monospace`;
+    g.fillStyle = ready ? "#7bd88f" : "#9aa7b8";
+    // Verb first, destination second: on a squeezed canvas the clip eats the tail,
+    // and "TURN IN" is the part the player must not lose (the waypoint arrow and
+    // the QUEST READY toast both already name the station).
+    g.fillText(clip(ready ? "▸ TURN IN · " + (st ? st.name : "the issuer") : this.questProgressText(q)),
+      x + 8 * k, y + 24 * k);
+    g.textBaseline = "alphabetic";
+  },
+
   // ---- persistence (whitelisted by game/save.js) --------------------------
   // Explicit field pick = the sanitizer: runtime _bShips (live ship refs)
   // never reach JSON, and a restored blob re-picks to drop stale keys.
@@ -625,6 +827,7 @@ Object.assign(GAME, {
       scanT: +q.scanT || 0, collected: !!q.collected,
       holdT: +q.holdT || 0, holdR: q.holdR != null ? q.holdR : null,
       holdDur: q.holdDur != null ? q.holdDur : null, needClear: !!q.needClear,
+      need: q.need != null ? q.need : null, have: +q.have || 0, base: +q.base || 0,
       tiers: Array.isArray(q.tiers)
         ? q.tiers.map(t => ({ regionId: t.regionId, type: t.type, refId: t.refId, done: !!t.done }))
         : null,
@@ -632,7 +835,8 @@ Object.assign(GAME, {
         ? q.nodes.map(n => ({ action: n.action, dx: n.dx, dy: n.dy, r: n.r, dur: n.dur, done: !!n.done, t: +n.t || 0, label: n.label }))
         : null,
       boosts: q.boosts && typeof q.boosts === "object" ? q.boosts : {},
-      status: q.status === "ready" ? "ready" : "held" };
+      status: q.status === "ready" ? "ready" : "held",
+      mercSpecId: q.mercSpecId || null };
   },
 
   // ================= DOM: quest sections of #contractsPanel ====================
@@ -946,6 +1150,22 @@ Object.assign(GAME, {
         check(b.holdDur > 0 && b.needClear === true && typeof b.holdT === "number", "hold fields must serialize");
         check(b.outpostId != null || b.siteId != null, "hold-quest target id must serialize");
       }
+
+      // 11. HUD tracker (drawQuestHUD): it is the only always-on quest readout,
+      // and it prints questProgressText verbatim — an empty string there renders
+      // a blank box, so every shape the generator can emit must have copy.
+      check(typeof this.drawQuestHUD === "function", "drawQuestHUD missing (the in-flight quest tracker)");
+      const seenShapes = new Set();
+      for (let round = 0; round < 60 && seenShapes.size < 12; round++)
+        for (const st of sts)
+          for (const q of this.generateStationQuests(st, s2)) {
+            const shape = q.kind === "godo" ? q.action : q.kind;
+            if (seenShapes.has(shape)) continue;
+            seenShapes.add(shape);
+            check(!!this.questProgressText(q),
+              "quest shape '" + shape + "' has no tracker progress text");
+            check(!!q.title, "quest shape '" + shape + "' has no title to track");
+          }
 
       this.init();   // leave a clean world behind (the walk moved the ship)
     } catch (e) {

@@ -69,7 +69,7 @@ Object.assign(GAME, {
     this._hideTitle();
     this.initTutorial(s);
     this.saveGame();   // stamp the slot now — its meta card, autosave, and R-restart all key off it
-    this.showOpeningScene();
+    this.startOnboarding();   // Q1 of the onboarding ladder; Act 0 now plays when it ends
   },
   _loadSlot(n) {
     if (!this.loadGame(n)) { toast("slot unreadable", "#ff5060", 2); return; }
@@ -136,10 +136,14 @@ Object.assign(GAME, {
         continue;
       }
       const fac = TITLE_FACTIONS.find(f => m && f.key === m.faction);
+      const isMerc = !!(m && m.mercenary);
       html += '<div class="titleCard" data-slot="' + n + '">' +
         '<div class="tsSlotLbl">SLOT ' + n + '</div>' +
         (fac ? '<img src="' + fac.icon + '" alt="">' : "") +
-        '<div class="tcName" style="color:' + (fac ? fac.color : "#c7d2e0") + '">' + (fac ? fac.name : "UNALIGNED") + '</div>' +
+        '<div class="tcName" style="color:' + (isMerc ? "#9fd36a" : (fac ? fac.color : "#c7d2e0")) + '">' +
+        (isMerc
+          ? (fac ? '<s style="opacity:0.4">' + fac.name + '</s> ' : '') + 'FREELANCE'
+          : (fac ? fac.name : "UNALIGNED")) + '</div>' +
         (m ? '<div class="tsRow"><span>CREDITS</span><b>' + (m.credits || 0).toLocaleString() + '</b></div>' +
              '<div class="tsRow"><span>LEVEL</span><b>' + (m.level || 1) + '</b></div>' +
              '<div class="tsRow"><span>OUTPOSTS</span><b>' + (m.outpostsOwned || 0) + '</b></div>' +

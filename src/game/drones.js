@@ -504,6 +504,16 @@ Object.assign(GAME, {
     const un = this.shipUnlockStatus(hullKey);
     if (!un.unlocked) { toast("LOCKED — " + un.req, "#ff8a8a"); sfx("warn"); return { ok: false, reason: "locked" }; }
     if (s.credits < hull.cost.credits) { toast(`need ${hull.cost.credits}cr`); sfx("warn"); return { ok: false, reason: "credits" }; }
+    // faction yards price in exotic ore on top of credits (cost.ore, held in s.ore)
+    const oreCost = hull.cost.ore || {};
+    for (const [type, n] of Object.entries(oreCost)) {
+      const have = (s.ore[type] && s.ore[type].count) || 0;
+      if (have < n) {
+        toast(`need ${n}× ${CONFIG.oreNames[type] || type} (have ${have})`, "#ff8a8a"); sfx("warn");
+        return { ok: false, reason: "materials" };
+      }
+    }
+    for (const [type, n] of Object.entries(oreCost)) s.ore[type].count -= n;
     s.credits -= hull.cost.credits;
     const ship = { id: this._nextShipId++, hullKey, name: hull.name, slots: new Array(CONFIG.equipSlots).fill(null) };
     s.ships.push(ship);

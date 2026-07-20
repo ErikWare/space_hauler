@@ -1,0 +1,24 @@
+{
+  "bible": null,
+  "key": "explosion_cockpit_impact",
+  "faction": "krag",
+  "aspect": "wide",
+  "style": "Graphic-novel illustration, bold inked linework, cel-shaded flats with hard shadow edges, limited palette of rust orange, soot charcoal and pale amber, dramatic single key light. Painterly sci-fi comic panel. No text, no speech bubbles, no captions, no lettering, no borders, no panel gutters.",
+  "images": [
+    {
+      "file": "explosion_cockpit_impact_01.png",
+      "scene": "Interior cockpit view during ship impact, trading freighter game visual novel scene. Warning lights flooding the cabin red, cracked viewport showing fireball outside, dust and sparks, pilot gripping controls, cinematic widescreen 16:9. Dark space-opera palette, painterly style, high emotional tension.",
+      "lock_chars": 0
+    },
+    {
+      "file": "explosion_cockpit_impact_02.png",
+      "scene": "Interior cockpit view during ship impact, trading freighter game visual novel scene. Warning lights flooding the cabin red, cracked viewport showing fireball outside, dust and sparks, pilot gripping controls, cinematic widescreen 16:9. Dark space-opera palette, painterly style, high emotional tension.",
+      "lock_chars": 0
+    },
+    {
+      "file": "explosion_cockpit_impact_03.png",
+      "scene": "Interior cockpit view during ship impact, trading freighter game visual novel scene. Warning lights flooding the cabin red, cracked viewport showing fireball outside, dust and sparks, pilot gripping controls, cinematic widescreen 16:9. Dark space-opera palette, painterly style, high emotional tension.",
+      "lock_chars": 0
+    }
+  ]
+}

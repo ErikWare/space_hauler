@@ -1,0 +1,24 @@
+{
+  "bible": null,
+  "key": "nox_lira_neutral",
+  "faction": "nox",
+  "aspect": "tall",
+  "style": "Graphic-novel illustration, bold inked linework, cel-shaded flats with hard shadow edges, limited palette of deep violet, dark cyan and cold black, dramatic single key light. Painterly sci-fi comic panel. No text, no speech bubbles, no captions, no lettering, no borders, no panel gutters.",
+  "images": [
+    {
+      "file": "nox_lira_neutral_01.png",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral composed expression, a dim Nox administrative alcove with thin violet data-light tracing the wall behind her.",
+      "lock_chars": 333
+    },
+    {
+      "file": "nox_lira_neutral_02.png",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral composed expression, a dim Nox administrative alcove with thin violet data-light tracing the wall behind her.",
+      "lock_chars": 333
+    },
+    {
+      "file": "nox_lira_neutral_03.png",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, neutral composed expression, a dim Nox administrative alcove with thin violet data-light tracing the wall behind her.",
+      "lock_chars": 333
+    }
+  ]
+}

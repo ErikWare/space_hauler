@@ -39,6 +39,14 @@ GAME_FILES = [
     "game/drones.js", "game/ships.js", "game/contracts.js", "game/quests.js", "game/fleet.js", "game/npc_traders.js", "game/trade_routes.js", "game/galaxy_map.js", "game/objectives.js",
     "game/save.js",
     "game/title.js",
+    "game/visual_novel.js",
+    "game/onboarding.js",
+    "game/story_quests.js",
+    "lore/universe_history.js",
+    "lore/named_ships.js",
+    "lore/factions.js",
+    "lore/site_lore.js",
+    "game/merc_quests.js",
     "game/skills.js",
     "game/planet_surface.js",
     "game/phase7.js",
@@ -470,26 +478,34 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     background:rgba(8,12,22,.6);flex-wrap:wrap}
   #spHead h1{font-size:14px;letter-spacing:2px;margin:0;color:#8fd0ff;text-transform:uppercase}
   #spBody{flex:1;display:flex;flex-direction:column;gap:12px;padding:12px 16px;overflow:auto;min-height:0;touch-action:pan-y}
-  #spList{display:flex;gap:12px;flex-wrap:wrap;align-content:start}
-  .spCard{flex:1;min-width:230px;max-width:340px;border:1px solid #223047;border-radius:12px;background:#0e1626;
-    padding:12px 14px;display:flex;flex-direction:column;gap:6px}
-  .spCard.current{border-color:#2c8b82;box-shadow:inset 0 0 14px rgba(87,209,201,.18)}
-  .spCard.locked{opacity:.75}
-  .spTop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .spName{font-size:13px;font-weight:700;letter-spacing:.6px;color:#8fd0ff;flex:1}
-  .spTier{padding:2px 8px;border-radius:6px;font-size:9px;font-weight:700;letter-spacing:.6px;border:1px solid}
-  .spTier.t0{border-color:#2a3a52;color:#c7d2e0;background:#16202f}
-  .spTier.t1{border-color:#2c8b82;color:#57d1c9;background:#0f2028}
-  .spTier.t2{border-color:#8a6f1e;color:#ffd24a;background:#241d0c}
+  /* showroom carousel — the loadout arrow pattern with a widescreen beauty render */
+  #spShowroom{max-width:780px;width:100%;margin:0 auto}
+  #spShipRow{display:flex;align-items:center;justify-content:center;gap:10px}
+  #spPortrait{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
+  #spShipCanvas{width:100%;max-width:540px;height:auto;border:1px solid #223047;border-radius:14px;
+    background:radial-gradient(95% 85% at 50% 38%,#101c30 0%,#0a1120 62%,#070a12 100%)}
+  #spShipName{font-size:16px;font-weight:700;letter-spacing:1px;color:#8fd0ff;display:flex;gap:8px;
+    align-items:center;flex-wrap:wrap;justify-content:center;text-align:center}
+  #spShipSub{font-size:11px;color:#7f8ea6;text-align:center;line-height:1.45;max-width:540px}
+  #spLineTag{color:#57d1c9}
+  .spTier{padding:2px 8px;border-radius:6px;font-size:9px;font-weight:700;letter-spacing:.6px;border:1px solid;
+    border-color:#2a3a52;color:#c7d2e0;background:#16202f}
   .spCur{padding:2px 8px;border-radius:6px;font-size:9px;font-weight:700;letter-spacing:.6px;
     background:#1c5a54;border:1px solid #2c8b82;color:#dffdf8}
-  .spFlavor{font-size:10.5px;color:#7f8ea6;line-height:1.4}
-  .spStats{display:flex;flex-direction:column;gap:4px;margin:2px 0}
-  .spPrice{font-size:12px;font-weight:700;color:#ffd27a}
-  .spLock{font-size:10px;color:#ff8a8a;letter-spacing:.3px;line-height:1.4}
-  .spBuy{margin-top:4px;align-self:flex-start}
-  .spBuy:disabled{opacity:.45;cursor:default}
-  @media (max-width:560px){ .spCard{max-width:none} }
+  #spSpecs{display:flex;gap:7px;flex-wrap:wrap;justify-content:center;margin-top:8px}
+  .spSpec{padding:4px 10px;border-radius:8px;border:1px solid #2a3a52;background:#16202f;font-size:10.5px;color:#7f8ea6}
+  .spSpec b{color:#c7d2e0}
+  #spStats{display:grid;grid-template-columns:1fr 1fr;gap:4px 22px;border:1px solid #223047;border-radius:12px;
+    background:#0e1626;padding:10px 14px;margin-top:8px}
+  @media (max-width:560px){ #spStats{grid-template-columns:1fr} }
+  #spBuyRow{display:flex;align-items:center;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:10px;min-height:38px}
+  .spPrice{font-size:15px;font-weight:700;color:#ffd27a}
+  .spOreChip{padding:3px 9px;border-radius:7px;border:1px solid #2a3a52;font-size:10.5px;font-weight:700;background:#16202f}
+  .spOreChip.ok{border-color:#2c8b82;color:#57d1c9}
+  .spOreChip.short{border-color:#7a2c2c;color:#ff8a8a}
+  .spLock{font-size:10px;color:#ff8a8a;letter-spacing:.3px;line-height:1.4;text-align:center;width:100%}
+  .spOwnNote{font-size:11px;color:#57d1c9}
+  #spBuyBtn:disabled{opacity:.45;cursor:default}
 
   /* ---- STATION BAY · skills tab (DOM overlay; skill tree, shown while docked on SKILLS) ---- */
   #skillsPanel{position:fixed;inset:0;display:none;flex-direction:column;z-index:20;touch-action:none;
@@ -530,7 +546,11 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   #foHead h1{font-size:14px;letter-spacing:2px;margin:0;color:#22cccc;text-transform:uppercase}
   #foBody{flex:1;display:flex;flex-direction:column;gap:12px;padding:12px 16px;overflow:auto;min-height:0;touch-action:pan-y}
   #foBody .ghCol{flex:none}
-  #foBody #foInvWrap{flex:1;min-height:120px}
+  /* Cargo grows to fit its tiles and #foBody does the scrolling (same as the
+     loadout tab). This rule MUST NOT set flex:1 — it outranks the .ghCol rule
+     above, which squeezed cargo into a ~113px nested-scroll porthole that
+     showed 4 of 24 items and read as "no scroll" on touch. */
+  #foBody #foInvWrap{flex:none;min-height:120px}
   /* hardpoint + berth slots share the compact loadout/cargo sizing (auto-fill 64px, content height) */
   #foSlots{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px}
   #foStats{display:flex;flex-direction:column;gap:2px;margin-top:8px}
@@ -574,6 +594,43 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   #openingScene.show{opacity:1}
   #openingScene.show.fade{opacity:0}
   #openingSceneImg{width:100%;height:100%;object-fit:cover}
+
+  /* ---- VISUAL NOVEL overlay (faction prologues + story scenes; GAME.vnStart in
+     game/visual_novel.js — portrait-over-background compositing, typewriter
+     dialogue box, choice buttons; replaces the static opening cutscene) ---- */
+  #vnPanel{position:fixed;inset:0;z-index:62;display:none;background:#04060c;overflow:hidden;
+    color:#e8edf4;font-family:ui-monospace,Menlo,Consolas,monospace;
+    user-select:none;-webkit-user-select:none;touch-action:manipulation}
+  #vnPanel.show{display:block}
+  #vnBg,#vnBgFade{position:absolute;inset:0;background:#04060c center/cover no-repeat;
+    filter:brightness(.62) saturate(.9)}
+  #vnPanel.splash #vnBg,#vnPanel.splash #vnBgFade{filter:none}
+  #vnBgFade{opacity:0;transition:opacity .5s ease}
+  #vnBgFade.in{opacity:1}
+  #vnChar{position:absolute;bottom:20vh;width:min(44vw,330px);aspect-ratio:3/4;border-radius:14px;
+    background:#0a1120 center 18%/cover no-repeat;border:1px solid #2a3a52;display:none;
+    box-shadow:0 10px 40px rgba(0,0,0,.65)}
+  #vnChar.pos-left{left:6%}
+  #vnChar.pos-right{right:6%}
+  #vnChar.pos-center{left:50%;transform:translateX(-50%)}
+  #vnBox{position:absolute;left:50%;transform:translateX(-50%);bottom:2.4vh;width:min(92vw,880px);
+    min-height:19vh;background:rgba(6,10,18,.9);border:1px solid #1c3a52;border-radius:14px;
+    padding:14px 18px 26px;box-shadow:0 0 44px rgba(0,0,0,.6);cursor:pointer}
+  #vnSpeaker{font-size:12px;font-weight:700;letter-spacing:2.5px;color:#8fd0ff;margin-bottom:8px;min-height:14px}
+  #vnText{font-size:14px;line-height:1.65;color:#e8edf4;min-height:4.6em;white-space:pre-wrap}
+  #vnText.narr{color:#9fb2c8;font-style:italic}
+  #vnChoices{display:none;flex-direction:column;gap:8px;margin-top:12px}
+  #vnChoices.show{display:flex}
+  .vnChoice{padding:10px 14px;border-radius:9px;border:1px solid #2a3a52;background:#16202f;color:#e8edf4;
+    font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.5px;text-align:left}
+  .vnChoice:hover{background:#1e2b3e;border-color:#57d1c9}
+  #vnHint{position:absolute;right:16px;bottom:8px;color:#57d1c9;font-size:11px;animation:vnBlink 1.1s ease infinite}
+  @keyframes vnBlink{0%,100%{opacity:.15}50%{opacity:.9}}
+  #vnSkip{position:absolute;top:12px;right:12px;padding:8px 13px;border-radius:9px;border:1px solid #2a3a52;
+    background:rgba(22,32,47,.85);color:#7f8ea6;font-family:inherit;font-size:11px;font-weight:700;
+    cursor:pointer;letter-spacing:1px}
+  #vnSkip:hover{color:#e8edf4;border-color:#57d1c9}
+  @media(max-width:600px){ #vnChar{width:56vw;bottom:24vh} #vnText{font-size:12px} #vnBox{min-height:22vh} }
 
   /* ---- TITLE screen (boot landing: NEW GAME / LOAD GAME · faction pick ·
      save-slot cards; game/title.js drives the pages) ---- */
@@ -918,9 +975,20 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     <button class="ghBtn go" id="spLaunch">Launch ▸</button>
   </div>
   <div id="spBody">
-    <div class="ghCol" id="spListWrap">
-      <h2>Ship Market — bigger hulls for bigger jobs · your modules transfer on upgrade</h2>
-      <div id="spList"></div>
+    <div class="ghCol" id="spShowroom">
+      <h2>Shipyard · <span id="spPageLbl">1 / 1</span> · <span id="spLineTag"></span> — your modules transfer on upgrade</h2>
+      <div id="spShipRow">
+        <button class="ghBtn loArrow" id="spPrev">◀</button>
+        <div id="spPortrait">
+          <canvas id="spShipCanvas" width="540" height="310"></canvas>
+          <div id="spShipName">—</div>
+          <div id="spShipSub"></div>
+        </div>
+        <button class="ghBtn loArrow" id="spNext">▶</button>
+      </div>
+      <div id="spSpecs"></div>
+      <div id="spStats"></div>
+      <div id="spBuyRow"></div>
     </div>
   </div>
 </div>
@@ -991,6 +1059,19 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
 
 <!-- ===== OPENING scene (intro cutscene; GAME.showOpeningScene on a brand-new game) ===== -->
 <div id="openingScene"><img id="openingSceneImg" alt=""></div>
+
+<!-- ===== VISUAL NOVEL overlay (faction story prologues; GAME.vnStart in game/visual_novel.js) ===== -->
+<div id="vnPanel">
+  <div id="vnBg"></div><div id="vnBgFade"></div>
+  <div id="vnChar"></div>
+  <div id="vnBox">
+    <div id="vnSpeaker"></div>
+    <div id="vnText"></div>
+    <div id="vnChoices"></div>
+    <div id="vnHint">&#9660;</div>
+  </div>
+  <button id="vnSkip">SKIP &#9656;&#9656;</button>
+</div>
 
 <!-- ===== TITLE screen (boot landing; game/title.js drives the pages + cards) ===== -->
 <div id="titlePanel">
@@ -1124,6 +1205,14 @@ def check():
     const p7ok = Array.isArray(p7f) && p7f.length === 0;
     console.log((p7ok ? 'GREEN  ' : 'FAIL   ') + 'GAME.phase7SelfTest' + (p7ok ? '' : ' ' + JSON.stringify(p7f)));
     if (!p7ok) bad++;
+    const vnf = globalThis.GAME.vnSelfTest ? globalThis.GAME.vnSelfTest() : ['vnSelfTest missing'];
+    const vnok = Array.isArray(vnf) && vnf.length === 0;
+    console.log((vnok ? 'GREEN  ' : 'FAIL   ') + 'GAME.vnSelfTest' + (vnok ? '' : ' ' + JSON.stringify(vnf)));
+    if (!vnok) bad++;
+    const onbf = globalThis.GAME.onboardingSelfTest ? globalThis.GAME.onboardingSelfTest() : ['onboardingSelfTest missing'];
+    const onbok = Array.isArray(onbf) && onbf.length === 0;
+    console.log((onbok ? 'GREEN  ' : 'FAIL   ') + 'GAME.onboardingSelfTest' + (onbok ? '' : ' ' + JSON.stringify(onbf)));
+    if (!onbok) bad++;
     console.log(bad ? ('SELFTEST FAILED (' + bad + ')') : 'ALL GREEN');
     process.exit(bad ? 1 : 0);
     """

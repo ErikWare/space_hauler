@@ -1,0 +1,104 @@
+[
+  {
+    "name": "probe_seed",
+    "status": 200,
+    "extra": {
+      "seed": 12345
+    },
+    "body": null
+  },
+  {
+    "name": "probe_style",
+    "status": 200,
+    "extra": {
+      "style": "vivid"
+    },
+    "body": null
+  },
+  {
+    "name": "probe_quality",
+    "status": 422,
+    "extra": {
+      "quality": "hd"
+    },
+    "body": "Failed to deserialize the JSON body into the target type: quality: unknown variant `hd`, expected one of `low`, `medium`, `high` at line 1 column 110"
+  },
+  {
+    "name": "probe_size",
+    "status": 400,
+    "extra": {
+      "size": "1024x1024"
+    },
+    "body": "{\"code\":\"400\",\"error\":\"Argument not supported: size\"}"
+  },
+  {
+    "name": "probe_img2img",
+    "status": 200,
+    "extra": {
+      "image": "https://example.com/x.png"
+    },
+    "body": null
+  },
+  {
+    "name": "probe_negative",
+    "status": 200,
+    "extra": {
+      "negative_prompt": "blurry"
+    },
+    "body": null
+  },
+  {
+    "name": "A1_fulllock_portrait",
+    "status": 200,
+    "extra": {},
+    "prompt_chars": 1170,
+    "revised_prompt": null,
+    "file": "A1_fulllock_portrait.png",
+    "bytes": 306822
+  },
+  {
+    "name": "A2_fulllock_portrait",
+    "status": 200,
+    "extra": {},
+    "prompt_chars": 1170,
+    "revised_prompt": null,
+    "file": "A2_fulllock_portrait.png",
+    "bytes": 320476
+  },
+  {
+    "name": "A3_fulllock_portrait",
+    "status": 200,
+    "extra": {},
+    "prompt_chars": 1170,
+    "revised_prompt": null,
+    "file": "A3_fulllock_portrait.png",
+    "bytes": 266798
+  },
+  {
+    "name": "B1_fulllock_cargobay",
+    "status": 200,
+    "extra": {},
+    "prompt_chars": 1253,
+    "revised_prompt": null,
+    "file": "B1_fulllock_cargobay.png",
+    "bytes": 317577
+  },
+  {
+    "name": "C1_minimal_portrait",
+    "status": 200,
+    "extra": {},
+    "prompt_chars": 530,
+    "revised_prompt": null,
+    "file": "C1_minimal_portrait.png",
+    "bytes": 253786
+  },
+  {
+    "name": "C2_minimal_portrait",
+    "status": 200,
+    "extra": {},
+    "prompt_chars": 530,
+    "revised_prompt": null,
+    "file": "C2_minimal_portrait.png",
+    "bytes": 304730
+  }
+]

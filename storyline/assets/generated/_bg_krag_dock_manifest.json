@@ -1,0 +1,19 @@
+{
+  "bible": null,
+  "key": "bg_krag_dock",
+  "faction": "krag",
+  "aspect": "wide",
+  "style": "Graphic-novel illustration, bold inked linework, cel-shaded flats with hard shadow edges, limited palette of rust orange, soot charcoal and pale amber, dramatic single key light. Painterly sci-fi comic panel. No text, no speech bubbles, no captions, no lettering, no borders, no panel gutters.",
+  "images": [
+    {
+      "file": "bg_krag_dock_02.png",
+      "scene": "Interior of a Krag Combine docking bay at night: a battered cargo tug on landing struts venting steam, rust-orange work lamps, chain hoists and ore crates, soot-stained bulkheads, no people.",
+      "lock_chars": 0
+    },
+    {
+      "file": "bg_krag_dock_03.png",
+      "scene": "Interior of a Krag Combine docking bay at night: a battered cargo tug on landing struts venting steam, rust-orange work lamps, chain hoists and ore crates, soot-stained bulkheads, no people.",
+      "lock_chars": 0
+    }
+  ]
+}

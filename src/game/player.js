@@ -43,6 +43,7 @@ Object.assign(GAME, {
     s.activeShipId = shipId;
     ForgeEquipment.restockAmmo();
     this.recomputeDerived();
+    if (this.enforceEscortCap) this.enforceEscortCap(s);   // carrier→small hull shrinks the wing
     s.hp = this.freshHp();                                        // fresh boat off the dock (dock heals anyway)
     s.fuel = Math.min(s.fuel, s.fuelMax);
     s.weaponCd = 0;
@@ -149,6 +150,7 @@ Object.assign(GAME, {
     const s = this.state, h = s.hp;
     h._sinceHit += dt; s.invuln = Math.max(0, s.invuln - dt); s.flash = Math.max(0, s.flash - dt);
     s.shieldFlash = Math.max(0, (s.shieldFlash || 0) - dt);
+    s.fireAnimT = Math.max(0, (s.fireAnimT || 0) - dt);   // muzzle-flash frame timer (rendering.js)
     if (h._sinceHit >= (h.shieldDelay || 3) && h.shield < h.shieldMax) h.shield = Math.min(h.shieldMax, h.shield + h.shieldRegen * dt);
     if (h.armorRepair > 0 && h.armor < h.armorMax) h.armor = Math.min(h.armorMax, h.armor + h.armorRepair * dt);
   },
@@ -209,6 +211,7 @@ Object.assign(GAME, {
       s.fuel = shipState.fuel;
       s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState);
       s.flare = Math.max(s.flare, 0.4);
+      s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
       if (res.hit) { AUDIO.play(preShield > 0 ? "hit_shield" : "hit_armor");
         const tag = res.crit ? "CRIT " + res.damage : res.glancing ? "graze " + res.damage : "-" + res.damage;
         toast(tag, res.crit ? "#ffd27a" : res.glancing ? "#9aa7b8" : "#ff8f6b"); }
@@ -232,6 +235,7 @@ Object.assign(GAME, {
       s.fuel = shipState.fuel;
       s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState);
       s.flare = Math.max(s.flare, 0.4);
+      s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
       if (res.hit) { rock.hp = Math.max(0, wrapper.hp.hull); rock.hitFlash = 0.3; }
       if (rock.hp <= 0) {                              // destroyed → no ore, just gone
         if (idx >= 0) { burst(rock.x, rock.y, rock.col, 12); sfx("crunch"); this.respawnRock(idx); }
@@ -312,6 +316,7 @@ Object.assign(GAME, {
       s.fuel = shipState.fuel;
       s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState);
       s.flare = Math.max(s.flare, 0.4);
+      s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
       this._provokeOutpost(o);
       if (res.hit) {
         AUDIO.play(o.shield > 0 ? "hit_shield" : "hit_armor");
@@ -336,6 +341,7 @@ Object.assign(GAME, {
     if (res.ok) {
       AUDIO.play("shoot"); s.fuel = shipState.fuel;
       s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState); s.flare = Math.max(s.flare, 0.4);
+      s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
       this._provokeSite(this.siteById(emp.siteId));
       if (res.hit) {
         AUDIO.play(emp.hp.armor > 0 ? "hit_shield" : "hit_armor");
@@ -357,6 +363,7 @@ Object.assign(GAME, {
     if (res.ok) {
       AUDIO.play("shoot"); s.fuel = shipState.fuel;
       s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState); s.flare = Math.max(s.flare, 0.4);
+      s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
       if (res.hit) { AUDIO.play("hit_armor"); burst(tp.x, tp.y, "#ff9a3c", 4); }
     } else if (res.reason === "insufficient fuel") { toast("no fuel to fire"); }
   },

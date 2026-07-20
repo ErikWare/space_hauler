@@ -91,6 +91,8 @@ Object.assign(GAME, {
       credits: CONFIG.debugStartCredits, inventory: [], inventoryMax: 60, ore: {},
       homeStationId: stations[0].id, refineBonus: 0,
       playerFaction: null,   // chosen at the title screen's faction pick (persisted; game/title.js)
+      mercenary: false,      // set once, by the Q10 catastrophe (game/onboarding.js): employed → free agent
+
       titleOpen: false,      // world idles under the title screen (session-only; set by showTitleScreen)
       tows: [], rocks: [], rockFree: [], junk: [], junkFree: [], respawnQueue: [], planets: planets, loot: [], miners: [], aliens: [],
       fields: [], nextFieldId: 1,
@@ -414,10 +416,16 @@ Object.assign(GAME, {
     for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i]; if (!r.active) continue;
       const ndx = r.x - s.x, ndy = r.y - s.y;
       if (ndx * ndx + ndy * ndy < nearR2) nearRocks.push(i); }
+    // per-hull mass: heavy faction hulls blow rocks/junk out of the way with a
+    // small bounce and take proportionally less ram damage (shipRamMult);
+    // a maxed carrier barely notices junk at all.
+    const sMass = this.shipMass(), ramK = this.shipRamMult(2);
     for (const i of nearRocks) { if (this.isTowed("rocks", i)) continue; const r = s.rocks[i];
-      if (this.circleHit(s, CONFIG.shipR, CONFIG.shipMass, r, r.size * 20, r.mass) && s.invuln <= 0 && !s.atStation) this.damageShip(5 + r.mass * 3); }
+      if (this.circleHit(s, CONFIG.shipR, sMass, r, r.size * 20, r.mass) && s.invuln <= 0 && !s.atStation) {
+        const dmg = (5 + r.mass * 3) * ramK;
+        if (dmg >= 1) this.damageShip(dmg); } }
     for (let i = 0; i < s.junk.length; i++) { const j = s.junk[i]; if (!j.active || this.isTowed("junk", i)) continue;
-      if (this.circleHit(s, CONFIG.shipR, CONFIG.shipMass, j, j.r, CONFIG.junkMass) && s.invuln <= 0 && !s.atStation) this.damageShip(1); }
+      if (this.circleHit(s, CONFIG.shipR, sMass, j, j.r, CONFIG.junkMass) && s.invuln <= 0 && !s.atStation && sMass < 5) this.damageShip(1); }
     this.rockPairPass(nearRocks);
     this.updateObstacles(dt);   // drift the terrain bodies + bounce the ship off any it hits
 
@@ -482,7 +490,9 @@ Object.assign(GAME, {
     this.drawControls(g);
     this.drawSecBadge(g);         // SEC danger level near minimap
     this.drawShipBadge(g);        // current hull name under the top-strip bars
+    this.drawMercBadge(g);        // "MERCENARY — NO AFFILIATION" after the Q10 wipe (game/onboarding.js)
     this.drawContractHUD(g);      // Phase 4: active-contract box, top-right
+    this.drawQuestHUD(g);         // Phase 5: active-quest tracker, under the contract box
     this.drawTraderAlert(g);      // Phase 6: blinking "trader under attack" edge note
     this.drawTradeRouteAlert(g);  // blinking "trade route under attack" edge note (trade_routes.js)
     this.drawEmpAlert(g);         // emplacement "LOCKED ON" klaxon + torpedo-inbound count (game/sites.js)

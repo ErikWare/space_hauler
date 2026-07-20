@@ -1,0 +1,24 @@
+{
+  "bible": null,
+  "key": "vex_dren_grim",
+  "faction": "vex",
+  "aspect": "tall",
+  "style": "Graphic-novel illustration, bold inked linework, cel-shaded flats with hard shadow edges, limited palette of crimson red, deep navy and gunmetal slate, dramatic single key light. Painterly sci-fi comic panel. No text, no speech bubbles, no captions, no lettering, no borders, no panel gutters.",
+  "images": [
+    {
+      "file": "vex_dren_grim_01.png",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, the easy smile entirely gone, mouth set, eyes tired and level, starship bridge consoles softly lit behind him.",
+      "lock_chars": 437
+    },
+    {
+      "file": "vex_dren_grim_02.png",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, the easy smile entirely gone, mouth set, eyes tired and level, starship bridge consoles softly lit behind him.",
+      "lock_chars": 437
+    },
+    {
+      "file": "vex_dren_grim_03.png",
+      "scene": "Chest-up portrait, facing the viewer three-quarters, the easy smile entirely gone, mouth set, eyes tired and level, starship bridge consoles softly lit behind him.",
+      "lock_chars": 437
+    }
+  ]
+}

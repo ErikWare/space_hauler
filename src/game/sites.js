@@ -203,11 +203,23 @@ Object.assign(GAME, {
   _makeEmplacement(site) {
     const weapon = CONFIG.empThemeWeapon[site.type];
     if (!weapon) return null;
+    // Rarity gate — most guarded sites are just a garrison fleet. Odds climb with
+    // the wedge's danger rating, so home space is plain fights and null-sec holds
+    // the strongholds. Rolled off bits 11-20 of the region hash (the theme picker
+    // owns the low bits, the art variant bit 5), so it is stable across inits and
+    // independent of both.
+    const dl = clamp(Math.round(site.dangerLevel || 1), 1, 9);
+    const roll = ((this._siteHash(site.regionId) >>> 11) & 1023) / 1023;
+    if (roll >= (CONFIG.empChanceByDanger[dl] || 0)) return null;
     const C = CONFIG, m = dangerEnemyMult(site.dangerLevel || 1).hp;
     const dmgM = dangerEnemyMult(site.dangerLevel || 1).dmg;
     const hullMax = Math.round(C.empHpBase * m), armorMax = Math.round(C.empHpBase * 0.55 * m);
+    // Two clay looks per weapon so ~100 armed sites don't read identically.
+    // Bit 5 of the region hash — the theme picker already spent the low bits
+    // (h % 3), so a different bit keeps look and theme uncorrelated.
+    const art = "emp_" + weapon + (((this._siteHash(site.regionId) >>> 5) & 1) ? "_b" : "_a");
     return {
-      id: site.id + "_emp", kind: "emplacement", siteId: site.id, weapon,
+      id: site.id + "_emp", kind: "emplacement", siteId: site.id, weapon, art,
       x: site.x, y: site.y, r: 30, destroyed: false,
       hp: { shield: 0, shieldMax: 0, armor: armorMax, armorMax, hull: hullMax, hullMax,
             res: { shield: 0, armor: 0, hull: 0 }, _sinceHit: 99 },
@@ -270,8 +282,11 @@ Object.assign(GAME, {
       if (!t.discovered && (d < C.fieldDiscoverR || this.isTileExplored(t.x, t.y))) {
         t.discovered = true;
         const def = SITE_DEFS[t.type];
+        // a fortified site is the exception — say so, the player is about to be shot at
+        const fort = t.emplacement && !t.emplacement.destroyed;
         toast(def.glyph + " " + def.label + " sighted — " +
-          this.regionLabel(this.regionGet(t.regionId)), def.mapCol);
+          this.regionLabel(this.regionGet(t.regionId)) + (fort ? "  ⚠ FORTIFIED" : ""),
+          fort ? "#ff9a3c" : def.mapCol);
       }
       if (d < t.r + C.shipR + 4) this._collideSite(t);   // solid pieces block the ship
       // enemies: after their AI has moved them this frame (updateAliens runs
@@ -288,6 +303,7 @@ Object.assign(GAME, {
           if (adx * adx + ady * ady < reach * reach) {
             this._pushOutOfSite(t, al, al.r || 15);
             al._avoid = al._avoid ? al._avoid.concat(circles) : circles;   // read-only share
+            this._guardSightCheck(t, al, dt);   // cover can shake a pursuing garrison
           }
         }
       }
@@ -305,6 +321,25 @@ Object.assign(GAME, {
       }
       if (t.emplacement && !t.emplacement.destroyed) this._updateEmplacements(t, dt, d);
     }
+  },
+
+  // Heavy bodies are cover in both directions: a garrison guard that loses sight
+  // of the player for guardLoseSightT seconds AND is beyond guardLoseSightDist
+  // gives up and drops back to dormant watch — duck behind a chunk and burn
+  // distance and you genuinely shake pursuit. Hugging a chunk at knife range
+  // never works (the distance gate), and a lock or a hit re-provokes instantly
+  // through the existing paths. t.provoked is deliberately left set so a merely
+  // wounded guard doesn't re-aggro itself on the very next frame.
+  _guardSightCheck(t, al, dt) {
+    if (al._siteId !== t.id || al.state === "IDLE" || al.state === "DEAD") return;
+    const s = this.state, C = CONFIG;
+    const far = this.dist(al.x, al.y, s.x, s.y) > C.guardLoseSightDist;
+    if (far && this._losBlocked(al.x, al.y, s.x, s.y, t)) {
+      al._losLostT = (al._losLostT || 0) + dt;
+      if (al._losLostT > C.guardLoseSightT) {
+        al.state = "IDLE"; al.aggro = false; al._losLostT = 0;
+      }
+    } else al._losLostT = 0;
   },
 
   // World-space collision circles for a site's chunks, cached (pieces are static).
@@ -334,10 +369,10 @@ Object.assign(GAME, {
       const dx = px - s.x, dy = py - s.y, reach = pr + shipR;
       if (dx * dx + dy * dy > reach * reach) continue;
       const body = { x: px, y: py, vx: 0, vy: 0 };   // discarded: the landmark never moves
-      if (this.circleHit(s, shipR, C.shipMass, body, pr, C.siteMass) && !pc.scatter) ramSolid = true;
+      if (this.circleHit(s, shipR, this.shipMass(), body, pr, C.siteMass) && !pc.scatter) ramSolid = true;
     }
     if (ramSolid && s.invuln <= 0 && !s.atStation && impact > C.obstacleRamMinSpeed) {
-      this.damageShip(Math.min(C.obstacleRamMax, C.obstacleRamDmg + impact * C.obstacleRamSpeedK));
+      this.damageShip(Math.max(1, Math.min(C.obstacleRamMax, C.obstacleRamDmg + impact * C.obstacleRamSpeedK) * this.shipRamMult(3)));
       sfx("crunch");
     }
   },
@@ -612,11 +647,11 @@ Object.assign(GAME, {
           }
         } });
       }
-      if (t.emplacement) {
-        const p = this.S(t.emplacement.x, t.emplacement.y);
-        items.push({ y: p.y + 1, f: () => this._drawEmplacement(g, t, p, z) });   // atop its centrepiece
-      }
     }
+    // NB: the platform itself is NOT pushed into `items` — it sits at the site
+    // anchor, so any chunk with a larger world-y sorts after it and would bury
+    // the one thing the player needs to see and shoot. It is drawn in its own
+    // pass (drawEmpProjectiles) above the whole static layer instead.
   },
 
   // The base structure: an angular battery on the centrepiece. Colored by weapon
@@ -625,25 +660,37 @@ Object.assign(GAME, {
   _drawEmplacement(g, t, p, z) {
     const emp = t.emplacement, s = this.state;
     const wpnCol = emp.weapon === "laser" ? "#c23bd6" : "#ffae42";
-    if (emp.destroyed) {   // burnt-out stub
-      g.save(); g.globalAlpha = 0.4; g.translate(p.x, p.y);
-      g.fillStyle = "#3a2630"; this._empBattery(g, 20 * z); g.globalAlpha = 1; g.restore();
+    const W = Math.max(30, 94 * z), R = W * 0.36;
+    // The turret art is strict top-down with the muzzle at rot 0 (pointing right)
+    // and its base plate recentred on the image pivot (pipeline recenter_pivot),
+    // so it can be spun to track the player without the base wandering.
+    // The aim angle is measured in SCREEN space — the platform projects through
+    // the pitched S() while the ship draws through the flat SF(), so a world-space
+    // atan2 would aim slightly off the ship you actually see.
+    const shipP = this.SF(s.x, s.y);
+    const ang = emp.destroyed ? (emp._aimAng || 0) : Math.atan2(shipP.y - p.y, shipP.x - p.x);
+    if (!emp.destroyed) emp._aimAng = ang;   // a dead turret freezes where it died
+    if (emp.destroyed) {
+      g.save(); g.globalAlpha = 0.3;
+      if (!ART.draw(g, emp.art, p.x, p.y, W, ang)) {
+        g.translate(p.x, p.y); g.fillStyle = "#3a2630"; this._empBattery(g, R);
+      }
+      g.globalAlpha = 1; g.restore();
       return;
     }
-    const R = Math.max(9, 20 * z);
-    g.save(); g.translate(p.x, p.y);
-    // base body
-    g.fillStyle = "#20141c"; this._empBattery(g, R * 1.15);
-    g.fillStyle = hexA(wpnCol, 0.9); this._empBattery(g, R);
-    g.strokeStyle = hexA(wpnCol, 0.9); g.lineWidth = Math.max(1, 1.6 * z);
-    this._empBattery(g, R, true);
-    // barrel pointed at the ship
-    const ang = Math.atan2(s.y - emp.y, s.x - emp.x);
-    g.rotate(ang); g.fillStyle = "#12060c";
-    g.fillRect(0, -R * 0.22, R * 1.5, R * 0.44);
-    g.fillStyle = emp.locking ? "#ff3b3b" : hexA(wpnCol, 0.8);
-    g.fillRect(R * 1.1, -R * 0.16, R * 0.5, R * 0.32);
-    g.restore();
+    if (!ART.draw(g, emp.art, p.x, p.y, W, ang)) {
+      ART.warnMissing(emp.art, "procedural battery");
+      g.save(); g.translate(p.x, p.y);
+      g.fillStyle = "#20141c"; this._empBattery(g, R * 1.15);
+      g.fillStyle = hexA(wpnCol, 0.9); this._empBattery(g, R);
+      g.strokeStyle = hexA(wpnCol, 0.9); g.lineWidth = Math.max(1, 1.6 * z);
+      this._empBattery(g, R, true);
+      g.rotate(ang); g.fillStyle = "#12060c";                 // barrel tracks the ship
+      g.fillRect(0, -R * 0.22, R * 1.5, R * 0.44);
+      g.fillStyle = emp.locking ? "#ff3b3b" : hexA(wpnCol, 0.8);
+      g.fillRect(R * 1.1, -R * 0.16, R * 0.5, R * 0.32);
+      g.restore();
+    }
     // laser lock telegraph: pulsing red ring that fills as the charge completes
     if (emp.locking) {
       const frac = Math.min(1, emp.lockT / CONFIG.empLaserLockMs);
@@ -684,6 +731,14 @@ Object.assign(GAME, {
   drawEmpProjectiles(g) {
     if (HEADLESS) return;
     const s = this.state, z = s.cam.zoom;
+    // base platforms first, on the pitched plane with their host chunks but above
+    // the whole static layer so a chunk in front can never bury the target
+    if (s.sites) for (const t of s.sites) {
+      if (!t.emplacement) continue;
+      const p = this.S(t.emplacement.x, t.emplacement.y);
+      if (p.x < -120 || p.x > CONFIG.W + 120 || p.y < -120 || p.y > CONFIG.H + 120) continue;
+      this._drawEmplacement(g, t, p, z);
+    }
     // charged-laser beams (bright thick flash, fades over beamT)
     if (s.sites) for (const t of s.sites) {
       const emp = t.emplacement;
@@ -732,21 +787,28 @@ Object.assign(GAME, {
     }
     const torps = (s.empTorpedoes || []).length;
     if (!locking && !torps) return;
-    const k = Math.min(W / 390, CONFIG.H / 700);
+    const H = CONFIG.H, k = Math.min(W / 390, H / 700);
+    // Vertical placement is a FRACTION of height, not k-scaled: the toast stack and
+    // the trader/route alert lines own the k-scaled band up top, and this has to
+    // stay clear of them at every aspect ratio.
+    let y = H * 0.30;
     g.save(); g.textAlign = "center";
     if (locking) {
       const frac = Math.min(1, locking.lockT / C.empLaserLockMs);
       const pulse = 0.55 + 0.45 * Math.abs(Math.sin(s.t * 12));
-      g.fillStyle = hexA("#ff2b2b", 0.16 * pulse); g.fillRect(0, 0, W, 40 * k);
+      g.fillStyle = hexA("#ff2b2b", 0.16 * pulse);   // edge wash — unmissable in peripheral vision
+      g.fillRect(0, 0, W, 10 * k); g.fillRect(0, H - 10 * k, W, 10 * k);
+      g.fillStyle = "rgba(5,7,13,0.55)"; g.fillRect(0, y - 13 * k, W, 26 * k);
       g.fillStyle = hexA("#ff3b3b", pulse); g.font = `bold ${13 * k | 0}px monospace`;
-      g.fillText("⚠ LOCKED ON — BREAK LINE OF SIGHT", W / 2, 108 * k);
-      g.fillStyle = "#1c2430"; g.fillRect(W / 2 - 70 * k, 114 * k, 140 * k, 5 * k);
-      g.fillStyle = "#ff2b2b"; g.fillRect(W / 2 - 70 * k, 114 * k, 140 * k * frac, 5 * k);
+      g.fillText("⚠ LOCKED ON — BREAK LINE OF SIGHT", W / 2, y);
+      g.fillStyle = "#1c2430"; g.fillRect(W / 2 - 70 * k, y + 6 * k, 140 * k, 5 * k);
+      g.fillStyle = "#ff2b2b"; g.fillRect(W / 2 - 70 * k, y + 6 * k, 140 * k * frac, 5 * k);
+      y += 26 * k;
     }
     if (torps) {
       g.fillStyle = hexA("#ff9a3c", 0.5 + 0.5 * Math.abs(Math.sin(s.t * 8)));
       g.font = `bold ${11 * k | 0}px monospace`;
-      g.fillText("◈ " + torps + " TORPEDO" + (torps > 1 ? "ES" : "") + " INBOUND", W / 2, (locking ? 130 : 108) * k);
+      g.fillText("◈ " + torps + " TORPEDO" + (torps > 1 ? "ES" : "") + " INBOUND", W / 2, y);
     }
     g.textAlign = "left"; g.restore();
   },
@@ -827,16 +889,44 @@ Object.assign(GAME, {
       this._pushOutOfSite(site, foe, foe.r);
       check(this.dist(foe.x, foe.y, pcx, pcy) >= pr + foe.r - 0.5, "enemy must be pushed clear of a site piece");
 
-      // 8. base emplacements: the two guarded themes are armed, resource sites aren't
+      // 8. base emplacements: RARE, and only on the two guarded themes. Most
+      //    guarded sites are just a garrison fleet — a fortified one is the exception.
       this.init();
       const se = this.state;
-      const laserSite = se.sites.find(t => t.type === "alien_derelict");
-      const missileSite = se.sites.find(t => t.type === "shipwreck");
-      const rockSite = se.sites.find(t => t.type === "asteroid_cluster");
-      check(laserSite && laserSite.emplacement && laserSite.emplacement.weapon === "laser", "alien_derelict must mount a laser cannon");
-      check(missileSite && missileSite.emplacement && missileSite.emplacement.weapon === "missile", "shipwreck must mount a missile battery");
-      check(!rockSite || !rockSite.emplacement, "resource clusters must be unarmed");
+      const laserSite = se.sites.find(t => t.type === "alien_derelict" && t.emplacement);
+      const missileSite = se.sites.find(t => t.type === "shipwreck" && t.emplacement);
+      check(laserSite && laserSite.emplacement.weapon === "laser", "some alien_derelict must mount a laser cannon");
+      check(missileSite && missileSite.emplacement.weapon === "missile", "some shipwreck must mount a missile battery");
+      check(!se.sites.some(t => t.type === "asteroid_cluster" && t.emplacement), "resource clusters must never be armed");
       check(laserSite.emplacement.hp.hullMax > 0 && laserSite.emplacement.hp.armorMax > 0, "emplacement must have an armor+hull pool");
+
+      // rarity: a clear minority of eligible sites, and biased to dangerous space
+      const eligible = se.sites.filter(t => CONFIG.empThemeWeapon[t.type]);
+      const armed = se.sites.filter(t => t.emplacement);
+      const frac = armed.length / Math.max(1, eligible.length);
+      check(frac > 0.02 && frac < 0.45,
+        "fortified sites must stay a minority of eligible sites, got " +
+        (frac * 100).toFixed(0) + "% (" + armed.length + "/" + eligible.length + ")");
+      const mean = list => list.reduce((a, t) => a + (t.dangerLevel || 1), 0) / Math.max(1, list.length);
+      const dArmed = mean(armed), dPlain = mean(eligible.filter(t => !t.emplacement));
+      check(dArmed > dPlain + 0.5,
+        "fortification must skew to dangerous wedges (armed avg danger " +
+        dArmed.toFixed(2) + " vs plain " + dPlain.toFixed(2) + ")");
+      check(!armed.some(t => (t.dangerLevel || 1) <= 1), "the safest wedge must never fortify");
+
+      // clay art: valid key, both looks per weapon in play, and stable across inits
+      check(armed.every(t => /^emp_(laser|missile)_[ab]$/.test(t.emplacement.art)),
+        "every emplacement must carry a valid clay art key");
+      check(armed.every(t => t.emplacement.art.startsWith("emp_" + t.emplacement.weapon)),
+        "art key must match the platform's weapon type");
+      const looks = new Set(armed.map(t => t.emplacement.art));
+      check(looks.size === 4, "both looks of both weapons should appear across the map, got " + [...looks].sort().join(","));
+      const artSig = t => armed.slice(0, 8).map(x => x.id + ":" + x.emplacement.art).join("|");
+      const sigBefore = artSig();
+      this.init();
+      const armed2 = this.state.sites.filter(t => t.emplacement);
+      check(armed2.slice(0, 8).map(x => x.id + ":" + x.emplacement.art).join("|") === sigBefore,
+        "emplacement art must be deterministic across inits (hashed off the region)");
 
       // line of sight: a chunk on the line blocks; a clear lane doesn't
       const stub = { x: 0, y: 0, pieces: [{ dx: 300, dy: 0, w: 200, scatter: false }] };
@@ -847,7 +937,7 @@ Object.assign(GAME, {
       // charged laser: enters range with clear LoS → begins locking; break LoS → cancel;
       // full charge → beam fires, drops shields to 0, chews armor, goes on cooldown
       this.init();
-      const sl = this.state, lst = sl.sites.find(t => t.type === "alien_derelict"), le = lst.emplacement;
+      const sl = this.state, lst = sl.sites.find(t => t.type === "alien_derelict" && t.emplacement), le = lst.emplacement;
       sl.obstacles = []; sl.aliens = []; sl.atStation = false; sl.dead = false; sl.invuln = 0;
       lst.pieces = lst.pieces.slice(0, 1); lst._avoidCircles = null;   // keep only the (skipped) centrepiece → clear LoS
       sl.x = le.x + 400; sl.y = le.y; sl.vx = sl.vy = 0;
@@ -869,7 +959,7 @@ Object.assign(GAME, {
 
       // missile barrage: a clear in-range shot launches a cone volley
       this.init();
-      const sm = this.state, mst = sm.sites.find(t => t.type === "shipwreck"), me = mst.emplacement;
+      const sm = this.state, mst = sm.sites.find(t => t.type === "shipwreck" && t.emplacement), me = mst.emplacement;
       sm.obstacles = []; sm.empShots = []; sm.dead = false; sm.atStation = false;
       mst.pieces = mst.pieces.slice(0, 1); mst._avoidCircles = null;
       sm.x = me.x + 400; sm.y = me.y; me.primaryCd = 0; me.torpedoCd = 9e9;
@@ -879,7 +969,7 @@ Object.assign(GAME, {
 
       // torpedo drone: launches, homes toward the player, dies on terrain, is shootable
       this.init();
-      const st = this.state, tst = st.sites.find(t => t.type === "alien_derelict"), te = tst.emplacement;
+      const st = this.state, tst = st.sites.find(t => t.type === "alien_derelict" && t.emplacement), te = tst.emplacement;
       st.obstacles = []; st.empTorpedoes = []; st.dead = false; st.atStation = false; st.invuln = 0;
       st.x = te.x + 400; st.y = te.y; te.torpedoCd = 0;
       this._updateEmplacements(tst, 1 / 60, 400);
@@ -935,6 +1025,25 @@ Object.assign(GAME, {
         hp: { shield: 0, shieldMax: 0, armor: 0, armorMax: 0, hull: 100, hullMax: 100 } };   // no _avoid
       ForgeFaction.updateAlienAI(al2, { x: 1000, y: 0 }, [al2], 1 / 60);
       check(Math.abs(al2.vy) < 1e-6, "no _avoid → pursuit is unchanged (straight line)");
+
+      // 10. cover shakes pursuit: sight blocked AT RANGE for guardLoseSightT drops a
+      //     guard back to dormant; clear sight, or a close hug, keeps it hunting
+      const sg = this.state;
+      const stubSite = { id: "stubSite", x: 0, y: 0, pieces: [{ dx: 0, dy: 0, w: 500, scatter: false }] };
+      sg.obstacles = [];
+      const mkGuard = (x, y) => ({ _siteId: "stubSite", state: "COMBAT", aggro: true, x, y, r: 15 });
+      const gFar = mkGuard(-900, 0);
+      sg.x = 900; sg.y = 0;   // player on the far side of the chunk, well out of reach
+      check(this._losBlocked(gFar.x, gFar.y, sg.x, sg.y, stubSite) === true, "a chunk between guard and player blocks sight");
+      for (let k = 0; k < 4 * 60; k++) this._guardSightCheck(stubSite, gFar, 1 / 60);
+      check(gFar.state === "IDLE" && !gFar.aggro, "losing sight at range must break pursuit");
+      const gSee = mkGuard(900, 400);   // clear lane to the player
+      for (let k = 0; k < 4 * 60; k++) this._guardSightCheck(stubSite, gSee, 1 / 60);
+      check(gSee.state === "COMBAT", "a guard with clear sight keeps pursuing");
+      const gNear = mkGuard(-300, 0);
+      sg.x = 300; sg.y = 0;   // blocked, but only 600 apart — too close to shake
+      for (let k = 0; k < 4 * 60; k++) this._guardSightCheck(stubSite, gNear, 1 / 60);
+      check(gNear.state === "COMBAT", "hugging a chunk at close range must not shake pursuit");
 
       this.init();   // leave a clean world behind (the walk moved the ship)
     } catch (e) {

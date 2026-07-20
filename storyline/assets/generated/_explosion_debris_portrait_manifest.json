@@ -1,0 +1,24 @@
+{
+  "bible": null,
+  "key": "explosion_debris_portrait",
+  "faction": "krag",
+  "aspect": "tall",
+  "style": "Graphic-novel illustration, bold inked linework, cel-shaded flats with hard shadow edges, limited palette of rust orange, soot charcoal and pale amber, dramatic single key light. Painterly sci-fi comic panel. No text, no speech bubbles, no captions, no lettering, no borders, no panel gutters.",
+  "images": [
+    {
+      "file": "explosion_debris_portrait_01.png",
+      "scene": "Close portrait, emergency light casting dramatic red glow, expression of grim determination mixed with shock. 3:4 portrait card, painterly space-opera art style, dark moody lighting.",
+      "lock_chars": 100
+    },
+    {
+      "file": "explosion_debris_portrait_02.png",
+      "scene": "Close portrait, emergency light casting dramatic red glow, expression of grim determination mixed with shock. 3:4 portrait card, painterly space-opera art style, dark moody lighting.",
+      "lock_chars": 100
+    },
+    {
+      "file": "explosion_debris_portrait_03.png",
+      "scene": "Close portrait, emergency light casting dramatic red glow, expression of grim determination mixed with shock. 3:4 portrait card, painterly space-opera art style, dark moody lighting.",
+      "lock_chars": 100
+    }
+  ]
+}

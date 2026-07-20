@@ -8,9 +8,9 @@
 // assigned from the FLEET dock tab (#fleetPanel); loadouts are edited on the
 // LOADOUT screen's drone pages.
 const FLEET = {
-  max: 3,                   // escort cap (formation slots); ownership cap is DRONES.ownedMax
-  offsets: [[-80, 0], [80, 0], [0, 80]],
-  slotNames: ["LEFT WING", "RIGHT WING", "REAR"],
+  max: 3,                   // BASE escort cap — Nox carriers raise it via hull.escortSlots (GAME.escortCap, top carrier = 6 = whole hangar)
+  offsets: [[-80, 0], [80, 0], [0, 80], [-140, 60], [140, 60], [0, 150]],
+  slotNames: ["LEFT WING", "RIGHT WING", "REAR", "PORT FLANK", "STARBOARD FLANK", "TAIL"],
   maxSpeed: 220,            // u/s velocity clamp
   damping: 0.85,            // velocity retention per frame @60fps (lerp toward goal)
   scanRange: 600, fireRange: 300, standoff: 160,
@@ -27,6 +27,20 @@ Object.assign(GAME, {
 
   // ---- roles ----------------------------------------------------------------
   escorts(s) { return ((s || this.state).playerFleet || []).filter(d => d.role === "escort"); },
+  // escort wing cap: base FLEET.max, raised by carrier hulls (hull.escortSlots)
+  escortCap() {
+    const h = this.activeHull ? this.activeHull() : null;
+    return Math.min(FLEET.offsets.length, (h && h.escortSlots) || FLEET.max);
+  },
+  // hull swap can SHRINK the wing (carrier → tug): demote surplus escorts to
+  // the hangar so formation slots never exceed the active hull's deck space.
+  enforceEscortCap(s) {
+    s = s || this.state;
+    const cap = this.escortCap(), esc = this.escorts(s);
+    for (let i = esc.length - 1; i >= cap; i--) { esc[i].role = "hangar"; esc[i].state = "follow"; esc[i].targetAlienId = null; }
+    if (esc.length > cap) toast(`escort wing trimmed to ${cap} — hull deck space`, "#ffd27a");
+    this.reindexFormation(s);
+  },
   // re-pack formation slots 0..n over ESCORTS ONLY (hangar/trade drones keep
   // formationIdx:null — indexing the whole owned list would hand them offsets)
   reindexFormation(s) {
@@ -46,7 +60,7 @@ Object.assign(GAME, {
     if (d.role === "trade") return { ok: false, reason: "on a trade run" };
     if (d.role === role) return { ok: false, reason: "already " + role };
     if (role === "escort") {
-      if (this.escorts(s).length >= FLEET.max) { toast(`escort wing full (${FLEET.max})`); sfx("warn"); return { ok: false, reason: "escort full" }; }
+      if (this.escorts(s).length >= this.escortCap()) { toast(`escort wing full (${this.escortCap()})`); sfx("warn"); return { ok: false, reason: "escort full" }; }
       d.role = "escort"; d.state = "follow"; d.targetAlienId = null; d.wcd = 0; d.vx = 0; d.vy = 0;
       this.reindexFormation(s);
       const slot = this.fleetSlotPos(d, s);
@@ -425,7 +439,7 @@ Object.assign(GAME, {
     fl.cred.textContent = Math.round(s.credits);
     const esc = this.escorts(s).length;
     const trade = s.playerFleet.filter(d => d.role === "trade").length;
-    fl.summary.textContent = `Owned ${s.playerFleet.length}/${DRONES.ownedMax} · Escorting ${esc}/${FLEET.max} · On trade runs ${trade}`;
+    fl.summary.textContent = `Owned ${s.playerFleet.length}/${DRONES.ownedMax} · Escorting ${esc}/${this.escortCap()} · On trade runs ${trade}`;
     this.renderConvoyCard();
     fl.list.innerHTML = "";
     if (!s.playerFleet.length) { this._drEl("ghNote", "No drones yet — build one in the HANGAR tab.", fl.list); return; }

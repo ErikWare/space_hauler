@@ -29,6 +29,7 @@ Object.assign(GAME, {
       // ---- player ----
       credits: s.credits,
       playerFaction: s.playerFaction || null,   // chosen at the title screen's faction pick (game/title.js)
+      mercenary: !!s.mercenary,                 // survived the Q10 ambush and works for nobody (game/onboarding.js)
       ships: s.ships, activeShipId: s.activeShipId,   // hull ownership + per-ship 6-slot loadouts (covers ship/equipped)
       inventory: s.inventory,
       ore: s.ore, refinedBars: s.refinedBars,          // the cargo hold
@@ -52,6 +53,7 @@ Object.assign(GAME, {
       tradeNetworkComplete: s.tradeNetworkComplete, won: s.won,
       audioMuted: !!s.audioMuted,   // HUD speaker toggle (game/audio.js)
       tutorialDone: !!s.tutorialDone,   // first-run coach marks dismissed (game/tutorial.js)
+      vn: s.vn || { flags: {}, seen: {} },   // visual-novel story flags + seen chains (game/visual_novel.js)
       // ---- planet surfaces (game/planet_surface.js) ----
       planetProgress: s.planetProgress || {},   // per-planet farms/buildings/stores
       planetCargo: s.planetCargo || {},         // crops loaded aboard the ship
@@ -60,6 +62,7 @@ Object.assign(GAME, {
       // ---- station region quests (game/quests.js) ----
       quests: (s.quests || []).map(q => this._serializeQuest(q)),   // held quests incl. tier/boost progress
       activeQuestId: s.activeQuestId != null ? s.activeQuestId : null,
+      mercCompleted: (s.mercCompleted || []).slice(),   // merc spec IDs completed, never reoffered (game/merc_quests.js)
       // ---- territory objectives (game/objectives.js) ----
       territoryObjectives: this._serializeObjectives(),   // pirate/battle counters + one-time milestone flags
       // ---- stats (unlock conditions) ----
@@ -83,6 +86,7 @@ Object.assign(GAME, {
     // ---- player ----
     if (typeof data.credits === "number") s.credits = data.credits;
     s.playerFaction = typeof data.playerFaction === "string" ? data.playerFaction : null;   // pre-faction saves → unaligned
+    s.mercenary = !!data.mercenary;   // pre-catastrophe saves → still employed
     // ---- skills / XP (set BEFORE the ships block so its recomputeDerived picks
     // up perk bonuses into the fresh hp maxes; game/skills.js) ----
     if (typeof data.xp === "number") s.xp = data.xp;
@@ -187,6 +191,9 @@ Object.assign(GAME, {
     s.won = !!data.won;
     s.audioMuted = !!data.audioMuted;   // pre-audio saves default to sound on
     s.tutorialDone = data.tutorialDone !== false;   // any save = a seen run (pre-tutorial saves too); false only if saved mid-tutorial
+    s.vn = (data.vn && typeof data.vn === "object")   // story flags/seen (pre-story saves → nothing seen; prologue only fires on NEW GAME)
+      ? { flags: data.vn.flags || {}, seen: data.vn.seen || {} }
+      : { flags: {}, seen: {} };
     // ---- planet surfaces (absent in older saves → fresh farms) ----
     if (data.planetProgress && typeof data.planetProgress === "object") s.planetProgress = data.planetProgress;
     if (data.planetCargo && typeof data.planetCargo === "object") s.planetCargo = data.planetCargo;
@@ -198,6 +205,8 @@ Object.assign(GAME, {
       s.nextQuestId = 1 + s.quests.reduce((m, q) => Math.max(m, q.id || 0), 0);
       s.activeQuestId = s.quests.some(q => q.id === data.activeQuestId) ? data.activeQuestId : null;
     }
+    // ---- mercenary contract completion list (absent in pre-merc saves → empty) ----
+    if (Array.isArray(data.mercCompleted)) s.mercCompleted = data.mercCompleted.slice();
     // ---- territory objectives (absent in older saves → fresh counters; restoring
     // the claimed flags BEFORE any milestone sweep is the no-double-grant guard) ----
     this._applyObjectivesData(data.territoryObjectives);
@@ -243,6 +252,7 @@ Object.assign(GAME, {
     if (data.regionControllers) for (const id in data.regionControllers) if (data.regionControllers[id] === "player") territoriesHeld++;
     return {
       faction: data.playerFaction || null,
+      mercenary: !!data.mercenary,
       credits: data.credits || 0,
       level: data.level || 1,
       outpostsOwned: Array.isArray(data.outposts) ? data.outposts.filter(o => o.owner === "player").length : 0,

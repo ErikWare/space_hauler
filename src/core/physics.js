@@ -6,6 +6,15 @@ Object.assign(GAME, {
   dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); },
   shipTo(o) { const s = this.state; return this.dist(s.x, s.y, o.x, o.y); },
 
+  // Active hull's collision mass (per-hull since the faction lines: a Krag
+  // dreadnought at mass 8 shoves rocks aside where the vulture bounces off).
+  // Also scales ram damage DOWN via shipRamMult — heavy plate shrugs debris.
+  shipMass() {
+    const h = this.activeHull ? this.activeHull() : null;
+    return (h && h.baseShip.mass) || CONFIG.shipMass;
+  },
+  shipRamMult(refMass) { return Math.min(1, (refMass || 2) / this.shipMass()); },
+
   // circle overlap → separate + elastic impulse along the normal. Mutates both.
   circleHit(a, ra, ma, b, rb, mb) {
     const dx = b.x - a.x, dy = b.y - a.y, rr = ra + rb, d2 = dx * dx + dy * dy;

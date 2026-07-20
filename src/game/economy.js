@@ -6,9 +6,14 @@ Object.assign(GAME, {
   // deposit the tow chain: rocks → ore stacks, junk floaters → Forge salvage.
   depositTows() {
     const s = this.state; let ore = 0, mods = 0;
+    // what physically left the tow chain this dock — the onboarding ladder's
+    // only delivery tap (game/quests.js questTutorDeposit). Counts BODIES, not
+    // ore yield, so a danger-multiplied haul still reads as "1 rock towed".
+    const hauled = { junk: 0, rocks: 0, types: {} };
     for (const t of s.tows) {
       if (t.arr === "rocks") {
         const r = s.rocks[t.i], slot = s.ore[r.type] || (s.ore[r.type] = { count: 0, bonus: false });
+        hauled.rocks++; hauled.types[r.type] = (hauled.types[r.type] || 0) + 1;
         // ore yield scales by the sec rating of the grab site (danger 4-6 ×1.3,
         // 7-9 ×1.6); the fractional part rolls probabilistically to stay integer
         const om = dangerLootMult(t.dangerLevel || 1).ore;
@@ -16,12 +21,14 @@ Object.assign(GAME, {
         slot.count += q; if (r.ringBonus) slot.bonus = true; ore += q;
         this.depositRespawnRock(t.i);   // delayed re-scatter, not instant (no home-base spam loop)
       } else {
+        hauled.junk++;
         const drop = this.rollJunkDrop(s.junk[t.i].key, t.dangerLevel);
         if (drop) { s.inventory.push(drop); mods++; this.onContractItem(drop); }   // Phase 4 salvage hook
         this.depositRespawnJunk(t.i);   // delayed re-scatter, not instant
       }
     }
     s.tows = [];
+    this.questTutorDeposit(hauled);   // onboarding counters (game/quests.js)
     return { ore, mods };
   },
   // roll a Forge salvage item from a junk floater type: base from the floater's

@@ -260,24 +260,37 @@
   // swirl so a head-on approach deflects to a side rather than stalling. Renormal-
   // ized to full speed → the alien still commits, just along a curved path. No
   // `_avoid` (all non-site combat) → returns null and the caller is unchanged.
-  var AV = (typeof CONFIG !== "undefined" && CONFIG) ? CONFIG : {};
   function avoidBlend(alien, vx, vy, speed) {
     var list = alien && alien._avoid;
     if (!list || !list.length || speed <= 0) return null;
-    var pad = AV.avoidPad || 150, tang = AV.avoidTangent || 0.9, wt = AV.avoidWeight || 1.5;
-    var ax = 0, ay = 0, any = false;
+    // read tunables lazily — CONFIG is a later const in the bundle (TDZ at module
+    // load); by the time steering runs it is initialized. Absent (standalone node
+    // require) → sane defaults.
+    var AV = (typeof CONFIG !== "undefined" && CONFIG) ? CONFIG : {};
+    var pad = AV.avoidPad || 150, push = AV.avoidPush || 0.35;
+    var ux = vx / speed, uy = vy / speed;   // desired pursuit heading (unit)
+    // The most threatening chunk is the closest one we are actually driving INTO;
+    // anything already behind us is irrelevant (that check is what keeps pursuit
+    // from decaying into a standoff once the chunk has been rounded).
+    var best = null, bestP = 0;
     for (var i = 0; i < list.length; i++) {
-      var c = list[i], dx = alien.x - c.x, dy = alien.y - c.y;
+      var c = list[i], dx = c.x - alien.x, dy = c.y - alien.y;
       var d = Math.hypot(dx, dy) || 0.001, reach = c.r + pad;
       if (d >= reach) continue;
-      var strength = (reach - d) / pad; if (strength > 1) strength = 1;
       var nx = dx / d, ny = dy / d;
-      ax += nx * strength; ay += ny * strength;                  // outward from the chunk
-      ax += -ny * strength * tang; ay += nx * strength * tang;   // swirl → flank, no stall
-      any = true;
+      if (nx * ux + ny * uy <= 0) continue;                 // chunk is behind — ignore
+      var p = (reach - d) / pad; if (p > 1) p = 1;
+      if (p > bestP) { bestP = p; best = { nx: nx, ny: ny, p: p }; }
     }
-    if (!any) return null;
-    var bx = vx / speed + ax * wt, by = vy / speed + ay * wt;
+    if (!best) return null;
+    // Steer along the chunk's tangent, taking whichever side still carries us
+    // forward. Close in → almost pure tangent (slide around the hull); far out →
+    // almost pure pursuit. A small outward term keeps the hull from being grazed.
+    var tx = -best.ny, ty = best.nx;
+    if (tx * ux + ty * uy < 0) { tx = -tx; ty = -ty; }
+    var w = best.p;
+    var bx = ux * (1 - w) + tx * w - best.nx * w * push;
+    var by = uy * (1 - w) + ty * w - best.ny * w * push;
     var bl = Math.hypot(bx, by) || 1;
     return { vx: bx / bl * speed, vy: by / bl * speed };
   }
