@@ -27,7 +27,7 @@ const DRONES = {
   convoySurviveBonus: 0.05,  // + per extra ship in the convoy
   tradeTierSurvive: 0.05,    // + per drone tier (armored ships are hardier)
   surviveCap: 0.98, surviveFloor: 0.5,
-  ownedMax: 6,               // total drones owned (escort cap is FLEET.max=3; rest hangar/trade)
+  ownedMax: 6,               // total drones owned (escort wing = hull.escortSlots 1–6; rest hangar/trade)
   slotCount: 3,              // module slots per drone — untyped: any module fits any slot
   salvageFrac: 0.5,          // scrap a drone → this fraction of its bar + credit cost comes back
   convoyMax: 5,
@@ -53,7 +53,8 @@ const DRONES = {
                 { type: "repair", name: "Repair Bot", dmg: 0, amount: 4, fuelCost: 0.5, fireRate: 0.5 }] },
     { name: "Armored",    cost: 150, materials: [{ type: "platinum", n: 2 }, { type: "gold", n: 3 }],
       payout: 450, successRate: 0.91, maxFuel: 180, maxHp: 120, maxShield: 90,
-      loadout: [{ type: "weapon", name: "Drone Cannon", dmg: 12, amount: 0, fuelCost: 1.5, fireRate: 1.2 },
+      // Armored wing is the crown-contract DPS — tank hull holds aggro, drones kill.
+      loadout: [{ type: "weapon", name: "Drone Cannon", dmg: 18, amount: 0, fuelCost: 1.5, fireRate: 1.35 },
                 { type: "repair", name: "Nano Repair Rig", dmg: 0, amount: 6, fuelCost: 0.5, fireRate: 0.5 },
                 { type: "utility", name: "Shield Booster", dmg: 0, amount: 5, fuelCost: 0.4, fireRate: 0.5 }] },
   ],
@@ -102,7 +103,8 @@ Object.assign(GAME, {
     s.credits -= spec.cost;
     for (const m of spec.materials) s.refinedBars[m.type] -= m.n;
     // fresh drones join the wing while a formation slot is free, else wait in the bay
-    const role = this.escorts(s).length < FLEET.max ? "escort" : "hangar";
+    const wingCap = typeof this.escortCap === "function" ? this.escortCap() : FLEET.max;
+    const role = this.escorts(s).length < wingCap ? "escort" : "hangar";
     const d = {
       id: this._nextDroneId++, tier, role,
       hp: spec.maxHp, maxHp: spec.maxHp, shield: spec.maxShield, maxShield: spec.maxShield,
@@ -472,7 +474,10 @@ Object.assign(GAME, {
       if (w) this._drEl("drCardLine dim", `weapon: ${w.name} (${Math.round(w.dmg * (dsk.dmgMult || 1) * 10) / 10} dmg)`, card);
     });
     const cap = document.getElementById("drCap");
-    if (cap) cap.textContent = `owned ${s.playerFleet.length}/${DRONES.ownedMax} · escorts ${this.escorts(s).length}/${FLEET.max}`;
+    if (cap) {
+      const wing = typeof this.escortCap === "function" ? this.escortCap() : FLEET.max;
+      cap.textContent = `owned ${s.playerFleet.length}/${DRONES.ownedMax} · escorts ${this.escorts(s).length}/${wing}`;
+    }
 
     // ---- owned-drone list: role + HP, SALVAGE for parts (50% back) ----
     if (dm.list) {
@@ -515,7 +520,8 @@ Object.assign(GAME, {
     }
     for (const [type, n] of Object.entries(oreCost)) s.ore[type].count -= n;
     s.credits -= hull.cost.credits;
-    const ship = { id: this._nextShipId++, hullKey, name: hull.name, slots: new Array(CONFIG.equipSlots).fill(null) };
+    const nSlots = (hull.equipSlots != null) ? hull.equipSlots : CONFIG.equipSlots;
+    const ship = { id: this._nextShipId++, hullKey, name: hull.name, slots: new Array(nSlots).fill(null) };
     s.ships.push(ship);
     if (!(opts && opts.quiet)) { toast("★ " + hull.name + " delivered — fit it in LOADOUT", "#ffd24a"); sfx("buy"); }
     this.saveGame();   // auto-save: hull purchases are progress worth keeping

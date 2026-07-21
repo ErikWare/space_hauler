@@ -4,8 +4,8 @@
 // lines), beauty art on canvas, stat bars + spec chips, credits + exotic-ore
 // price and a progression-gated BUY. Buying is an UPGRADE: the fitted modules
 // ride along to the new hull
-// (same 6 slots), health restores to the new pools, and the old hull stays in
-// the hangar with an empty rack (no trade-in — you just pay for the upgrade).
+// (modules that fit the new rack; overflow goes to inventory), health restores
+// to the new pools, and the old hull stays in the hangar with an empty rack.
 // Unlocks are OR-gates on the lifetime stats the save system persists:
 // cumulative outpost captures (s.capturedOutpostCount) or the highest danger
 // wedge ever flown into (s.maxDangerReached).
@@ -28,10 +28,20 @@ Object.assign(GAME, {
     const s = this.state, prev = this.activeShip();
     const res = this.buyShip(hullKey, { quiet: true });   // dock/unlock/credits/dupe checks + deduction
     if (!res.ok) return res;
-    res.ship.slots = ForgeEquipment.getEquipped().slots;  // carry the fitted modules over (copy)
+    // Carry modules into the new hull rack size (overflow → inventory via switch)
+    const newHull = CONFIG.hulls[hullKey];
+    const nSlots = this.hullEquipSlots ? this.hullEquipSlots(newHull) : CONFIG.equipSlots;
+    const live = ForgeEquipment.getEquipped().slots.slice();
+    res.ship.slots = this._resizeShipSlots
+      ? this._resizeShipSlots(live, nSlots, this.state)
+      : live;
     const sw = this.switchActiveShip(res.ship.id, { quiet: true });
-    if (sw.ok && prev) prev.slots = new Array(CONFIG.equipSlots).fill(null);  // moved, not copied
-    this.recomputeDerived();                              // maxes include the transferred modules
+    if (sw.ok && prev) {
+      const oldN = this.hullEquipSlots
+        ? this.hullEquipSlots(CONFIG.hulls[prev.hullKey]) : CONFIG.equipSlots;
+      prev.slots = new Array(oldN).fill(null);  // modules moved, not copied
+    }
+    this.recomputeDerived();
     const h = s.hp;
     h.shield = h.shieldMax; h.armor = h.armorMax; h.hull = h.hullMax;
     toast("You are now flying the " + CONFIG.hulls[hullKey].name, "#57d1c9"); sfx("buy");
@@ -152,7 +162,8 @@ Object.assign(GAME, {
     chip("THRUST", b.thrust); chip("TURN", b.turnSpeed);
     chip("DPS", Math.round(b.weaponDmg * (b.fireRate || 1) * 10) / 10);
     chip("MASS", b.mass || CONFIG.shipMass);
-    chip("DRONE WING", hull.escortSlots || 3);
+    chip("MOD SLOTS", hull.equipSlots != null ? hull.equipSlots : CONFIG.equipSlots);
+    chip("DRONE WING", hull.escortSlots != null ? hull.escortSlots : 1);
     chip("TOWS", hull.baseTows); chip("SCAN", b.scanRange);
 
     // stat bars scale against the biggest hull so the tiers read as growth

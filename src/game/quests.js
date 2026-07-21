@@ -9,9 +9,9 @@
 //   chain — 3-tier sensor net: place sensors at 3 sites/outposts across the
 //           territory, ANY order; tier progress lives on the quest object so a
 //           placed sensor survives death (respawn never touches s.quests).
-// The player holds any number of quests but tracks ONE (s.activeQuestId): only
-// the active quest drives s.navWaypoint (the existing galaxy-map waypoint) and
-// only the active quest arms the defender boost — +1-2 extra garrison ships
+// Provider slots (lounge UX): main + station + side + open (one each).
+// Tracks ONE (s.activeQuestId): only the active quest drives s.navWaypoint
+// and only the active quest arms the defender boost — +1-2 extra garrison ships
 // stream in near its target while the player approaches, recorded as
 // guardRec-style {frac,alive} entries on the quest (dead stays dead), and
 // despawned the moment the quest is completed, abandoned, or untracked.
@@ -101,10 +101,12 @@ const QUEST_TUTOR = {
     desc: "Raw ore is ballast with a price tag. Run it through the station refinery into bars, and put one drone on your wing while you are docked.",
     poll: (G, s) => (G._tutorRefined(s) ? 1 : 0) + (G.escorts(s).length >= 1 ? 1 : 0),
     text: (G, s) => `refine ore ${G._tutorRefined(s) ? "✓" : "✗"} · 1 drone escorting ${G.escorts(s).length >= 1 ? "✓" : "✗"}` },
-  wing_two: { need: 2, reward: 400, unit: "drones escorting", title: "WING OF TWO",
-    desc: "One drone is a spare pair of guns. Two is a wing — build and assign a second escort at any dock.",
-    poll: (G, s) => G.escorts(s).length,
-    text: (G, s) => `${Math.min(2, G.escorts(s).length)}/2 drones escorting (assign at a dock)` },
+  // Starter Vulture only fields 1 escort; Q8 teaches ownership vs wing space —
+  // build a second drone that waits in the hangar (garrison / trade / next hull).
+  wing_two: { need: 2, reward: 400, unit: "drones owned", title: "HANGAR RESERVE",
+    desc: "Your tug only flies one wing drone. Build a second for the hangar — garrison work, trade runs, and the next hull's bigger deck.",
+    poll: (G, s) => (s.playerFleet || []).length,
+    text: (G, s) => `${Math.min(2, (s.playerFleet || []).length)}/2 drones owned (build at DRONES; only one can escort on a starter tug)` },
   // Baselined against the LIFETIME capture counter (outposts.js:182) rather than
   // against "do you own one": a player who took an outpost during Q1-Q6 should
   // still be asked to take one now, and capturedOutpostCount only ever rises, so
@@ -499,15 +501,66 @@ Object.assign(GAME, {
     return this._questActionPos(q);
   },
 
-  // ---- accept / abandon / turn in (hold many, track one) ------------------
+  // ---- job providers (lounge: talk to people, one job per provider) --------
+  // main    = tutor / story (faction contact)
+  // station = berth merc ladder (STATION_FIXERS)
+  // side    = free-roam merc pool (HARLAN/ZERA/PELL/ORYN)
+  // open    = territory godo/chain/multi OR Phase 4 combat contract
+  questProvider(q) {
+    if (!q) return null;
+    if (q.kind === "tutor" || q.kind === "story") return "main";
+    if (q.kind === "merc") return (q.mercStationId != null) ? "station" : "side";
+    if (q.kind === "godo" || q.kind === "chain" || q.kind === "multi") return "open";
+    return "open";
+  },
+  heldQuestForProvider(provider, s) {
+    s = s || this.state;
+    return (s.quests || []).find(q => this.questProvider(q) === provider) || null;
+  },
+  openSlotBusy(s) {
+    s = s || this.state;
+    if (this.heldQuestForProvider("open", s)) return true;
+    if ((s.contracts || []).length) return true;
+    return false;
+  },
+  canAcceptQuestProvider(q, s) {
+    s = s || this.state;
+    const p = this.questProvider(q);
+    if (!p) return { ok: false, reason: "unknown job" };
+    if (p === "main") {
+      if (this.heldQuestForProvider("main", s))
+        return { ok: false, reason: "finish your main job first", provider: p };
+      return { ok: true, provider: p };
+    }
+    if (p === "open") {
+      if (this.openSlotBusy(s))
+        return { ok: false, reason: "you already have open-bay work — finish or drop it", provider: p };
+      return { ok: true, provider: p };
+    }
+    // station / side
+    if (this.heldQuestForProvider(p, s)) {
+      const who = p === "station" ? "the station fixer" : "your side contact";
+      return { ok: false, reason: "already on a job with " + who + " — finish or drop it", provider: p };
+    }
+    return { ok: true, provider: p };
+  },
+
+  // ---- accept / abandon / turn in (provider slots; track one) ------------------
   acceptQuest(q) {
     const s = this.state;
     if (!q || q.status !== "offer") return false;
+    const gate = this.canAcceptQuestProvider(q, s);
+    if (!gate.ok) {
+      if (typeof toast === "function") toast(gate.reason, "#ff5060");
+      if (typeof sfx === "function") sfx("warn");
+      return false;
+    }
     const board = s.stationQuests[q.stationId];
     if (board) { const i = board.indexOf(q); if (i >= 0) board.splice(i, 1); }
     q.status = "held";
     s.quests.push(q);
-    if (s.activeQuestId == null) this.setActiveQuest(q.id);   // first pickup auto-tracks
+    // MAIN always tracks; others auto-track only if nothing is tracked
+    if (gate.provider === "main" || s.activeQuestId == null) this.setActiveQuest(q.id);
     toast("QUEST ACCEPTED: " + q.title, "#57d1c9"); sfx("buy");
     return true;
   },
@@ -665,8 +718,12 @@ Object.assign(GAME, {
       }
       if (d > streamR) continue;
       // first approach mints the persistent recs: +1-2 extra defenders
+      // (station-merc hard ranks may raise boostMin/Max on the quest object)
       if (!q.boosts[rid]) {
-        const nB = QUESTS.boostMin + this._siteHash(q.id * 131 + rid) % (QUESTS.boostMax - QUESTS.boostMin + 1);
+        const bMin = (q.boostMin != null) ? q.boostMin : QUESTS.boostMin;
+        const bMax = (q.boostMax != null) ? q.boostMax : QUESTS.boostMax;
+        const span = Math.max(0, bMax - bMin);
+        const nB = bMin + (span ? (this._siteHash(q.id * 131 + rid) % (span + 1)) : 0);
         q.boosts[rid] = [];
         for (let i = 0; i < nB; i++) q.boosts[rid].push({ frac: 1, alive: true });
       }
@@ -836,71 +893,410 @@ Object.assign(GAME, {
         : null,
       boosts: q.boosts && typeof q.boosts === "object" ? q.boosts : {},
       status: q.status === "ready" ? "ready" : "held",
-      mercSpecId: q.mercSpecId || null };
+      mercSpecId: q.mercSpecId || null,
+      mercStationId: q.mercStationId != null ? q.mercStationId : null,
+      mercRank: q.mercRank || null,
+      mercLootTier: q.mercLootTier || null,
+      minEscortCap: q.minEscortCap || 0,
+      boostMin: q.boostMin != null ? q.boostMin : null,
+      boostMax: q.boostMax != null ? q.boostMax : null };
   },
 
-  // ================= DOM: quest sections of #contractsPanel ====================
-  // Rendered by renderContractsPanel (same refresh-on-every-press flow); the
-  // shared onClick in wireContractsDOM routes data-qact buttons here.
+  // ================= DOM: lounge contacts on #contractsPanel ====================
+  // People-first Work tab: four providers (main/station/side/open) + Your work.
+  // Shared onClick in wireContractsDOM routes data-qact / data-lact buttons.
+  _jobProviderLabel(p) {
+    return ({ main: "MAIN", station: "STATION", side: "SIDE", open: "OPEN" })[p] || p;
+  },
+  _jobPortraitSrc(key) {
+    if (!key) return "";
+    // Resolve through VN_ASSETS when present (faction contacts, mercs, fixers).
+    if (typeof VN_ASSETS !== "undefined") {
+      const a = VN_ASSETS[key + "_neutral"] || VN_ASSETS[key];
+      if (a && a.src) return a.src;
+      if (a && a.fallback) {
+        const b = VN_ASSETS[a.fallback];
+        if (b && b.src) return b.src;
+      }
+    }
+    // Common on-disk locations for lounge faces
+    if (key.indexOf("fixer_") === 0 || key === "harlan" || key === "zera"
+        || key === "pell" || key === "oryn")
+      return "sprites/intro/" + key + ".png";
+    if (key === "krag_voss") return "sprites/krag_leader.png";
+    if (key === "vex_dren") return "sprites/station_commander.png";
+    if (key === "nox_sive") return "sprites/nox_leader.png";
+    return "sprites/intro/" + key + ".png";
+  },
+  _mainContactInfo(s) {
+    s = s || this.state;
+    const fac = s.playerFaction || "krag";
+    const pack = (typeof ONBOARD_VN !== "undefined" && ONBOARD_VN[fac]) ? ONBOARD_VN[fac] : null;
+    const name = pack ? pack.speaker : ({ krag: "VOSS", vex: "DREN", nox: "SIVE" }[fac] || "CONTACT");
+    const portrait = pack ? (pack.portrait || "").replace(/_neutral$/, "") : fac + "_leader";
+    // pack.portrait is often "krag_voss" style root
+    const key = pack && pack.portrait ? pack.portrait : ({
+      krag: "krag_voss", vex: "vex_dren", nox: "nox_sive",
+    }[fac] || "krag_voss");
+    return {
+      provider: "main", name, title: "Dock Contact",
+      color: pack && pack.speaker ? "#ff9a5a" : "#8fd0ff",
+      portraitKey: key,
+      blurb: "Your main thread — promotions, the ladder, the next real job.",
+    };
+  },
+  _stationFixerInfo(sid) {
+    const f = (typeof STATION_FIXERS !== "undefined" && STATION_FIXERS[sid]) ? STATION_FIXERS[sid] : null;
+    if (!f) return {
+      provider: "station", name: "FIXER", title: "Station Fixer",
+      color: "#c8a96e", portraitKey: "fixer_brek",
+      blurb: "This berth's rank ladder. Ten rungs; finish them in order.",
+    };
+    return {
+      provider: "station", name: f.name, title: f.title || "Station Fixer",
+      color: f.color || "#c8a96e", portraitKey: f.key,
+      blurb: f.blurb || "This berth's campaign.",
+    };
+  },
+  _sideContactInfo(offerOrHeld) {
+    const npcKey = offerOrHeld && offerOrHeld.mercNpc;
+    const npc = (typeof MERC_NPCS !== "undefined" && npcKey && MERC_NPCS[npcKey]) ? MERC_NPCS[npcKey] : null;
+    if (npc) {
+      return {
+        provider: "side", name: npc.name, title: "Roaming Fixer",
+        color: npc.color || "#7ec8e3", portraitKey: npc.key,
+        blurb: "Free-lane contracts. One at a time.",
+      };
+    }
+    return {
+      provider: "side", name: "FIXER", title: "Roaming Fixer",
+      color: "#7ec8e3", portraitKey: "harlan",
+      blurb: "Free-lane contracts. Redock after the tutorial.",
+    };
+  },
+  _openContactInfo() {
+    return {
+      provider: "open", name: "DISPATCH", title: "Bay Contractor",
+      color: "#9aa7b8", portraitKey: "station_clerk",
+      blurb: "Generic territory runs and combat contracts. One open slot.",
+    };
+  },
+  _boardOffers(sid, s) {
+    s = s || this.state;
+    return (s.stationQuests[sid] || []).filter(q => q.status === "offer");
+  },
+  _offerForProvider(provider, sid, s) {
+    s = s || this.state;
+    const offers = this._boardOffers(sid, s);
+    if (provider === "station")
+      return offers.find(q => q.kind === "merc" && q.mercStationId != null) || null;
+    if (provider === "side")
+      return offers.find(q => q.kind === "merc" && q.mercStationId == null) || null;
+    if (provider === "open")
+      return offers.find(q => q.kind === "godo" || q.kind === "chain" || q.kind === "multi") || null;
+    return null;
+  },
+  _mainJobStatus(s) {
+    s = s || this.state;
+    const held = this.heldQuestForProvider("main", s);
+    if (held) {
+      const ready = this.questObjectiveDone(held);
+      return { state: ready ? "turnin" : "progress", held, offer: null };
+    }
+    // Tutor/story grants are scripted — card is talk-only when nothing held
+    const vn = this._vnSave ? this._vnSave() : null;
+    const onbDone = !!(vn && vn.seen && vn.seen.onb_done);
+    if (!onbDone) return { state: "available", held: null, offer: null, note: "Continue the hire ladder with your contact." };
+    // Story may grant later; no open offer on board
+    return { state: "idle", held: null, offer: null, note: "No main job right now — fly your side work." };
+  },
+  _providerStatus(provider, sid, s) {
+    s = s || this.state;
+    if (provider === "main") return this._mainJobStatus(s);
+    if (provider === "open") {
+      const heldQ = this.heldQuestForProvider("open", s);
+      if (heldQ) {
+        const ready = this.questObjectiveDone(heldQ);
+        return { state: ready ? "turnin" : "progress", held: heldQ, offer: null, contract: null };
+      }
+      const c = (s.contracts || [])[0] || null;
+      if (c) {
+        return { state: c.status === "complete" ? "turnin" : "progress", held: null, offer: null, contract: c };
+      }
+      const offer = this._offerForProvider("open", sid, s);
+      const cOff = ((s.stationContracts || {})[sid] || []).find(x => x.status === "available") || null;
+      if (offer || cOff) return { state: "available", held: null, offer, contractOffer: cOff };
+      return { state: "idle", held: null, offer: null, note: "Nothing on the bay wire — redock to refresh." };
+    }
+    const held = this.heldQuestForProvider(provider, s);
+    if (held) {
+      const ready = this.questObjectiveDone(held);
+      return { state: ready ? "turnin" : "progress", held, offer: null };
+    }
+    const offer = this._offerForProvider(provider, sid, s);
+    if (offer) return { state: "available", held: null, offer };
+    const vn = this._vnSave ? this._vnSave() : null;
+    if (provider === "side" || provider === "station") {
+      if (!(vn && vn.seen && vn.seen.onb_done))
+        return { state: "idle", held: null, offer: null, note: "Unlocks after the onboarding ladder." };
+    }
+    return { state: "idle", held: null, offer: null, note: provider === "station" ? "No rank job right now." : "No free-lane job right now." };
+  },
+  _loungeChip(state) {
+    return ({
+      available: ["HAS WORK", "#9fd36a"],
+      progress: ["IN PROGRESS", "#57e6ff"],
+      turnin: ["TURN IN", "#ffd27a"],
+      idle: ["NOTHING", "#5a6578"],
+    })[state] || ["—", "#5a6578"];
+  },
   renderQuestsPanel() {
     const ct = this._ctDOM(); if (!ct || !ct.qsHeld) return;
     const s = this.state, sid = s.dockStationId;
-    // ---- quest log (held; the active one is highlighted) ----
-    ct.qsHeld.innerHTML = "";
-    if (!s.quests.length) {
-      const note = document.createElement("div"); note.className = "ghNote";
-      note.textContent = "no quests held — accept some from the board below";
-      ct.qsHeld.appendChild(note);
+    const ui = this._loungeUI || (this._loungeUI = { sel: "main" });
+    if (!ui.sel) ui.sel = "main";
+
+    // ---- character strip ----
+    const lounge = ct.lounge || ct.qsList; // prefer #ctLounge, fallback qsList
+    const detail = ct.detail || ct.qsHeld; // prefer #ctDetail — we'll map in _ctDOM
+    // Layout: qsList = lounge strip, qsHeld = detail+work when lounge markup present
+    // With new markup: ct.lounge, ct.detail, ct.work
+    const stripEl = ct.lounge || ct.qsList;
+    const detailEl = ct.detail || null;
+    const workEl = ct.work || ct.qsHeld;
+
+    const contacts = [
+      this._mainContactInfo(s),
+      this._stationFixerInfo(sid),
+      (() => {
+        const st = this._providerStatus("side", sid, s);
+        const src = st.held || st.offer;
+        return this._sideContactInfo(src);
+      })(),
+      this._openContactInfo(),
+    ];
+
+    if (stripEl) {
+      stripEl.innerHTML = "";
+      stripEl.classList.add("ctLoungeStrip");
+      for (const c of contacts) {
+        const st = this._providerStatus(c.provider, sid, s);
+        const [chip, chipCol] = this._loungeChip(st.state);
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "ctContact" + (ui.sel === c.provider ? " on" : "");
+        card.dataset.lact = "select";
+        card.dataset.provider = c.provider;
+        card.style.borderColor = ui.sel === c.provider ? c.color : "";
+        const face = document.createElement("div"); face.className = "ctFace";
+        face.style.boxShadow = "inset 0 0 0 2px " + c.color;
+        const img = document.createElement("img");
+        img.alt = c.name;
+        img.src = this._jobPortraitSrc(c.portraitKey);
+        img.onerror = function () { this.style.display = "none"; };
+        face.appendChild(img);
+        const nm = document.createElement("div"); nm.className = "ctContactName";
+        nm.textContent = c.name; nm.style.color = c.color;
+        const role = document.createElement("div"); role.className = "ctContactRole";
+        role.textContent = this._jobProviderLabel(c.provider) + " · " + c.title;
+        const badge = document.createElement("div"); badge.className = "ctContactBadge";
+        badge.textContent = chip; badge.style.color = chipCol;
+        card.appendChild(face); card.appendChild(nm); card.appendChild(role); card.appendChild(badge);
+        stripEl.appendChild(card);
+      }
     }
-    for (const q of s.quests) {
+
+    // ---- detail for selected provider ----
+    const targetDetail = detailEl || workEl;
+    // If we have separate workEl and detailEl, detail is separate; else reuse workEl top
+    if (detailEl) detailEl.innerHTML = "";
+    if (workEl) workEl.innerHTML = "";
+
+    const sel = ui.sel || "main";
+    const info = contacts.find(c => c.provider === sel) || contacts[0];
+    const st = this._providerStatus(sel, sid, s);
+    const droot = detailEl || (() => {
+      const box = document.createElement("div"); box.className = "ctDetailBox";
+      if (workEl) workEl.appendChild(box);
+      return box;
+    })();
+    if (detailEl) { /* droot is detailEl */ }
+
+    const head = document.createElement("div"); head.className = "ctDetailHead";
+    const hName = document.createElement("div"); hName.className = "ctDetailName";
+    hName.textContent = info.name; hName.style.color = info.color;
+    const hSub = document.createElement("div"); hSub.className = "ctDesc";
+    hSub.textContent = info.title + " — " + (info.blurb || "");
+    head.appendChild(hName); head.appendChild(hSub);
+    droot.appendChild(head);
+
+    // body: offer / held / idle
+    const body = document.createElement("div"); body.className = "ctCard";
+    if (st.held) {
+      const q = st.held;
+      const t = document.createElement("div"); t.className = "ctTitle"; t.textContent = q.title;
+      const desc = document.createElement("div"); desc.className = "ctDesc"; desc.textContent = q.description || "";
+      const meta = document.createElement("div"); meta.className = "ctMeta";
+      meta.textContent = "◇ " + q.reward + "cr · " + this.questProgressText(q);
+      body.appendChild(t); body.appendChild(desc); body.appendChild(meta);
+    } else if (st.contract) {
+      const c = st.contract;
+      const t = document.createElement("div"); t.className = "ctTitle"; t.textContent = c.title;
+      const desc = document.createElement("div"); desc.className = "ctDesc"; desc.textContent = c.description || "";
+      const meta = document.createElement("div"); meta.className = "ctMeta";
+      meta.textContent = "◇ " + c.reward + "cr · " + (this.contractProgressText ? this.contractProgressText(c) : c.status);
+      body.appendChild(t); body.appendChild(desc); body.appendChild(meta);
+    } else if (st.offer) {
+      const q = st.offer;
+      const t = document.createElement("div"); t.className = "ctTitle"; t.textContent = q.title;
+      const desc = document.createElement("div"); desc.className = "ctDesc"; desc.textContent = q.description || "";
+      const meta = document.createElement("div"); meta.className = "ctMeta";
+      meta.textContent = "◇ " + q.reward + "cr" + (q.difficulty ? " · " + "⭐".repeat(q.difficulty) : "");
+      body.appendChild(t); body.appendChild(desc); body.appendChild(meta);
+    } else if (st.contractOffer) {
+      const c = st.contractOffer;
+      const t = document.createElement("div"); t.className = "ctTitle"; t.textContent = c.title;
+      const desc = document.createElement("div"); desc.className = "ctDesc"; desc.textContent = c.description || "";
+      const meta = document.createElement("div"); meta.className = "ctMeta";
+      meta.textContent = "◇ " + c.reward + "cr · combat contract";
+      body.appendChild(t); body.appendChild(desc); body.appendChild(meta);
+    } else {
+      const note = document.createElement("div"); note.className = "ghNote";
+      note.textContent = st.note || "Nothing right now.";
+      body.appendChild(note);
+    }
+    droot.appendChild(body);
+
+    // actions
+    const row = document.createElement("div"); row.className = "ctBtnRow";
+    if (st.held) {
+      const q = st.held;
       const isActive = s.activeQuestId === q.id;
-      const card = this._ctCard(q);
-      if (isActive) card.classList.add("qActive");
-      const row = document.createElement("div"); row.className = "ctBtnRow";
-      const act = document.createElement("button"); act.className = "ghBtn";
-      act.textContent = isActive ? "◉ ACTIVE — waypoint set" : "○ SET ACTIVE";
-      if (isActive) act.classList.add("go");
-      act.dataset.qact = "active"; act.dataset.qid = String(q.id);
-      row.appendChild(act);
+      const tr = document.createElement("button"); tr.className = "ghBtn" + (isActive ? " go" : "");
+      tr.textContent = isActive ? "◉ TRACKING — map waypoint" : "○ TRACK";
+      tr.dataset.qact = "active"; tr.dataset.qid = String(q.id);
+      row.appendChild(tr);
       const ready = this.questObjectiveDone(q), here = q.stationId === sid;
       const ti = document.createElement("button"); ti.className = "ghBtn";
-      const st = this._questStation(q);
+      const stn = this._questStation(q);
       ti.textContent = ready
-        ? (here ? "TURN IN ▸ +" + q.reward + "cr" : "turn in at " + (st ? st.name : "the issuer"))
-        : "IN PROGRESS — " + this.questProgressText(q);
+        ? (here ? "TURN IN ▸ +" + q.reward + "cr" : "turn in at " + (stn ? stn.name : "issuer"))
+        : "IN PROGRESS";
       ti.disabled = !(ready && here);
       if (ready && here) ti.classList.add("go");
       ti.dataset.qact = "turnin"; ti.dataset.qid = String(q.id);
       row.appendChild(ti);
       const ab = document.createElement("button"); ab.className = "ghBtn ctAbandon";
-      ab.textContent = "ABANDON"; ab.dataset.qact = "abandon"; ab.dataset.qid = String(q.id);
+      ab.textContent = "DROP JOB"; ab.dataset.qact = "abandon"; ab.dataset.qid = String(q.id);
       row.appendChild(ab);
-      card.appendChild(row);
-      ct.qsHeld.appendChild(card);
-    }
-    // ---- quest board (this station's offers) ----
-    ct.qsList.innerHTML = "";
-    const avail = (s.stationQuests[sid] || []).filter(q => q.status === "offer");
-    if (!avail.length) {
-      const note = document.createElement("div"); note.className = "ghNote";
-      note.textContent = "no quests on the board — redock to refresh";
-      ct.qsList.appendChild(note);
-    }
-    for (const q of avail) {
-      const card = this._ctCard(q);
-      const row = document.createElement("div"); row.className = "ctBtnRow";
+    } else if (st.contract) {
+      const c = st.contract;
+      const here = c.stationId === sid;
+      const ready = c.status === "complete" && here;
+      const ti = document.createElement("button"); ti.className = "ghBtn";
+      ti.textContent = c.status === "complete"
+        ? (here ? "TURN IN ▸ +" + c.reward + "cr" : "turn in at issuer")
+        : "IN PROGRESS";
+      ti.disabled = !ready;
+      if (ready) ti.classList.add("go");
+      ti.dataset.act = "turnin";
+      row.appendChild(ti);
+      const ab = document.createElement("button"); ab.className = "ghBtn ctAbandon";
+      ab.textContent = "DROP JOB"; ab.dataset.act = "abandon";
+      row.appendChild(ab);
+    } else if (st.offer) {
       const btn = document.createElement("button"); btn.className = "ghBtn go";
-      btn.textContent = "ACCEPT"; btn.dataset.qact = "accept"; btn.dataset.qid = String(q.id);
+      btn.textContent = "TALK / TAKE JOB";
+      btn.dataset.qact = "accept"; btn.dataset.qid = String(st.offer.id);
       row.appendChild(btn);
-      card.appendChild(row);
-      ct.qsList.appendChild(card);
+    } else if (st.contractOffer) {
+      const btn = document.createElement("button"); btn.className = "ghBtn go";
+      btn.textContent = "TALK / TAKE JOB";
+      btn.dataset.act = "accept"; btn.dataset.cid = String(st.contractOffer.id);
+      row.appendChild(btn);
+    } else if (sel === "main" && st.state === "available") {
+      const note = document.createElement("div"); note.className = "ghNote";
+      note.textContent = "Your contact handles the main ladder in dialogue — check the dockmaster after hauls.";
+      droot.appendChild(note);
+    }
+    if (row.childNodes.length) droot.appendChild(row);
+
+    // Prefer quest offer over contract for open when both exist: show secondary take
+    if (sel === "open" && st.offer && st.contractOffer && !st.held && !st.contract) {
+      const row2 = document.createElement("div"); row2.className = "ctBtnRow";
+      const btn2 = document.createElement("button"); btn2.className = "ghBtn";
+      btn2.textContent = "OR COMBAT: " + st.contractOffer.title.slice(0, 28);
+      btn2.dataset.act = "accept"; btn2.dataset.cid = String(st.contractOffer.id);
+      row2.appendChild(btn2);
+      droot.appendChild(row2);
+    }
+
+    // ---- Your work list ----
+    const wroot = workEl;
+    if (wroot) {
+      // if detail was inlined into workEl, append section header
+      const h2 = document.createElement("h2");
+      h2.textContent = "Your work — TRACK sets the map waypoint";
+      h2.style.marginTop = "12px";
+      wroot.appendChild(h2);
+      if (!s.quests.length && !(s.contracts || []).length) {
+        const note = document.createElement("div"); note.className = "ghNote";
+        note.textContent = "no jobs held — talk to someone above";
+        wroot.appendChild(note);
+      }
+      for (const q of s.quests) {
+        const isActive = s.activeQuestId === q.id;
+        const card = this._ctCard(q);
+        if (isActive) card.classList.add("qActive");
+        const prov = this.questProvider(q);
+        const tag = document.createElement("div"); tag.className = "ctMeta";
+        tag.textContent = this._jobProviderLabel(prov) + (isActive ? " · TRACKING" : "");
+        card.insertBefore(tag, card.firstChild);
+        const brow = document.createElement("div"); brow.className = "ctBtnRow";
+        const act = document.createElement("button"); act.className = "ghBtn" + (isActive ? " go" : "");
+        act.textContent = isActive ? "◉ TRACKING" : "○ TRACK";
+        act.dataset.qact = "active"; act.dataset.qid = String(q.id);
+        brow.appendChild(act);
+        const ready = this.questObjectiveDone(q), here = q.stationId === sid;
+        const ti = document.createElement("button"); ti.className = "ghBtn";
+        const stn = this._questStation(q);
+        ti.textContent = ready
+          ? (here ? "TURN IN ▸ +" + q.reward + "cr" : "turn in at " + (stn ? stn.name : "issuer"))
+          : this.questProgressText(q);
+        ti.disabled = !(ready && here);
+        if (ready && here) ti.classList.add("go");
+        ti.dataset.qact = "turnin"; ti.dataset.qid = String(q.id);
+        brow.appendChild(ti);
+        card.appendChild(brow);
+        wroot.appendChild(card);
+      }
+      if ((s.contracts || [])[0]) {
+        const c = s.contracts[0];
+        const card = this._ctCard(c, { active: true });
+        const tag = document.createElement("div"); tag.className = "ctMeta";
+        tag.textContent = "OPEN · COMBAT";
+        card.insertBefore(tag, card.firstChild);
+        wroot.appendChild(card);
+      }
     }
   },
   questDomAct(btn) {
-    const s = this.state, id = +btn.dataset.qid, act = btn.dataset.qact;
+    const s = this.state, act = btn.dataset.qact;
+    if (act === "select" || btn.dataset.lact === "select") {
+      this._loungeUI = this._loungeUI || {};
+      this._loungeUI.sel = btn.dataset.provider || "main";
+      return;
+    }
+    const id = +btn.dataset.qid;
     if (act === "accept") {
       const q = (s.stationQuests[s.dockStationId] || []).find(x => x.id === id);
-      if (q) this.acceptQuest(q);
+      if (!q) return;
+      // Play merc brief if registered, then accept (vnStart is fire-and-forget flavour).
+      if (q.mercBriefSceneId && typeof this.vnStart === "function" && typeof VN_SCENES !== "undefined"
+          && VN_SCENES[q.mercBriefSceneId] && !HEADLESS) {
+        try { this.vnStart(q.mercBriefSceneId); } catch (e) { /* non-fatal */ }
+      }
+      this.acceptQuest(q);
       return;
     }
     const q = s.quests.find(x => x.id === id);
@@ -1008,18 +1404,28 @@ Object.assign(GAME, {
       check(!!(qa && qb), "could not source two godo quests");
       if (qa && qb) {
         s.navWaypoint = null; s._questWp = null; s._questWpKey = null;
-        this.acceptQuest(qa); this.acceptQuest(qb);
-        check(s.activeQuestId === qa.id, "second accept must not steal tracking");
+        check(this.acceptQuest(qa), "first open accept must succeed");
+        check(!this.acceptQuest(qb), "OPEN provider allows only one godo/chain/multi");
+        check(s.activeQuestId === qa.id, "first accepted quest must auto-track");
+        // free OPEN slot, then accept qb to test waypoint handoff
+        this.abandonQuest(qa);
+        check(this.acceptQuest(qb), "second open accept after abandon must succeed");
+        // grab another godo for dual-hold is impossible; use a merc side if available
+        // waypoint tests on single held open job:
         this.updateQuests(1 / 60);
-        const pa = this._questObjectivePoint(qa), pb = this._questObjectivePoint(qb);
-        check(!!s.navWaypoint && s.navWaypoint.x === pa.x && s.navWaypoint.y === pa.y,
+        const pb = this._questObjectivePoint(qb);
+        check(!!s.navWaypoint && s.navWaypoint.x === pb.x && s.navWaypoint.y === pb.y,
           "waypoint must aim at the ACTIVE quest's objective");
-        check(!(s.navWaypoint.x === pb.x && s.navWaypoint.y === pb.y), "held-but-inactive quest must not aim the waypoint");
-        this.setActiveQuest(qb.id);
-        check(!!s.navWaypoint && s.navWaypoint.x === pb.x && s.navWaypoint.y === pb.y, "toggling active must re-aim the waypoint");
         this.setActiveQuest(null);
         check(s.navWaypoint === null, "untracking must clear the quest waypoint");
-        this.abandonQuest(qa); this.abandonQuest(qb);
+        this.setActiveQuest(qb.id);
+        check(!!s.navWaypoint && s.navWaypoint.x === pb.x && s.navWaypoint.y === pb.y, "re-track must re-aim");
+        this.abandonQuest(qb);
+        // provider helpers sanity
+        check(this.questProvider({ kind: "tutor" }) === "main", "tutor is main");
+        check(this.questProvider({ kind: "merc", mercStationId: 0 }) === "station", "station merc");
+        check(this.questProvider({ kind: "merc" }) === "side", "side merc");
+        check(this.questProvider({ kind: "godo" }) === "open", "godo is open");
       }
 
       // 5. quest-layer defenders: +1-2 on approach, persistent recs, despawn on end
@@ -1170,6 +1576,189 @@ Object.assign(GAME, {
       this.init();   // leave a clean world behind (the walk moved the ship)
     } catch (e) {
       fails.push("FAIL: questsSelfTest threw: " + (e && e.message));
+    }
+    return fails;
+  },
+
+  // ---- lounge / provider playtest (Work tab flow, headless) ---------------
+  loungeSelfTest() {
+    const fails = [];
+    const check = (c, m) => { if (!c) fails.push("FAIL: " + m); };
+    try {
+      this.init();
+      const s = this.state;
+      const stations = ForgeWorld.getStations();
+      check(!!stations.length, "no stations");
+      s.playerFaction = "krag";
+      this._vnSave().seen.onb_done = true;
+      s.mercCompleted = [];
+
+      // Taxonomy
+      check(this.questProvider({ kind: "tutor" }) === "main", "tutor → main");
+      check(this.questProvider({ kind: "story" }) === "main", "story → main");
+      check(this.questProvider({ kind: "merc", mercStationId: 0 }) === "station", "station merc");
+      check(this.questProvider({ kind: "merc" }) === "side", "side merc");
+      check(this.questProvider({ kind: "godo" }) === "open", "godo → open");
+      check(this.questProvider({ kind: "chain" }) === "open", "chain → open");
+      check(this.questProvider({ kind: "multi" }) === "open", "multi → open");
+
+      // Portraits resolve
+      for (const key of ["krag_voss", "vex_dren", "nox_sive", "harlan", "fixer_brek", "zera"]) {
+        const src = this._jobPortraitSrc(key);
+        check(!!src && src.indexOf("sprites/") === 0, "portrait path for " + key + ": " + src);
+      }
+
+      // Contact info helpers
+      const main = this._mainContactInfo(s);
+      check(main.provider === "main" && main.name === "VOSS", "krag main contact is VOSS");
+      const fix = this._stationFixerInfo(stations[0].id);
+      check(fix.provider === "station" && !!fix.name, "station fixer has a name");
+      const openC = this._openContactInfo();
+      check(openC.provider === "open" && openC.name === "DISPATCH", "open contact is DISPATCH");
+
+      // Board after tutorial: merc inject
+      this.generateStationQuests(stations[0], s);
+      if (typeof this.generateStationContracts === "function")
+        this.generateStationContracts(stations[0], s);
+      const board = s.stationQuests[stations[0].id] || [];
+      const stationMercs = board.filter(q => q.kind === "merc" && q.mercStationId != null);
+      const sideMercs = board.filter(q => q.kind === "merc" && q.mercStationId == null);
+      const opens = board.filter(q => q.kind === "godo" || q.kind === "chain" || q.kind === "multi");
+      check(stationMercs.length <= 1, "≤1 station merc offer, got " + stationMercs.length);
+      check(sideMercs.length <= 1, "≤1 side merc offer, got " + sideMercs.length);
+      check(opens.length >= 1, "at least one OPEN territory offer");
+
+      // Provider status chips
+      let stOpen = this._providerStatus("open", stations[0].id, s);
+      check(stOpen.state === "available" || stOpen.state === "idle", "open status before accept: " + stOpen.state);
+      if (opens[0]) {
+        check(stOpen.offer || stOpen.state === "available", "open should surface an offer when board has godo");
+      }
+
+      // Accept OPEN once; second OPEN refused
+      const o1 = opens[0];
+      const o2 = opens[1] || null;
+      check(this.acceptQuest(o1), "first OPEN accept");
+      check(this.heldQuestForProvider("open", s) === o1, "held open is o1");
+      check(s.activeQuestId === o1.id, "first job auto-tracks");
+      stOpen = this._providerStatus("open", stations[0].id, s);
+      check(stOpen.state === "progress" || stOpen.state === "turnin", "open status after accept: " + stOpen.state);
+      if (o2) {
+        check(!this.acceptQuest(o2), "second OPEN must be refused");
+        check(s.quests.filter(q => this.questProvider(q) === "open").length === 1, "still one open held");
+      }
+      // openSlotBusy
+      check(this.openSlotBusy(s) === true, "open slot busy with quest");
+
+      // SIDE + STATION can coexist with OPEN
+      if (sideMercs[0]) {
+        // re-fetch board may have removed accepted; side still on board if not accepted
+        let side = (s.stationQuests[stations[0].id] || []).find(q => q.kind === "merc" && q.mercStationId == null);
+        if (!side) {
+          // regenerate other station for side offer without wiping held
+          this._vnSave().seen.onb_done = true;
+          // push a synthetic side offer
+          side = {
+            id: s.nextQuestId++, kind: "merc", action: "scan", status: "offer",
+            stationId: stations[0].id, territory: "test", title: "SIDE TEST",
+            description: "test", difficulty: 1, reward: 100,
+            regionId: null, siteId: null, outpostId: null, tiers: null, nodes: null,
+            scanT: 0, collected: false, holdT: 0, holdR: null, holdDur: null, needClear: false,
+            boosts: {}, mercSpecId: "lounge_side_test", mercNpc: "harlan",
+          };
+          (s.stationQuests[stations[0].id] = s.stationQuests[stations[0].id] || []).push(side);
+        }
+        check(this.acceptQuest(side), "SIDE accept while OPEN held");
+        check(this.heldQuestForProvider("side", s), "side held");
+        // second side refused
+        const side2 = {
+          id: s.nextQuestId++, kind: "merc", action: "scan", status: "offer",
+          stationId: stations[0].id, territory: "test", title: "SIDE TEST 2",
+          description: "test", difficulty: 1, reward: 100,
+          regionId: null, siteId: null, outpostId: null, tiers: null, nodes: null,
+          scanT: 0, collected: false, holdT: 0, holdR: null, holdDur: null, needClear: false,
+          boosts: {}, mercSpecId: "lounge_side_test2", mercNpc: "zera",
+        };
+        (s.stationQuests[stations[0].id] || []).push(side2);
+        check(!this.acceptQuest(side2), "second SIDE refused");
+      }
+
+      let stationOffer = (s.stationQuests[stations[0].id] || [])
+        .find(q => q.kind === "merc" && q.mercStationId != null);
+      if (!stationOffer) {
+        stationOffer = {
+          id: s.nextQuestId++, kind: "merc", action: "scan", status: "offer",
+          stationId: stations[0].id, territory: "test", title: "STATION R1",
+          description: "test", difficulty: 1, reward: 100,
+          regionId: null, siteId: null, outpostId: null, tiers: null, nodes: null,
+          scanT: 0, collected: false, holdT: 0, holdR: null, holdDur: null, needClear: false,
+          boosts: {}, mercSpecId: "st0_r1", mercNpc: "fixer_brek",
+          mercStationId: stations[0].id, mercRank: 1,
+        };
+        (s.stationQuests[stations[0].id] = s.stationQuests[stations[0].id] || []).push(stationOffer);
+      }
+      check(this.acceptQuest(stationOffer), "STATION accept with OPEN (+ SIDE) held");
+      check(this.heldQuestForProvider("station", s), "station held");
+      check(s.quests.length >= 2, "multi-provider hold works, n=" + s.quests.length);
+
+      // TRACK handoff
+      const sideHeld = this.heldQuestForProvider("side", s);
+      const openHeld = this.heldQuestForProvider("open", s);
+      if (sideHeld && openHeld) {
+        this.setActiveQuest(sideHeld.id);
+        check(s.activeQuestId === sideHeld.id, "track side");
+        this.setActiveQuest(openHeld.id);
+        check(s.activeQuestId === openHeld.id, "track open");
+        this.setActiveQuest(null);
+        check(s.activeQuestId == null, "untrack");
+        this.setActiveQuest(openHeld.id);
+      }
+
+      // Contract vs OPEN mutual exclusion
+      this.abandonQuest(this.heldQuestForProvider("open", s));
+      check(!this.openSlotBusy(s) || this.heldQuestForProvider("side", s) || this.heldQuestForProvider("station", s),
+        "open free after abandon (other providers may remain)");
+      check(!this.heldQuestForProvider("open", s), "open cleared");
+      // If contracts system available, take one and ensure open blocked
+      if (typeof this.generateStationContracts === "function" && typeof this.acceptContract === "function") {
+        this.generateStationContracts(stations[0], s);
+        const cAvail = (s.stationContracts[stations[0].id] || []).filter(c => c.status === "available");
+        if (cAvail[0]) {
+          check(this.acceptContract(cAvail[0]), "accept combat contract into OPEN slot");
+          check(this.openSlotBusy(s), "contract occupies open slot");
+          // fresh open offer should refuse
+          const freshOpen = {
+            id: s.nextQuestId++, kind: "godo", action: "scan", status: "offer",
+            stationId: stations[0].id, territory: "test", title: "BLOCKED OPEN",
+            description: "test", difficulty: 1, reward: 50,
+            regionId: null, siteId: null, outpostId: null, tiers: null, nodes: null,
+            scanT: 0, collected: false, holdT: 0, holdR: null, holdDur: null, needClear: false,
+            boosts: {},
+          };
+          (s.stationQuests[stations[0].id] || []).push(freshOpen);
+          check(!this.acceptQuest(freshOpen), "OPEN quest refused while contract held");
+          if (typeof this.abandonContract === "function") this.abandonContract(s.contracts[0]);
+        }
+      }
+
+      // MAIN status post-tutorial (no held main)
+      const mainSt = this._mainJobStatus(s);
+      check(mainSt.state === "idle" || mainSt.state === "available", "main status: " + mainSt.state);
+
+      // Loadout slot count helper (same source as UI)
+      const vN = this.hullEquipSlots(CONFIG.hulls.vulture);
+      const eN = this.hullEquipSlots(CONFIG.hulls.nox_eclipse);
+      check(vN === 3, "vulture 3 slots, got " + vN);
+      check(eN === 6, "eclipse 6 slots, got " + eN);
+
+      // canAcceptQuestProvider gate messages
+      const gate = this.canAcceptQuestProvider({ kind: "godo", status: "offer" }, s);
+      // may or may not be free depending on contract abandon
+      check(typeof gate.ok === "boolean" && gate.provider === "open", "gate shape ok");
+
+      this.init();
+    } catch (e) {
+      fails.push("FAIL: loungeSelfTest threw: " + (e && e.message));
     }
     return fails;
   },

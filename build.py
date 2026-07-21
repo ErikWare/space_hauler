@@ -40,6 +40,7 @@ GAME_FILES = [
     "game/save.js",
     "game/title.js",
     "game/visual_novel.js",
+    "game/player_portraits.js",
     "game/onboarding.js",
     "game/story_quests.js",
     "lore/universe_history.js",
@@ -47,6 +48,7 @@ GAME_FILES = [
     "lore/factions.js",
     "lore/site_lore.js",
     "game/merc_quests.js",
+    "game/station_merc.js",
     "game/skills.js",
     "game/planet_surface.js",
     "game/phase7.js",
@@ -285,6 +287,23 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   .ctAbandon{border-color:#5a2a34;color:#ff8a8a}
   #qsHeld,#qsList{display:flex;flex-direction:column;gap:8px}
   .ctCard.qActive{border-color:#57e6ff;box-shadow:inset 0 0 14px rgba(87,230,255,.14)}
+  /* Work lounge — talk to contacts for jobs */
+  #ctLounge{display:flex;flex-direction:row;gap:10px;overflow-x:auto;padding:4px 2px 10px;flex-wrap:nowrap}
+  .ctContact{flex:0 0 118px;display:flex;flex-direction:column;align-items:center;gap:5px;
+    border:1px solid #223047;border-radius:12px;background:#0e1626;padding:10px 8px;cursor:pointer;
+    color:inherit;font:inherit;text-align:center}
+  .ctContact.on{background:#152238;box-shadow:0 0 0 1px rgba(87,230,255,.35)}
+  .ctFace{width:64px;height:64px;border-radius:50%;overflow:hidden;background:#1a2438;
+    display:flex;align-items:center;justify-content:center}
+  .ctFace img{width:100%;height:100%;object-fit:cover}
+  .ctContactName{font-size:12px;font-weight:700;letter-spacing:.6px}
+  .ctContactRole{font-size:9px;color:#8a93a3;line-height:1.25}
+  .ctContactBadge{font-size:9px;font-weight:700;letter-spacing:.5px;margin-top:2px}
+  #ctDetail{display:flex;flex-direction:column;gap:8px;margin-bottom:8px}
+  .ctDetailHead{padding:2px 0 4px}
+  .ctDetailName{font-size:15px;font-weight:700;letter-spacing:1px}
+  #ctWork{display:flex;flex-direction:column;gap:8px}
+  #ctWork h2{font-size:11px;letter-spacing:1px;color:#8fd0ff;margin:4px 0 0;text-transform:uppercase}
 
   /* ---- STATION BAY · fleet tab (DOM overlay; role-assignment command board) ---- */
   #fleetPanel{position:fixed;inset:0;display:none;flex-direction:column;z-index:20;touch-action:none;
@@ -649,7 +668,11 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   .titleHead{font-size:12px;font-weight:700;letter-spacing:3px;color:#57d1c9}
   #titleHome .ghBtn{min-width:220px;padding:13px 18px;font-size:13px;letter-spacing:2px}
   #titleLoad:disabled{opacity:.35;cursor:default}
-  #titleFactionRow,#titleSlotRow{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+  #titleFactionRow,#titleSlotRow,#titlePortraitRow{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+  #titlePortraitRow{max-width:920px;max-height:min(62vh,560px);overflow-y:auto;padding:4px}
+  .titlePortraitCard{width:132px;padding:10px 8px}
+  .titlePortraitCard .tpFace{width:96px;height:128px;object-fit:cover;border-radius:8px;border:1px solid #2a3a52;background:#0a1018}
+  .titlePortraitCard:hover .tpFace{border-color:#57d1c9}
   .titleCard{display:flex;flex-direction:column;align-items:center;gap:8px;width:176px;padding:14px 12px;
     border:1px solid #2a3a52;border-radius:12px;background:rgba(10,16,26,.85);cursor:pointer;text-align:center}
   .titleCard:hover{border-color:#57d1c9;box-shadow:0 0 16px rgba(87,209,201,.35)}
@@ -870,7 +893,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
 <!-- ===== STATION BAY · CONTRACTS tab (DOM overlay; populated by GAME.renderContractsPanel) ===== -->
 <div id="contractsPanel">
   <div id="ctHead">
-    <h1>Station Bay · Contracts</h1>
+    <h1>Station Bay · Work</h1>
     <span class="ghPill">◇ <b id="ctCred">0</b> cr</span>
     <span class="ghSp"></span>
     <button class="ghTab" data-tab="loadout">⚙ Loadout</button>
@@ -884,22 +907,21 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     <button class="ghBtn go" id="ctLaunch">Launch ▸</button>
   </div>
   <div id="ctBody">
-    <div class="ghCol" id="qsHeldWrap">
-      <h2>Quest log — the ACTIVE quest drives the map waypoint</h2>
-      <div id="qsHeld"></div>
+    <div class="ghCol">
+      <h2>Bay lounge — talk to people for work</h2>
+      <div id="ctLounge"></div>
     </div>
-    <div class="ghCol" id="qsListWrap">
-      <h2>Quest board — region jobs across this station's territory</h2>
-      <div id="qsList"></div>
+    <div class="ghCol" id="ctDetailWrap">
+      <div id="ctDetail"></div>
     </div>
-    <div class="ghCol" id="ctActiveWrap">
-      <h2>Active contract — turn in when complete</h2>
-      <div id="ctActive"></div>
+    <div class="ghCol" id="ctWorkWrap">
+      <div id="ctWork"></div>
     </div>
-    <div class="ghCol" id="ctListWrap">
-      <h2>Available — one active contract at a time</h2>
-      <div id="ctList"></div>
-    </div>
+    <!-- legacy nodes kept for DOM cache fallbacks (hidden in lounge mode) -->
+    <div class="ghCol" id="qsHeldWrap" style="display:none"><div id="qsHeld"></div></div>
+    <div class="ghCol" id="qsListWrap" style="display:none"><div id="qsList"></div></div>
+    <div class="ghCol" id="ctActiveWrap" style="display:none"><div id="ctActive"></div></div>
+    <div class="ghCol" id="ctListWrap" style="display:none"><div id="ctList"></div></div>
   </div>
 </div>
 
@@ -1087,6 +1109,12 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
       <div id="titleFactionRow"></div>
       <button class="ghBtn" id="titleFacBack">&#9666; BACK</button>
     </div>
+    <div class="titlePage" id="titlePortraits" style="display:none">
+      <div class="titleHead">CHOOSE YOUR PILOT</div>
+      <div class="titleHint" style="margin-bottom:4px;font-size:10px;color:#7f8ea6;letter-spacing:1px">FACE PICKS GENDER &amp; SPECIES &middot; 12 OPTIONS</div>
+      <div id="titlePortraitRow"></div>
+      <button class="ghBtn" id="titlePortBack">&#9666; BACK</button>
+    </div>
     <div class="titlePage" id="titleSlots" style="display:none">
       <div class="titleHead" id="titleSlotsHead">LOAD GAME</div>
       <div id="titleSlotRow"></div>
@@ -1197,6 +1225,10 @@ def check():
     const qsok = Array.isArray(qsf) && qsf.length === 0;
     console.log((qsok ? 'GREEN  ' : 'FAIL   ') + 'GAME.questsSelfTest' + (qsok ? '' : ' ' + JSON.stringify(qsf)));
     if (!qsok) bad++;
+    const lof = globalThis.GAME.loungeSelfTest ? globalThis.GAME.loungeSelfTest() : ['loungeSelfTest missing'];
+    const look = Array.isArray(lof) && lof.length === 0;
+    console.log((look ? 'GREEN  ' : 'FAIL   ') + 'GAME.loungeSelfTest' + (look ? '' : ' ' + JSON.stringify(lof)));
+    if (!look) bad++;
     const obf = globalThis.GAME.objectivesSelfTest ? globalThis.GAME.objectivesSelfTest() : ['objectivesSelfTest missing'];
     const obok = Array.isArray(obf) && obf.length === 0;
     console.log((obok ? 'GREEN  ' : 'FAIL   ') + 'GAME.objectivesSelfTest' + (obok ? '' : ' ' + JSON.stringify(obf)));

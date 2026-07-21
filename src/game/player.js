@@ -14,6 +14,25 @@ Object.assign(GAME, {
     const sh = this.activeShip();
     return (sh && CONFIG.hulls[sh.hullKey]) || CONFIG.hulls.vulture;   // fallback: freshHp() runs mid-state-literal, before s.ships exists
   },
+  // Per-hull module rack size (3–6). CONFIG.equipSlots is the absolute max.
+  hullEquipSlots(hull) {
+    hull = hull || this.activeHull();
+    const n = (hull && hull.equipSlots != null) ? hull.equipSlots : CONFIG.equipSlots;
+    return Math.max(1, Math.min(CONFIG.equipSlots, n | 0));
+  },
+  // Resize a slots array to n: keep fitted modules that fit, dump overflow to inventory.
+  _resizeShipSlots(slots, n, s) {
+    slots = Array.isArray(slots) ? slots.slice() : [];
+    while (slots.length < n) slots.push(null);
+    if (slots.length > n) {
+      const dump = slots.splice(n);
+      if (s) {
+        s.inventory = s.inventory || [];
+        for (const it of dump) if (it) s.inventory.push(it);
+      }
+    }
+    return slots;
+  },
   // mirror the live rack into the active ship's record (call after any equip change)
   _syncActiveShipSlots() {
     const sh = this.activeShip();
@@ -37,13 +56,20 @@ Object.assign(GAME, {
     if (!next) return { ok: false, reason: "no such ship" };
     if (shipId === s.activeShipId) return { ok: false, reason: "already active" };
     const cur = this.activeShip();
-    if (cur) cur.slots = ForgeEquipment.getEquipped().slots;      // snapshot OUT before the wipe
-    ForgeEquipment.initEquipment(CONFIG.equipSlots);
-    next.slots.forEach((item, i) => { if (item) ForgeEquipment.equip(i, item); });   // every slot lands empty → swapped is always null
+    if (cur) {
+      cur.slots = ForgeEquipment.getEquipped().slots;      // snapshot OUT before the wipe
+      const curHull = CONFIG.hulls[cur.hullKey] || CONFIG.hulls.vulture;
+      cur.slots = this._resizeShipSlots(cur.slots, this.hullEquipSlots(curHull), s);
+    }
+    const nextHull = CONFIG.hulls[next.hullKey] || CONFIG.hulls.vulture;
+    const nSlots = this.hullEquipSlots(nextHull);
+    next.slots = this._resizeShipSlots(next.slots, nSlots, s);
+    ForgeEquipment.initEquipment(nSlots);
+    next.slots.forEach((item, i) => { if (item) ForgeEquipment.equip(i, item); });
     s.activeShipId = shipId;
     ForgeEquipment.restockAmmo();
     this.recomputeDerived();
-    if (this.enforceEscortCap) this.enforceEscortCap(s);   // carrier→small hull shrinks the wing
+    if (this.enforceEscortCap) this.enforceEscortCap(s);   // larger→smaller hull shrinks the wing
     s.hp = this.freshHp();                                        // fresh boat off the dock (dock heals anyway)
     s.fuel = Math.min(s.fuel, s.fuelMax);
     s.weaponCd = 0;

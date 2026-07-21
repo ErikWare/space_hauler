@@ -117,6 +117,9 @@ Object.assign(GAME, {
     const s = this.state;
     if (!c || c.status !== "available") return false;
     if (s.contracts.length) { toast("Contract slot full"); sfx("warn"); return false; }
+    if (typeof this.openSlotBusy === "function" && this.openSlotBusy(s)) {
+      toast("you already have open-bay work — finish or drop it", "#ff5060"); sfx("warn"); return false;
+    }
     c.status = "active";
     const board = s.stationContracts[c.stationId];
     if (board) { const i = board.indexOf(c); if (i >= 0) board.splice(i, 1); }
@@ -419,7 +422,9 @@ Object.assign(GAME, {
     const panel = $("contractsPanel");
     if (!panel) return null;
     this._ct = { panel, active: $("ctActive"), list: $("ctList"), cred: $("ctCred"),
-      qsHeld: $("qsHeld"), qsList: $("qsList"), _shown: false };   // Phase 5 quest sections (game/quests.js)
+      qsHeld: $("qsHeld"), qsList: $("qsList"),
+      lounge: $("ctLounge"), detail: $("ctDetail"), work: $("ctWork"),
+      _shown: false };
     return this._ct;
   },
   // called each draw frame (same pattern as syncDroneDOM): show/hide + first-show render
@@ -444,56 +449,32 @@ Object.assign(GAME, {
   },
   renderContractsPanel() {
     const ct = this._ctDOM(); if (!ct) return;
-    const s = this.state, sid = s.dockStationId;
+    const s = this.state;
     ct.cred.textContent = Math.round(s.credits);
-
-    // ---- active contract ----
-    ct.active.innerHTML = "";
-    const mine = s.contracts[0] || null;
-    if (!mine) {
-      const note = document.createElement("div"); note.className = "ghNote";
-      note.textContent = "no active contract — accept one below";
-      ct.active.appendChild(note);
-    } else {
-      const here = mine.stationId === sid;
-      const card = this._ctCard(mine, { active: true });
-      const row = document.createElement("div"); row.className = "ctBtnRow";
-      const btn = document.createElement("button"); btn.className = "ghBtn";
-      const ready = mine.status === "complete" && here;
-      btn.textContent = mine.status === "complete"
-        ? (here ? "TURN IN ▸ +" + mine.reward + "cr" : "turn in at " + this._contractStation(mine).name)
-        : "IN PROGRESS — " + this.contractProgressText(mine);
-      btn.disabled = !ready;
-      if (ready) btn.classList.add("go");
-      btn.dataset.act = "turnin";
-      row.appendChild(btn);
-      const ab = document.createElement("button"); ab.className = "ghBtn ctAbandon";
-      ab.textContent = "ABANDON"; ab.dataset.act = "abandon";
-      row.appendChild(ab);
-      card.appendChild(row);
-      ct.active.appendChild(card);
+    // Lounge is the primary Work UX (character contacts). Legacy columns optional.
+    const loungeMode = !!(ct.lounge || ct.qsList);
+    if (loungeMode) {
+      if (ct.active) ct.active.innerHTML = "";
+      if (ct.list) ct.list.innerHTML = "";
+      // hide legacy columns when lounge markup present
+      const hide = id => { const el = document.getElementById(id); if (el) el.style.display = "none"; };
+      if (ct.lounge) {
+        hide("ctActiveWrap"); hide("ctListWrap"); hide("qsHeldWrap"); hide("qsListWrap");
+      }
+      this.renderQuestsPanel();
+      return;
     }
-
-    // ---- available board ----
-    ct.list.innerHTML = "";
-    const avail = (s.stationContracts[sid] || []).filter(c => c.status === "available");
-    if (!avail.length) {
-      const note = document.createElement("div"); note.className = "ghNote";
-      note.textContent = "no contracts on the board — redock to refresh";
-      ct.list.appendChild(note);
+    // ---- legacy fallback (no lounge nodes) ----
+    if (ct.active) {
+      ct.active.innerHTML = "";
+      const mine = s.contracts[0] || null;
+      if (!mine) {
+        const note = document.createElement("div"); note.className = "ghNote";
+        note.textContent = "no active contract — accept one below";
+        ct.active.appendChild(note);
+      }
     }
-    for (const c of avail) {
-      const card = this._ctCard(c);
-      const row = document.createElement("div"); row.className = "ctBtnRow";
-      const btn = document.createElement("button"); btn.className = "ghBtn";
-      if (s.contracts.length) { btn.textContent = "Contract slot full"; btn.disabled = true; }
-      else { btn.textContent = "ACCEPT"; btn.classList.add("go"); btn.dataset.act = "accept"; btn.dataset.cid = String(c.id); }
-      row.appendChild(btn);
-      card.appendChild(row);
-      ct.list.appendChild(card);
-    }
-
-    this.renderQuestsPanel();   // Phase 5: quest log + quest board (game/quests.js)
+    this.renderQuestsPanel();
   },
   wireContractsDOM() {
     const ct = this._ctDOM(); if (!ct) return;
@@ -503,10 +484,18 @@ Object.assign(GAME, {
     const launch = document.getElementById("ctLaunch");
     if (launch) launch.addEventListener("click", () => { input.closeMenu = true; });
     const onClick = (e) => {
-      const btn = e.target.closest ? e.target.closest("button[data-act],button[data-qact]") : null;
+      const btn = e.target.closest
+        ? e.target.closest("button[data-act],button[data-qact],button[data-lact],.ctContact")
+        : null;
       if (!btn || btn.disabled) return;
       const s = this.state;
-      if (btn.dataset.qact) { this.questDomAct(btn); this.renderContractsPanel(); return; }   // Phase 5 quest buttons
+      if (btn.dataset.lact === "select" || btn.classList.contains("ctContact")) {
+        this._loungeUI = this._loungeUI || {};
+        this._loungeUI.sel = btn.dataset.provider || "main";
+        this.renderContractsPanel();
+        return;
+      }
+      if (btn.dataset.qact) { this.questDomAct(btn); this.renderContractsPanel(); return; }
       if (btn.dataset.act === "accept") {
         const c = (s.stationContracts[s.dockStationId] || []).find(x => x.id === +btn.dataset.cid);
         if (c) this.acceptContract(c);
@@ -514,9 +503,6 @@ Object.assign(GAME, {
       else if (btn.dataset.act === "abandon" && s.contracts[0]) this.abandonContract(s.contracts[0]);
       this.renderContractsPanel();
     };
-    ct.active.addEventListener("click", onClick);
-    ct.list.addEventListener("click", onClick);
-    if (ct.qsHeld) ct.qsHeld.addEventListener("click", onClick);   // Phase 5 quest sections share the handler
-    if (ct.qsList) ct.qsList.addEventListener("click", onClick);
+    ct.panel.addEventListener("click", onClick);
   },
 });

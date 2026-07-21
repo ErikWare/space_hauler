@@ -70,12 +70,19 @@ Object.assign(GAME, {
           if (q.kind === "chain" && !chain) chain = q;
           if (q.kind === "godo" && !godo) godo = q;
         }
-      check(!!(chain && godo), "could not source a chain + a godo quest");
-      if (chain && godo) {
-        this.acceptQuest(godo); this.acceptQuest(chain);
+      check(!!chain, "could not source a chain quest");
+      // OPEN provider allows one territory job; godo is extra flavour, not dual-held
+      if (chain) {
+        this.acceptQuest(chain);
         chain.tiers[0].done = true;               // mid-chain progress rides the save
         this.setActiveQuest(chain.id);
       }
+      // optional second provider: SIDE merc if board has one (provider caps)
+      let sideMerc = null;
+      this._vnSave().seen.onb_done = true;
+      this.generateStationQuests(stations[0], s);
+      sideMerc = (s.stationQuests[stations[0].id] || []).find(q => q.kind === "merc" && q.mercStationId == null);
+      if (sideMerc) this.acceptQuest(sideMerc);
       const tOut = REGIONS.find(t => this.territoryOutpostStats(t.name).total >= 5);
       check(!!tOut, "no territory holds ≥5 outposts");
       if (tOut) {
@@ -90,7 +97,7 @@ Object.assign(GAME, {
       siteB.discovered = true;
       siteB.guardRecs[0].alive = false; siteB.guardRecs[0].frac = 0;
       const keep = { siteA: siteA.id, siteB: siteB.id, chainId: chain && chain.id,
-        godoId: godo && godo.id, tOut: tOut && tOut.id };
+        sideId: sideMerc && sideMerc.id, tOut: tOut && tOut.id };
       const blob = JSON.parse(JSON.stringify(this.serializeGame()));
 
       this.init(); s = this.state;                // fresh world — everything above is gone
@@ -98,14 +105,17 @@ Object.assign(GAME, {
         "fresh init must not retain the run");
       check(this.applySaveData(blob) === true, "applySaveData rejected the full-stack blob");
       check(s.playerFaction === "vex", "playerFaction lost in the round-trip");
-      if (chain && godo) {
-        const rc = s.quests.find(q => q.id === keep.chainId), rg = s.quests.find(q => q.id === keep.godoId);
-        check(!!rc && !!rg && s.quests.length === 2, "held quests lost in the round-trip");
+      if (chain) {
+        const rc = s.quests.find(q => q.id === keep.chainId);
+        check(!!rc, "held chain lost in the round-trip");
         check(s.activeQuestId === keep.chainId, "activeQuestId lost in the round-trip");
         if (rc) {
           check(rc.kind === "chain" && rc.tiers.length === QUESTS.chainTiers, "chain shape lost");
           check(rc.tiers[0].done === true && !rc.tiers[1].done && !rc.tiers[2].done, "chain tier progress lost");
           check(rc.territory === chain.territory && rc.stationId === chain.stationId, "chain issuer lost");
+        }
+        if (keep.sideId) {
+          check(!!s.quests.find(q => q.id === keep.sideId), "side merc lost in the round-trip");
         }
       }
       if (tOut) {

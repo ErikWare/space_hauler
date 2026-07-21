@@ -14,7 +14,7 @@
 //   openDock (ui.js) → generateStationQuests (quests.js) →
 //     [this override] → _mercMaybeOffer(station) appends 3 offers to the board
 //   player taps offer → VN briefing plays (merc_brief_<id>) →
-//     "I'll take the job" → acceptQuest [max-3 guard] → kind:"merc" quest
+//     "I'll take the job" → acceptQuest [provider slot] → kind:"merc" quest
 //     "Not my problem"   → declined, no penalty
 //   objective complete → normal godo/hold/collect tick (quests.js updateQuests)
 //   player turns in at issuer → turnInQuest → mercQuestTurnedIn (soft hook) →
@@ -412,15 +412,16 @@ if (MERC_QUEST_POOL.length !== 50) {
   };
 })();
 
-/* ---- Patch acceptQuest to enforce max-3 active merc quests --------------- */
+/* ---- Patch acceptQuest: escort-cap gates for hard ranks (provider caps in quests.js) ---- */
 (function () {
   const _orig = GAME.acceptQuest;
   GAME.acceptQuest = function (q) {
     if (q && q.kind === "merc") {
-      const s = this.state;
-      const active = (s.quests || []).filter(x => x.kind === "merc").length;
-      if (active >= 3) {
-        if (typeof toast === "function") toast("contract slots full — max 3 active mercenary contracts", "#ff5060");
+      const need = q.minEscortCap | 0;
+      if (need > 0 && typeof this.escortCap === "function" && this.escortCap() < need) {
+        if (typeof toast === "function") {
+          toast("escort deck too small — need wing capacity ≥ " + need, "#ff5060", 3);
+        }
         if (typeof sfx === "function") sfx("warn");
         return false;
       }
@@ -432,31 +433,37 @@ if (MERC_QUEST_POOL.length !== 50) {
 /* ---- Core methods -------------------------------------------------------- */
 Object.assign(GAME, {
 
-  // Populate the station's quest board with up to 3 merc offers.
-  // Only runs when the tutorial is complete (onb_done); specs the player has
-  // already completed (s.mercCompleted) are excluded from the draw.
+  // Populate the station board with:
+  //   • 1 station-campaign rank job (next incomplete rank for THIS berth)
+  //   • 1 global merc offer (side provider — lounge shows one roaming fixer)
+  // Tutorial must be complete (onb_done).
   _mercMaybeOffer(st, state) {
     const s = state || this.state;
-    // Gate: tutorial must be complete
     const vn = this._vnSave();
     if (!vn || !vn.seen || !vn.seen.onb_done) return;
     s.mercCompleted = s.mercCompleted || [];
     const terr = politicalRegionAt(st.pos.x, st.pos.y);
     if (!terr) return;
+    const board = s.stationQuests[st.id];
+    if (!board) return;
+    let offered = 0;
 
-    // Pool: exclude completed specs; shuffle the remainder.
+    // ---- 1) Station campaign (finite 10 ranks per berth) ----
+    if (typeof this._stationMercNextSpec === "function") {
+      const nextSp = this._stationMercNextSpec(st);
+      if (nextSp) {
+        const sq = this._stationMercMakeOffer(nextSp, st);
+        if (sq) { board.push(sq); offered++; }
+      }
+    }
+
+    // ---- 2) Global free-roam pool (one SIDE offer for the lounge) ----
     const avail = MERC_QUEST_POOL.filter(sp => !s.mercCompleted.includes(sp.id));
-    if (!avail.length) return;
-
-    // Fisher-Yates using the seeded rnd(), take up to 3.
     for (let i = avail.length - 1; i > 0; i--) {
       const j = (rnd() * (i + 1)) | 0;
       const tmp = avail[i]; avail[i] = avail[j]; avail[j] = tmp;
     }
-
-    const board = s.stationQuests[st.id];   // already set by generateStationQuests
-    let offered = 0;
-    for (let si = 0; si < avail.length && offered < 3; si++) {
+    for (let si = 0; si < avail.length && offered < 2; si++) {
       const spec = avail[si];
       let q = null;
       for (const action of [spec.action, spec.fallback]) {
@@ -465,49 +472,77 @@ Object.assign(GAME, {
         if (q) break;
       }
       if (!q) continue;
-
-      // Clean up the synthetic-target location hint (no longer used in desc)
       delete q._storyWhere;
 
-      // Pick a random lore variant for this site type and bake it into the scene
       const lorePool = MERC_SITE_LORE[spec.siteType] || MERC_SITE_LORE.shipwreck;
       const loreVariant = lorePool[(rnd() * lorePool.length) | 0];
-      spec._lore = loreVariant;
       this._mercBuildBriefScene(spec, MERC_NPCS[spec.npc], loreVariant);
 
-      q.kind             = "merc";
-      q.status           = "offer";
-      q.mercSpecId       = spec.id;
-      q.mercNpc          = spec.npc;
+      q.kind = "merc";
+      q.status = "offer";
+      q.mercSpecId = spec.id;
+      q.mercNpc = spec.npc;
       q.mercBriefSceneId = "merc_brief_" + spec.id;
-      q.title            = spec.title;
-      q.description      = spec.briefLine2;   // 1-line teaser for the job board
-      q.reward           = spec.reward;
+      q.title = spec.title;
+      q.description = spec.briefLine2;
+      q.reward = spec.reward;
+      // Light boost scaling by territory danger for global mercs
+      const d = (terr.dangerLevel || 1);
+      q.boostMin = d >= 6 ? 2 : 1;
+      q.boostMax = d >= 7 ? 3 : (d >= 4 ? 2 : 1);
 
-      if (board) board.push(q);
+      board.push(q);
       offered++;
     }
   },
 
-  // Update the pre-registered VN briefing scene for this spec with the
-  // randomly-chosen lore variant selected at offer time.
+  // Update the pre-registered VN briefing scene for a global merc spec.
   _mercBuildBriefScene(spec, npc, loreVariant) {
     const scene = VN_SCENES["merc_brief_" + spec.id];
-    if (!scene) return;
+    if (!scene || !npc) return;
+    const splash = (typeof this._mercSplashFor === "function")
+      ? this._mercSplashFor(spec.siteType) : "bg_wreckers_anchorage";
+    scene.background = splash;
+    scene.character = { portrait: npc.key, expression: "neutral", position: "left" };
     scene.dialogue = [
       { speaker: npc.name, text: loreVariant },
       { speaker: npc.name, text: spec.briefLine2 },
     ];
   },
 
-  // Soft hook called from quests.js turnInQuest when kind === "merc".
-  // Credits and queue removal are already handled by turnInQuest; we only
-  // need to mark the spec as complete so it is never offered again.
+  // Soft hook from turnInQuest when kind === "merc".
   mercQuestTurnedIn(q) {
     const s = this.state;
     s.mercCompleted = s.mercCompleted || [];
     if (q.mercSpecId && !s.mercCompleted.includes(q.mercSpecId)) {
       s.mercCompleted.push(q.mercSpecId);
+    }
+    // High-rank station loot / hazard bonus
+    if (q.mercLootTier && typeof this._mercGrantLoot === "function") {
+      this._mercGrantLoot(q.mercLootTier);
+    }
+    // Crown toast: finished all 10 ranks at this berth
+    if (q.mercStationId != null && q.mercRank === 10) {
+      const st = (typeof ForgeWorld !== "undefined" && ForgeWorld.getStations)
+        ? ForgeWorld.getStations().find(x => x.id === q.mercStationId) : null;
+      const name = st ? st.name : ("Station " + q.mercStationId);
+      if (typeof toast === "function") toast("★ " + name.toUpperCase() + " CROWNED — all 10 ranks", "#ffd24a", 4);
+      const crowns = typeof this.stationMercCrowns === "function" ? this.stationMercCrowns() : 0;
+      if (crowns >= 10 && typeof toast === "function") {
+        toast("◆ ALL TEN BERTHS CROWNED — the free lanes answer to you", "#9fd36a", 5);
+      }
+    }
+    // Short completion VO if possible
+    if (!HEADLESS && typeof VN_SCENES !== "undefined" && VN_SCENES.merc_complete && !this._vn) {
+      const npcName = (q.mercNpc && STATION_FIXERS && Object.values(STATION_FIXERS).find(f => f.key === q.mercNpc))
+        || (typeof MERC_NPCS !== "undefined" && MERC_NPCS[q.mercNpc]);
+      if (npcName && VN_SCENES.merc_complete) {
+        const who = npcName.name || "FIXER";
+        VN_SCENES.merc_complete.dialogue = [
+          { speaker: who, text: "Job's closed. Credits are yours. Come back when you want harder work." },
+        ];
+      }
+      // non-blocking: skip auto VN to avoid stacking on turn-in UI; toast is enough
     }
     this.saveGame();
   },
@@ -552,16 +587,23 @@ Object.assign(GAME, {
       const list = this.generateStationQuests(sts[0], s);
       const mercOffers = (s.stationQuests[sts[0].id] || []).filter(q => q.kind === "merc");
       check(mercOffers.length > 0, "merc offers must appear when tutorial is complete (onb_done)");
-      check(mercOffers.length <= 3, "at most 3 merc offers per dock, got " + mercOffers.length);
+      check(mercOffers.length <= 2, "at most 2 merc offers per dock (station+side), got " + mercOffers.length);
       for (const q of mercOffers) {
         check(q.status === "offer", "merc offer must have status 'offer'");
         check(typeof q.mercSpecId === "string", "merc offer must carry mercSpecId");
-        check(ids.has(q.mercSpecId), "mercSpecId must be a known pool id");
+        const known = ids.has(q.mercSpecId)
+          || (typeof STATION_MERC_POOL !== "undefined"
+              && STATION_MERC_POOL.some(sp => sp.id === q.mercSpecId));
+        check(known, "mercSpecId must be a known pool id");
         check(typeof q.title === "string" && q.title.length > 0, "merc offer missing title");
         check(typeof q.description === "string" && q.description.length > 0, "merc offer missing description");
         check(q.reward > 0, "merc offer reward must be positive");
-        check(typeof q.mercNpc === "string" && !!MERC_NPCS[q.mercNpc],
-          "merc offer must carry valid mercNpc");
+        const npcOk = typeof q.mercNpc === "string" && (
+          !!MERC_NPCS[q.mercNpc]
+          || (typeof STATION_FIXERS !== "undefined"
+              && Object.values(STATION_FIXERS).some(f => f.key === q.mercNpc))
+        );
+        check(npcOk, "merc offer must carry valid mercNpc");
         check(typeof q.mercBriefSceneId === "string" && !!VN_SCENES[q.mercBriefSceneId],
           "merc offer must carry a valid mercBriefSceneId");
       }
@@ -572,19 +614,22 @@ Object.assign(GAME, {
       check(s.quests.some(q => q.kind === "merc"), "accepted merc quest must be in s.quests");
       check(!(s.stationQuests[sts[0].id] || []).includes(offer), "accepted offer must leave the board");
 
-      // 5. Max-3 guard: after accepting 3 merc quests, a 4th must be refused.
-      //    Re-generate to get fresh offers.
+      // 5. Provider caps: at most one STATION merc + one SIDE merc held.
       this.generateStationQuests(sts[0], s);
       const offers2 = (s.stationQuests[sts[0].id] || []).filter(q => q.kind === "merc");
-      for (const o of offers2) this.acceptQuest(o);   // some may be refused by max-3, that's fine
-      const activeCount = s.quests.filter(q => q.kind === "merc").length;
-      check(activeCount <= 3, "max 3 merc quests active, found " + activeCount);
-      // trying one more must return false
+      for (const o of offers2) this.acceptQuest(o);   // duplicate provider refused
+      const stationHeld = s.quests.filter(q => q.kind === "merc" && q.mercStationId != null).length;
+      const sideHeld = s.quests.filter(q => q.kind === "merc" && q.mercStationId == null).length;
+      check(stationHeld <= 1, "at most 1 station merc held, found " + stationHeld);
+      check(sideHeld <= 1, "at most 1 side merc held, found " + sideHeld);
+      // second side offer must be refused while side slot full
+      const sideMore = (s.stationQuests[sts[0].id] || []).filter(q => q.kind === "merc" && q.mercStationId == null);
+      // re-offer side
       this.generateStationQuests(sts[1 % sts.length], s);
-      const offers3 = (s.stationQuests[sts[1 % sts.length].id] || []).filter(q => q.kind === "merc");
-      if (activeCount === 3 && offers3.length > 0) {
-        const refused = this.acceptQuest(offers3[0]);
-        check(!refused, "accepting a 4th merc quest must be refused");
+      const sideOffer = (s.stationQuests[sts[1 % sts.length].id] || [])
+        .find(q => q.kind === "merc" && q.mercStationId == null);
+      if (sideHeld >= 1 && sideOffer) {
+        check(!this.acceptQuest(sideOffer), "second side merc must be refused while slot full");
       }
 
       // 6. mercQuestTurnedIn adds specId to s.mercCompleted.
@@ -604,11 +649,12 @@ Object.assign(GAME, {
         s.docked = false;
       }
 
-      // 7. Completed specs are not reoffered.
-      s.mercCompleted = MERC_QUEST_POOL.map(sp => sp.id);   // mark everything done
+      // 7. Completed global specs are not reoffered (station ranks use different ids).
+      s.mercCompleted = MERC_QUEST_POOL.map(sp => sp.id);   // mark free-roam pool done
       this.generateStationQuests(sts[0], s);
-      const noOffers = (s.stationQuests[sts[0].id] || []).filter(q => q.kind === "merc");
-      check(noOffers.length === 0, "no merc offers when all specs are completed");
+      const sideLeft = (s.stationQuests[sts[0].id] || [])
+        .filter(q => q.kind === "merc" && q.mercStationId == null);
+      check(sideLeft.length === 0, "no SIDE merc offers when global pool is completed");
 
       // 8. _serializeQuest round-trips mercSpecId.
       this.init();

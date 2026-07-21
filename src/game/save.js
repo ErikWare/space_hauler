@@ -29,6 +29,9 @@ Object.assign(GAME, {
       // ---- player ----
       credits: s.credits,
       playerFaction: s.playerFaction || null,   // chosen at the title screen's faction pick (game/title.js)
+      playerPortraitId: s.playerPortraitId || null, // face pick after faction (game/player_portraits.js)
+      playerGender: s.playerGender === "f" ? "f" : (s.playerGender === "m" ? "m" : null),
+      playerRace: s.playerRace || null,         // species of the chosen face (krag|vex|nox)
       mercenary: !!s.mercenary,                 // survived the Q10 ambush and works for nobody (game/onboarding.js)
       ships: s.ships, activeShipId: s.activeShipId,   // hull ownership + per-ship 6-slot loadouts (covers ship/equipped)
       inventory: s.inventory,
@@ -86,6 +89,10 @@ Object.assign(GAME, {
     // ---- player ----
     if (typeof data.credits === "number") s.credits = data.credits;
     s.playerFaction = typeof data.playerFaction === "string" ? data.playerFaction : null;   // pre-faction saves → unaligned
+    s.playerPortraitId = typeof data.playerPortraitId === "string" ? data.playerPortraitId : null;
+    s.playerGender = data.playerGender === "f" ? "f" : (data.playerGender === "m" ? "m" : null);
+    s.playerRace = typeof data.playerRace === "string" ? data.playerRace : null;
+    // Old saves: no face pick — keep null so VN falls back to commander_portrait.
     s.mercenary = !!data.mercenary;   // pre-catastrophe saves → still employed
     // ---- skills / XP (set BEFORE the ships block so its recomputeDerived picks
     // up perk bonuses into the fresh hp maxes; game/skills.js) ----
@@ -106,7 +113,13 @@ Object.assign(GAME, {
       s.activeShipId = s.ships.some(sh => sh.id === data.activeShipId) ? data.activeShipId : s.ships[0].id;
       this._nextShipId = 1 + s.ships.reduce((m, sh) => Math.max(m, sh.id || 0), 0);
       const active = this.activeShip();
-      ForgeEquipment.initEquipment(CONFIG.equipSlots);
+      const nSlots = this.hullEquipSlots
+        ? this.hullEquipSlots(CONFIG.hulls[active.hullKey] || CONFIG.hulls.vulture)
+        : CONFIG.equipSlots;
+      active.slots = this._resizeShipSlots
+        ? this._resizeShipSlots(active.slots, nSlots, s)
+        : (active.slots || []).slice(0, nSlots);
+      ForgeEquipment.initEquipment(nSlots);
       active.slots.forEach((item, i) => { if (item) ForgeEquipment.equip(i, item); });
       ForgeEquipment.restockAmmo();
       this.recomputeDerived();

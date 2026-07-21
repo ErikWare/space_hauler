@@ -1,14 +1,15 @@
 /*=== HARNESS:FLEET ==========================================================*/
 // Player fleet. s.playerFleet is the OWNED drone list (cap DRONES.ownedMax=6);
 // each drone carries a role — "escort" flies a formation slot around the player
-// (cap FLEET.max=3), "hangar" idles docked (no AI, no position, no drawing),
+// (cap = active hull.escortSlots, 1–6; FLEET.max is the fallback base),
+// "hangar" idles docked (no AI, no position, no drawing),
 // "trade" runs station-to-station for a payout (state trade/returning). Escorts
 // spread targets across nearby aliens, fire their loadout weapon through
 // ForgeCombat.applyDamage, and drop into repair/retreat when mauled. Roles are
 // assigned from the FLEET dock tab (#fleetPanel); loadouts are edited on the
 // LOADOUT screen's drone pages.
 const FLEET = {
-  max: 3,                   // BASE escort cap — Nox carriers raise it via hull.escortSlots (GAME.escortCap, top carrier = 6 = whole hangar)
+  max: 1,                   // BASE escort when hull omits escortSlots (starter tug = 1). Hull.escortSlots raises to 6.
   offsets: [[-80, 0], [80, 0], [0, 80], [-140, 60], [140, 60], [0, 150]],
   slotNames: ["LEFT WING", "RIGHT WING", "REAR", "PORT FLANK", "STARBOARD FLANK", "TAIL"],
   maxSpeed: 220,            // u/s velocity clamp
@@ -27,10 +28,11 @@ Object.assign(GAME, {
 
   // ---- roles ----------------------------------------------------------------
   escorts(s) { return ((s || this.state).playerFleet || []).filter(d => d.role === "escort"); },
-  // escort wing cap: base FLEET.max, raised by carrier hulls (hull.escortSlots)
+  // escort wing cap from active hull (1–6). Starter = 1; Eclipse crown = 6.
   escortCap() {
     const h = this.activeHull ? this.activeHull() : null;
-    return Math.min(FLEET.offsets.length, (h && h.escortSlots) || FLEET.max);
+    const n = (h && h.escortSlots != null) ? h.escortSlots : FLEET.max;
+    return Math.max(0, Math.min(FLEET.offsets.length, n | 0));
   },
   // hull swap can SHRINK the wing (carrier → tug): demote surplus escorts to
   // the hangar so formation slots never exceed the active hull's deck space.
@@ -482,7 +484,7 @@ Object.assign(GAME, {
       } else if (d.role === "hangar") {
         const es = this._drEl("btn:ghBtn flToEscort", "JOIN ESCORT", actRow);
         es.dataset.act = "escort"; es.dataset.fi = String(fi);
-        es.disabled = esc >= FLEET.max;
+        es.disabled = esc >= this.escortCap();
       }
       const tr = this._drEl("btn:ghBtn flTrade", ui.pick === fi ? "▾ CHOOSE DESTINATION" : "SEND ON TRADE RUN", actRow);
       tr.dataset.act = "trade"; tr.dataset.fi = String(fi);

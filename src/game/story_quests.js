@@ -27,44 +27,75 @@
   if (typeof VN_SCENES === "undefined") return;   // headless: VN not loaded yet
   const add = (sc) => { VN_SCENES[sc.id] = sc; };
 
-  /* ---- KRAG ACT 2 — VOSS (bg_krag_dock, neutral then grim) -------------- */
+  /* ---- KRAG ACT 2 — splash → Voss (deeper briefings, same objectives) -- */
+  add({ id: "krag_a2q1_splash", background: "onboard_outpost", character: null,
+    dialogue: [
+      { speaker: null, text: "The supply approach is a throat. Someone else's flag sits in the middle of it like a bone." },
+      { speaker: null, text: "Clearing it is not conquest. It is plumbing. The Combine understands plumbing." },
+    ], choices: null, next: "krag_a2q1_brief", autoAdvance: null });
   add({ id: "krag_a2q1_brief", background: "bg_krag_dock",
     character: { portrait: "krag_voss", expression: "neutral", position: "right" },
     dialogue: [
       { speaker: "VOSS", text: "There's an outpost keeping our supply approach contested. Take it — clear every defender, hold the platform." },
       { speaker: "VOSS", text: "Station a drone there when you're done. An empty platform is just waiting to be re-taken, and I have had enough of re-taking." },
+      { speaker: "VOSS", text: "While you fly, I keep doing arithmetic. You keep giving me numbers that are not on paper." },
     ], choices: null, next: null, autoAdvance: null });
 
+  add({ id: "krag_a2q2_splash", background: "onboard_outpost", character: null,
+    dialogue: [
+      { speaker: null, text: "Second platform. Same throat. The first one already taught the sector who is listening." },
+    ], choices: null, next: "krag_a2q2_brief", autoAdvance: null });
   add({ id: "krag_a2q2_brief", background: "bg_krag_dock",
     character: { portrait: "krag_voss", expression: "neutral", position: "right" },
     dialogue: [
       { speaker: "VOSS", text: "Reva tells me you did the first one clean. Good. There is a second platform — same job." },
       { speaker: "VOSS", text: "Clear it, hold it, drone it up. I will be watching the income numbers this time." },
+      { speaker: "VOSS", text: "She also said the salvage nets are full of quiet people. I am filing that under things I will not thank her for." },
     ], choices: null, next: null, autoAdvance: null });
 
+  add({ id: "krag_a2q3_splash", background: "onboard_garrison", character: null,
+    dialogue: [
+      { speaker: null, text: "Last contested point. After this the sector runs clean — or as clean as Combine space ever gets." },
+    ], choices: null, next: "krag_a2q3_brief", autoAdvance: null });
   add({ id: "krag_a2q3_brief", background: "bg_krag_dock",
     character: { portrait: "krag_voss", expression: "neutral", position: "right" },
     dialogue: [
       { speaker: "VOSS", text: "Last contested point on the approach. After this, the sector runs clean and you start seeing real drone returns." },
       { speaker: "VOSS", text: "Don't just clear it. Fortify it. I want to know it is ours next week, not somebody else's problem." },
+      { speaker: "VOSS", text: "When this is done, you and I go to Terrace Nine. Not as Combine. As two people with a question the archive has been answering for two hundred years to no one." },
     ], choices: null, next: null, autoAdvance: null });
 
-  /* ---- KRAG ACT 3 — VOSS (grim) ----------------------------------------- */
+  /* ---- KRAG ACT 3 — VOSS (grim) + visual spine -------------------------- */
+  add({ id: "krag_a3q1_splash", background: "act_krag_survey_wreck", character: null,
+    dialogue: [
+      { speaker: null, text: "A site nobody has touched in two hundred years. That is not neglect. That is design." },
+    ], choices: null, next: "krag_a3q1_brief", autoAdvance: null });
   add({ id: "krag_a3q1_brief", background: "bg_krag_dock",
     character: { portrait: "krag_voss", expression: "grim", position: "right" },
     dialogue: [
       { speaker: "VOSS", text: "There's a site in our territory that nobody has touched in two hundred years. I want a full sweep — hold position until the scan finalizes." },
       { speaker: "VOSS", text: "Whatever that log deck says about who laid the countersign, I want to know before Internal does." },
+      { speaker: "VOSS", text: "I have a name. I am not saying it on an open dock. Fly clean." },
     ], choices: null, next: null, autoAdvance: null });
 
+  add({ id: "krag_a3q2_splash", background: "act_krag_tether", character: null,
+    dialogue: [
+      { speaker: null, text: "A tether off Mira. An empty appointment book. Internal cutters that always arrive on time." },
+      { speaker: null, text: "This is not a haul. This is a conversation that can get people shot." },
+    ], choices: null, next: "krag_a3q2_brief", autoAdvance: null });
   add({ id: "krag_a3q2_brief", background: "bg_krag_dock",
     character: { portrait: "krag_voss", expression: "grim", position: "right" },
     dialogue: [
       { speaker: "VOSS", text: "Harrow is on a tether off Mira. Combine Internal is on the same tether, reading his appointment book, and ours." },
       { speaker: "VOSS", text: "We are going up. Your platform, my authorization, and we do not announce this in advance. Keep a count of the exits before you go in." },
+      { speaker: "VOSS", text: "Whatever he says — you fly us off. I will decide what the Combine is allowed to hear after we are not on a string." },
     ], choices: null, next: null, autoAdvance: null });
 
-  /* ---- VEX ACT 2 — DREN (bg_vex_hangar) --------------------------------- */
+  /* ---- VEX ACT 2 — splash → DREN -------------------------------------- */
+  add({ id: "vex_a2q1_splash", background: "onboard_outpost", character: null,
+    dialogue: [
+      { speaker: null, text: "An unregistered outpost is not a mystery. It is a filing error with guns." },
+    ], choices: null, next: "vex_a2q1_brief", autoAdvance: null });
   add({ id: "vex_a2q1_brief", background: "bg_vex_hangar",
     character: { portrait: "vex_dren", expression: "neutral", position: "right" },
     dialogue: [
@@ -72,13 +103,22 @@
       { speaker: "DREN", text: "Station a drone on the platform when you're done. Income offsets the operational risk, and Cade says it offsets it considerably." },
     ], choices: null, next: null, autoAdvance: null });
 
+  add({ id: "vex_a2q2_splash", background: "bg_vex_ghost_relay", character: null,
+    dialogue: [
+      { speaker: null, text: "A flight recorder does not lie. People who place it often do." },
+    ], choices: null, next: "vex_a2q2_brief", autoAdvance: null });
   add({ id: "vex_a2q2_brief", background: "bg_vex_hangar",
     character: { portrait: "vex_dren", expression: "neutral", position: "right" },
     dialogue: [
       { speaker: "DREN", text: "There's a flight recorder in the debris field adjacent to the position you cleared. The flight data will tell us who placed those occupants." },
       { speaker: "DREN", text: "Retrieve it before the next patrol cycle. Cade says he can provide a distraction, which I have declined to file as official." },
+      { speaker: "DREN", text: "Between us — if the recorder names a list that should not exist, you bring it to me first. Not the tribunal." },
     ], choices: null, next: null, autoAdvance: null });
 
+  add({ id: "vex_a2q3_splash", background: "onboard_garrison", character: null,
+    dialogue: [
+      { speaker: null, text: "Last platform on the line. Cade will call it cover. You will call it work." },
+    ], choices: null, next: "vex_a2q3_brief", autoAdvance: null });
   add({ id: "vex_a2q3_brief", background: "bg_vex_hangar",
     character: { portrait: "vex_dren", expression: "neutral", position: "right" },
     dialogue: [
@@ -87,6 +127,10 @@
     ], choices: null, next: null, autoAdvance: null });
 
   /* ---- VEX ACT 3 — DREN (tired) ----------------------------------------- */
+  add({ id: "vex_a3q1_splash", background: "bg_vex_ghost_relay", character: null,
+    dialogue: [
+      { speaker: null, text: "A site nine surveys call unremarkable. One of those surveys was yours." },
+    ], choices: null, next: "vex_a3q1_brief", autoAdvance: null });
   add({ id: "vex_a3q1_brief", background: "bg_vex_hangar",
     character: { portrait: "vex_dren", expression: "tired", position: "right" },
     dialogue: [
@@ -94,6 +138,10 @@
       { speaker: "DREN", text: "No log, no transponder. Whatever is transmitting out there has been reading Dominion filings for two hundred years — don't hand it a schedule." },
     ], choices: null, next: null, autoAdvance: null });
 
+  add({ id: "vex_a3q2_splash", background: "explosion_silent_wreck", character: null,
+    dialogue: [
+      { speaker: null, text: "A wreck with the hull number ground off. The log still remembers." },
+    ], choices: null, next: "vex_a3q2_brief", autoAdvance: null });
   add({ id: "vex_a3q2_brief", background: "bg_vex_hangar",
     character: { portrait: "vex_dren", expression: "tired", position: "right" },
     dialogue: [
@@ -102,13 +150,22 @@
     ], choices: null, next: null, autoAdvance: null });
 
   /* ---- NOX ACT 2 — SIVE (bg_nox_cryo) ----------------------------------- */
+  add({ id: "nox_a2q1_splash", background: "act_nox_mooring", character: null,
+    dialogue: [
+      { speaker: null, text: "A platform near the outer mooring. Quiet transfer, if you can manage it." },
+    ], choices: null, next: "nox_a2q1_brief", autoAdvance: null });
   add({ id: "nox_a2q1_brief", background: "bg_nox_cryo",
     character: { portrait: "nox_sive", expression: "neutral", position: "center" },
     dialogue: [
       { speaker: "SIVE", text: "There is a platform near the outer mooring that I would like to have under different management. Quietly, if you can manage it." },
       { speaker: "SIVE", text: "The difference between a clean transfer and a contested one is four months of repair drone fees, and I dislike avoidable fees." },
+      { speaker: "SIVE", text: "Lira will be watching the approach. She is very careful about what she watches. I find that reassuring." },
     ], choices: null, next: null, autoAdvance: null });
 
+  add({ id: "nox_a2q2_splash", background: "bg_nox_deepdark", character: null,
+    dialogue: [
+      { speaker: null, text: "A cache that does not want a flight log. Lira chose the coordinates carefully." },
+    ], choices: null, next: "nox_a2q2_brief", autoAdvance: null });
   add({ id: "nox_a2q2_brief", background: "bg_nox_cryo",
     character: { portrait: "nox_sive", expression: "neutral", position: "center" },
     dialogue: [
@@ -116,6 +173,10 @@
       { speaker: "SIVE", text: "Lira will confirm the coordinates. She has been very careful about which coordinates she shares with me, which I find reassuring." },
     ], choices: null, next: null, autoAdvance: null });
 
+  add({ id: "nox_a2q3_splash", background: "onboard_garrison", character: null,
+    dialogue: [
+      { speaker: null, text: "Last platform before the approach is yours in all but name." },
+    ], choices: null, next: "nox_a2q3_brief", autoAdvance: null });
   add({ id: "nox_a2q3_brief", background: "bg_nox_cryo",
     character: { portrait: "nox_sive", expression: "neutral", position: "center" },
     dialogue: [
@@ -124,6 +185,10 @@
     ], choices: null, next: null, autoAdvance: null });
 
   /* ---- NOX ACT 3 — SIVE (pleased on the reveal) ------------------------- */
+  add({ id: "nox_a3q1_splash", background: "act_nox_mooring", character: null,
+    dialogue: [
+      { speaker: null, text: "A further mooring. The same patient window. Do not examine the far berth." },
+    ], choices: null, next: "nox_a3q1_brief", autoAdvance: null });
   add({ id: "nox_a3q1_brief", background: "bg_nox_cryo",
     character: { portrait: "nox_sive", expression: "neutral", position: "center" },
     dialogue: [
@@ -131,6 +196,10 @@
       { speaker: "SIVE", text: "Do not examine the far berth. I am aware that instruction draws attention to it. I am making the request anyway." },
     ], choices: null, next: null, autoAdvance: null });
 
+  add({ id: "nox_a3q2_splash", background: "bg_nox_prime", character: null,
+    dialogue: [
+      { speaker: null, text: "The charts call it a ruin. Sive would prefer you see it first." },
+    ], choices: null, next: "nox_a3q2_brief", autoAdvance: null });
   add({ id: "nox_a3q2_brief", background: "bg_nox_cryo",
     character: { portrait: "nox_sive", expression: "pleased", position: "center" },
     dialogue: [
@@ -146,53 +215,53 @@
 const STORY_QUEST_SPECS = {
   /* ---------- KRAG -------------------------------------------------------- */
   krag_a2q1: { phase: "a2", idx: 1, action: "assault",  fallback: "sabotage",
-    brief: "krag_a2q1_brief", title: "SECURE: APPROACH A",
+    brief: "krag_a2q1_splash", title: "SECURE: APPROACH A",
     desc: (w) => `Garrison dug in at ${w}. Clear every defender, hold the platform, then report back. Station a drone there — idle platforms get re-taken.` },
   krag_a2q2: { phase: "a2", idx: 2, action: "assault",  fallback: "scan",
-    brief: "krag_a2q2_brief", title: "SECURE: APPROACH B",
+    brief: "krag_a2q2_splash", title: "SECURE: APPROACH B",
     desc: (w) => `Second approach platform at ${w} — same job as the first. Clear it, hold it, station a drone, then report to Voss.` },
   krag_a2q3: { phase: "a2", idx: 3, action: "sabotage", fallback: "assault",
-    brief: "krag_a2q3_brief", title: "FINAL CLAIM",
+    brief: "krag_a2q3_splash", title: "FINAL CLAIM",
     desc: (w) => `Last contested approach point at ${w}. Hold long enough to register the claim, then report back. Fortify and station a drone.` },
   krag_a3q1: { phase: "a3", idx: 1, action: "scan",     fallback: "sensor",
-    brief: "krag_a3q1_brief", title: "SURVEY: LONG WATCH",
+    brief: "krag_a3q1_splash", title: "SURVEY: LONG WATCH",
     desc: (w) => `Full sweep at ${w} — hold position until the scan finalizes. Voss wants the complete log before Combine Internal gets there.` },
   krag_a3q2: { phase: "a3", idx: 2, action: "assault",  fallback: "sabotage",
-    brief: "krag_a3q2_brief", title: "ENGAGE: HARROW TETHER",
+    brief: "krag_a3q2_splash", title: "ENGAGE: HARROW TETHER",
     desc: (w) => `Combine Internal has the position at ${w}. Clear it. Voss has authorization — keep a count of the exits before you go in.` },
 
   /* ---------- VEX --------------------------------------------------------- */
   vex_a2q1: { phase: "a2", idx: 1, action: "assault",  fallback: "sabotage",
-    brief: "vex_a2q1_brief", title: "CLEAR: SIGNAL ANCHOR",
+    brief: "vex_a2q1_splash", title: "CLEAR: SIGNAL ANCHOR",
     desc: (w) => `Unregistered occupants at ${w}. Clear them, hold the position, station a drone — DREN wants income on this node.` },
   vex_a2q2: { phase: "a2", idx: 2, action: "blackbox", fallback: "salvage",
-    brief: "vex_a2q2_brief", title: "RECOVER: FLIGHT DATA",
+    brief: "vex_a2q2_splash", title: "RECOVER: FLIGHT DATA",
     desc: (w) => `Flight recorder still aboard ${w}. Clear any scavengers, pull the box, and return it. Do not open the aft compartment.` },
   vex_a2q3: { phase: "a2", idx: 3, action: "assault",  fallback: "bounty",
-    brief: "vex_a2q3_brief", title: "COMPLETE: SECTOR LINE",
+    brief: "vex_a2q3_splash", title: "COMPLETE: SECTOR LINE",
     desc: (w) => `Final position — clear ${w} and hold it. Three linked platforms running drones means real passive income; station something there.` },
   vex_a3q1: { phase: "a3", idx: 1, action: "sensor",   fallback: "scan",
-    brief: "vex_a3q1_brief", title: "SURVEY: ASSESSED VOLUME",
+    brief: "vex_a3q1_splash", title: "SURVEY: ASSESSED VOLUME",
     desc: (w) => `Deploy a sensor array near ${w} and hold until the sweep is complete. No log, no transponder — this volume is not as empty as the surveys claim.` },
   vex_a3q2: { phase: "a3", idx: 2, action: "blackbox", fallback: "salvage",
-    brief: "vex_a3q2_brief", title: "RECOVER: VD-77 DATA",
+    brief: "vex_a3q2_splash", title: "RECOVER: VD-77 DATA",
     desc: (w) => `Wreck at ${w} with a hull number ground off. Retrieve the flight recorder before the next patrol. Cade's aft compartment instructions apply.` },
 
   /* ---------- NOX --------------------------------------------------------- */
   nox_a2q1: { phase: "a2", idx: 1, action: "sabotage", fallback: "assault",
-    brief: "nox_a2q1_brief", title: "QUIET DISPLACEMENT",
+    brief: "nox_a2q1_splash", title: "QUIET DISPLACEMENT",
     desc: (w) => `The outpost at ${w} needs to change management. Hold near it long enough to register the transfer, then report. Quietly, if possible.` },
   nox_a2q2: { phase: "a2", idx: 2, action: "collect",  fallback: "scan",
-    brief: "nox_a2q2_brief", title: "CACHE RUN",
+    brief: "nox_a2q2_splash", title: "CACHE RUN",
     desc: (w) => `Supply cache adrift in ${w}. Retrieve it and bring it home — do not log the flight. Sive says the approach is quiet, and Lira verified it.` },
   nox_a2q3: { phase: "a2", idx: 3, action: "assault",  fallback: "sabotage",
-    brief: "nox_a2q3_brief", title: "FINAL APPROACH",
+    brief: "nox_a2q3_splash", title: "FINAL APPROACH",
     desc: (w) => `Last platform before the approach is ours — clear the outpost at ${w} and hold it. Three platforms running three drones each is the shape this becomes.` },
   nox_a3q1: { phase: "a3", idx: 1, action: "sensor",   fallback: "scan",
-    brief: "nox_a3q1_brief", title: "THE FURTHER MOORING",
+    brief: "nox_a3q1_splash", title: "THE FURTHER MOORING",
     desc: (w) => `Hold station near ${w} for the full sensor window. Do not examine the far berth. This is a direct request, not a suggestion.` },
   nox_a3q2: { phase: "a3", idx: 2, action: "collect",  fallback: "scan",
-    brief: "nox_a3q2_brief", title: "NOX PRIME",
+    brief: "nox_a3q2_splash", title: "NOX PRIME",
     desc: (w) => `Sive has coordinates at ${w}. The charts call it a ruin — she would like you to see it before you read anything else about what it is.` },
 };
 

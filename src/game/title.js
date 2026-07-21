@@ -51,17 +51,39 @@ Object.assign(GAME, {
     this.tickFields(0);   // stream the fields around the new berth immediately
   },
 
-  // NEW GAME → faction picked. Claims the first empty slot; with all 3 full the
-  // slot page re-opens in overwrite mode and _beginRun fires from its cards.
+  // NEW GAME → faction picked → pilot face pick → (slot if full) → _beginRun.
   startNewGame(faction) {
+    this._pendingFaction = faction;
+    this.renderTitlePortraits();
+    this._titlePage("portraits");
+  },
+  // Portrait card clicked: gender + race implied by the face. Then claim a
+  // save slot (or open overwrite) and start the run.
+  _confirmPortrait(portraitId) {
+    const def = typeof PLAYER_PORTRAIT_BY_ID !== "undefined" && PLAYER_PORTRAIT_BY_ID[portraitId];
+    if (!def) return;
+    this._pendingPortraitId = def.id;
+    this._pendingGender = def.gender;
+    this._pendingRace = def.race;
     let slot = 0;
     for (let n = 1; n <= SAVE_SLOTS; n++) if (!this.slotUsed(n)) { slot = n; break; }
-    if (!slot) { this._pendingFaction = faction; this.renderTitleSlots("overwrite"); this._titlePage("slots"); return; }
-    this._beginRun(faction, slot);
+    if (!slot) { this.renderTitleSlots("overwrite"); this._titlePage("slots"); return; }
+    this._beginRun(this._pendingFaction, slot);
   },
   _beginRun(faction, slot) {
     const s = this.state;
     s.playerFaction = faction;
+    // Portrait / gender from the face picker (overwrite path keeps _pending*).
+    if (this._pendingPortraitId) {
+      s.playerPortraitId = this._pendingPortraitId;
+      s.playerGender = this._pendingGender === "f" ? "f" : "m";
+      s.playerRace = this._pendingRace || null;
+    }
+    if (!s.playerPortraitId && typeof PLAYER_PORTRAITS !== "undefined" && PLAYER_PORTRAITS[0]) {
+      s.playerPortraitId = PLAYER_PORTRAITS[0].id;
+      s.playerGender = PLAYER_PORTRAITS[0].gender;
+      s.playerRace = PLAYER_PORTRAITS[0].race;
+    }
     const home = this.factionHomeStation(faction);
     if (home) { s.homeStationId = home.id; this._spawnAtStation(home); }
     this._activeSlot = slot;
@@ -69,7 +91,10 @@ Object.assign(GAME, {
     this._hideTitle();
     this.initTutorial(s);
     this.saveGame();   // stamp the slot now — its meta card, autosave, and R-restart all key off it
-    this.startOnboarding();   // Q1 of the onboarding ladder; Act 0 now plays when it ends
+    // Cold-open intro (arrival run) then Q1. Falls through to onboarding if
+    // the intro cannot play (headless / missing scenes).
+    if (typeof this.startColdOpen === "function" && this.startColdOpen()) return;
+    this.startOnboarding();
   },
   _loadSlot(n) {
     if (!this.loadGame(n)) { toast("slot unreadable", "#ff5060", 2); return; }
@@ -93,7 +118,7 @@ Object.assign(GAME, {
     if (el) el.classList.remove("show");
   },
   _titlePage(name) {
-    for (const p of ["home", "factions", "slots"]) {
+    for (const p of ["home", "factions", "portraits", "slots"]) {
       const el = document.getElementById("title" + p[0].toUpperCase() + p.slice(1));
       if (el) el.style.display = p === name ? "" : "none";
     }
@@ -118,6 +143,24 @@ Object.assign(GAME, {
     }).join("");
     for (const card of row.querySelectorAll("[data-fac]"))
       card.addEventListener("click", () => this.startNewGame(card.getAttribute("data-fac")));
+  },
+  // 12 pilot faces in a race-grouped grid. Clicking one sets gender + race
+  // implicitly and continues into slot claim / _beginRun.
+  renderTitlePortraits() {
+    const row = document.getElementById("titlePortraitRow"); if (!row) return;
+    const list = (typeof PLAYER_PORTRAITS !== "undefined") ? PLAYER_PORTRAITS : [];
+    const raceLabel = { krag: "KRAG", vex: "VEX", nox: "NOX" };
+    const raceColor = { krag: "#ffb45e", vex: "#ff6a5e", nox: "#b48aff" };
+    row.innerHTML = list.map(p => {
+      const src = "sprites/player_portraits/" + p.id + ".png";
+      return '<div class="titleCard titlePortraitCard" data-pid="' + p.id + '">' +
+        '<img class="tpFace" src="' + src + '" alt="">' +
+        '<div class="tcName" style="color:' + (raceColor[p.race] || "#c7d2e0") + '">' + p.label + '</div>' +
+        '<div class="tcBlurb">' + (raceLabel[p.race] || p.race) + ' · ' + (p.gender === "f" ? "♀" : "♂") + '</div>' +
+        '<div class="tcHome">' + (p.blurb || "") + '</div></div>';
+    }).join("");
+    for (const card of row.querySelectorAll("[data-pid]"))
+      card.addEventListener("click", () => this._confirmPortrait(card.getAttribute("data-pid")));
   },
   // mode "load" (click a used slot → resume) or "overwrite" (all slots full on
   // NEW GAME → click any slot to claim it for this._pendingFaction, confirmed)
@@ -172,8 +215,9 @@ Object.assign(GAME, {
     on("titleNew", () => { this.renderTitleFactions(); this._titlePage("factions"); });
     on("titleLoad", () => { this.renderTitleSlots("load"); this._titlePage("slots"); });
     on("titleFacBack", () => { this.renderTitleHome(); this._titlePage("home"); });
+    on("titlePortBack", () => { this.renderTitleFactions(); this._titlePage("factions"); });
     on("titleSlotBack", () => {
-      if (this._titleSlotMode === "overwrite") { this.renderTitleFactions(); this._titlePage("factions"); }
+      if (this._titleSlotMode === "overwrite") { this.renderTitlePortraits(); this._titlePage("portraits"); }
       else { this.renderTitleHome(); this._titlePage("home"); }
     });
   },

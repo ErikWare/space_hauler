@@ -52,17 +52,61 @@ const ONBOARD_STEPS = ["haul_junk", "haul_rock",
 // Q7 on is the operative half and ends in the Q10 catastrophe.
 const ONBOARD_ACT0_AT = 5;
 
-// Per-faction briefing copy. Deliberately 2-3 lines, no lore, and the contact
-// has an opinion about hauling junk — that "the boss reacts to everything" tone
-// is the cheapest living-world signal the game has. Backgrounds/portraits are
-// all existing Act 0 assets, so this ships with zero new art.
+// Per-faction onboarding VN. Each quest is a mini chain:
+//   splash plate (mission visual) → contact briefing on the dock.
+// Hire plays once after the cold open, before Q1: pilot looking for work →
+// contact takes them on → first job. Gender tokens {he}/{his}/… expand at
+// runtime; hire scenes also carry m/f alt lines where the contact sizes them up.
+//
+// Mission plates: onboard_* in sprites/intro/ (shared art, faction voice differs).
+const ONBOARD_MISSION_BG = {
+  haul_junk: "onboard_debris",
+  haul_rock: "onboard_ore_ring",
+  haul_copper: "onboard_ore_ring",
+  haul_silver: "onboard_ore_ring",
+  haul_gold: "onboard_ore_rich",
+  haul_platinum: "onboard_ore_rich",
+  refine_drone: "onboard_refinery",
+  wing_two: "onboard_drone_wing",
+  take_outpost: "onboard_outpost",
+  garrison_outpost: "onboard_garrison",
+};
+
 const ONBOARD_VN = {
   krag: { bg: "bg_krag_dock", portrait: "krag_voss", pos: "right", speaker: "VOSS",
+    // hire: after cold open, before any quest — introduce pilot + contact
+    hire: {
+      splash: "onboard_dock_crowd",
+      // player alone — looking for work (gender narration)
+      arrive: [
+        { speaker: null, text: "The cradle is still warm from the pod. {His} boots hit Combine steel with nothing behind them but debt." },
+        { speaker: "YOU", text: "I'm looking for work. Anything that pays berth and fuel." },
+        { speaker: null, text: "Longshoremen do not look twice. Pilots who walk in without a ship are either desperate or already dead — and dead men do not ask." },
+      ],
+      // gender-specific sizing-up from Voss (picked at runtime)
+      meet_m: [
+        { speaker: null, text: "A shadow falls across the ramp. Dockmaster Voss — bone plate, furnace eyes, the patience of a man who has already survived everything once." },
+        { speaker: "VOSS", text: "Pod crash. Empty hands. You still walked in under your own power." },
+        { speaker: "VOSS", text: "The Combine wastes nothing, hauler. That includes stubborn men who refuse to die on the approach." },
+        { speaker: "YOU", text: "Then put me to work." },
+      ],
+      meet_f: [
+        { speaker: null, text: "A shadow falls across the ramp. Dockmaster Voss — bone plate, furnace eyes, the patience of a man who has already survived everything once." },
+        { speaker: "VOSS", text: "Pod crash. Empty hands. You still walked in under your own power." },
+        { speaker: "VOSS", text: "The Combine wastes nothing, hauler. That includes stubborn women who refuse to die on the approach." },
+        { speaker: "YOU", text: "Then put me to work." },
+      ],
+      offer: [
+        { speaker: "VOSS", text: "Berth that does not leak. Fuel at Combine rates. Work that will not care who you were before the pod." },
+        { speaker: "VOSS", text: "You are on my ledger now. First job is waiting on the board." },
+        { speaker: "VOSS", text: "It is not glamorous. Neither are you. Stay on your feet." },
+      ],
+    },
     lines: {
       haul_junk: [
-        "You are still here. Good. Berths are not free and neither am I.",
-        "Debris field off the north approach. Ten pieces. Drag them in.",
-        "It is not glamorous. Neither are you. Go.",
+        "North approach. Ten pieces of debris. Tractor and tow.",
+        "Berths are not free and neither am I. Bring the scrap home.",
+        "It is not glamorous. Go.",
       ],
       haul_rock: [
         "Junk pays for fuel. Rock pays for everything else.",
@@ -70,40 +114,49 @@ const ONBOARD_VN = {
       ],
       haul_copper: [
         "Copper ore now. Three rocks. It is everywhere, which is rather the point.",
-        "Copper is the starter ore. If you cannot move copper you cannot move anything.",
+        "If you cannot move copper you cannot move anything. Go.",
       ],
       haul_silver: [
         "Good. Silver next. Worth more, moves the same way.",
-        "Three rocks, further out, and the neighbours are less friendly out there.",
-        "Scrape my dock again and I bill you for the paint.",
+        "Three rocks, further out. Scrape my dock again and I bill you for the paint.",
       ],
       haul_gold: [
-        "Someone ran a survey on this belt before I filed. Old claim, probably nothing. Does not change the price.",
-        "Three rocks. The rings that carry gold also carry people who want gold.",
-        "Do not advertise what you are hauling.",
+        "Someone ran a survey on this belt before I filed. Old claim, probably nothing.",
+        "Three gold rocks. The rings that carry it also carry people who want it. Do not advertise.",
       ],
       haul_platinum: [
-        "Platinum is rare. Find it, haul it, do not lose it.",
-        "Three rocks, deep enough that I am mildly concerned, which is not a thing I say.",
-        "LIRA has been assigned to your watch rotation. Routine.",
+        "Platinum. Top of the common ladder. Three rocks.",
+        "Deep enough that I am mildly concerned, which is not a thing I say. Bring them back.",
       ],
       refine_drone: [
-        "Ore is not money. Bars are money. Put it through the refinery and watch the number change.",
-        "And fit a drone while you are docked. Flying out there naked is a choice, and a stupid one.",
+        "Ore is not money. Bars are money. Put it through the refinery.",
+        "And fit a drone while you are docked. Flying naked out there is a choice, and a stupid one.",
       ],
       wing_two: [
-        "A second drone. Two means you can work two sites at once.",
-        "That is the difference between scraping by and building something. Most never learn it.",
+        "That tug only flies one wing drone. Build a second for the hangar.",
+        "Garrison, trade, the next hull's bigger deck — reserve is how you stop scraping by.",
       ],
       take_outpost: [
-        "Different kind of job. There is an outpost out there with somebody else's flag on it.",
-        "Clear the garrison and take the platform. I am not asking you to haul anything.",
-        "You stopped being a hauler somewhere around the gold. I am only the first to say it out loud.",
+        "Different kind of job. An outpost with somebody else's flag on it.",
+        "Clear the garrison and take the platform. You stopped being a pure hauler around the gold — I am only the first to say it.",
       ],
       garrison_outpost: [
         "Now station a drone on it. An outpost you cannot hold is a gift to whoever comes next.",
         "That platform works for you now. That is how this works.",
       ],
+    },
+    // short mission-splash narration before the contact speaks (visual UX)
+    splashLines: {
+      haul_junk: ["Debris drifts the north approach like the system never learned to clean up after itself."],
+      haul_rock: ["Ore rocks tumble in the inner rings — ugly, heavy, and worth more than pride."],
+      haul_copper: ["Copper glints everywhere once you know how to look. That is why it pays so little."],
+      haul_silver: ["Silver sits further out. The neighbours get less polite with the distance."],
+      haul_gold: ["Gold rings shine like a dare. Someone is always watching the ones that shine."],
+      haul_platinum: ["Platinum country. Thin traffic, thick silence, and rocks that can clear a debt."],
+      refine_drone: ["The refinery bay never sleeps. Ore goes in guessing. Bars come out decided."],
+      wing_two: ["One on the wing. One in the bay. That is a plan."],
+      take_outpost: ["Someone else's flag on a platform that should not be theirs."],
+      garrison_outpost: ["Taking is loud. Holding is the quiet work that keeps it yours."],
     },
     outro: [
       "You know how to haul now. Time to learn the other half of this job.",
@@ -114,50 +167,85 @@ const ONBOARD_VN = {
       "No garrison, no politics, nothing that shoots. You have earned a boring afternoon.",
     ] },
   vex: { bg: "bg_vex_hangar", portrait: "vex_dren", pos: "right", speaker: "DREN",
+    hire: {
+      splash: "act_vex_hangar_crowd",
+      arrive: [
+        { speaker: null, text: "The hangar accepts the pod with machine politeness. {His} civilian tags still smoke from the trial grid." },
+        { speaker: "YOU", text: "Emergency berth. I need work that is not target practice." },
+        { speaker: null, text: "Technicians count damage. Nobody counts the pilot until an officer decides {he} is still inventory." },
+      ],
+      meet_m: [
+        { speaker: null, text: "Commodore Dren steps out of a side hatch without saluting anyone — patched jacket, easy crease of a smile that never looks entirely worry-free." },
+        { speaker: "DREN", text: "You walked out of a live-fire corridor in a can. That is either skill or an unpaid debt to luck." },
+        { speaker: "DREN", text: "The Dominion contains multitudes. Today it contains one more stubborn man who still wants a posting." },
+        { speaker: "YOU", text: "Give me the posting." },
+      ],
+      meet_f: [
+        { speaker: null, text: "Commodore Dren steps out of a side hatch without saluting anyone — patched jacket, easy crease of a smile that never looks entirely worry-free." },
+        { speaker: "DREN", text: "You walked out of a live-fire corridor in a can. That is either skill or an unpaid debt to luck." },
+        { speaker: "DREN", text: "The Dominion contains multitudes. Today it contains one more stubborn woman who still wants a posting." },
+        { speaker: "YOU", text: "Give me the posting." },
+      ],
+      offer: [
+        { speaker: "DREN", text: "Civilian berth. Fuel on a work order. You are posted under my directorate until the paperwork finds a better idea." },
+        { speaker: "DREN", text: "You were an escort once. Today you are still breathing. That is enough to start." },
+        { speaker: "DREN", text: "First assignment is on the board. File every ton." },
+      ],
+    },
     lines: {
       haul_junk: [
-        "Your first assignment is debris retrieval. Ten pieces, tractored and docked.",
+        "Debris retrieval off the approach. Ten pieces, tractored and docked.",
         "You were an escort commander. Now you are a broom. The Dominion contains multitudes.",
+        "File the tonnage when you come back.",
       ],
       haul_rock: [
-        "Ore rocks now. Ten. File the tonnage when you dock.",
+        "Ore rocks now. Ten. Same procedure, better category.",
         "Somebody genuinely reads those filings, which is its own small tragedy.",
       ],
       haul_copper: [
-        "Copper ore, three units. Copper deposits are logged under resource class three.",
-        "Class three is the floor. Every grade above it assumes you can already do this one.",
+        "Copper ore, three units. Resource class three — the floor.",
+        "Every grade above it assumes you can already do this one.",
       ],
       haul_silver: [
-        "Acceptable. Silver next. Higher grade, identical procedure.",
-        "Silver is where the margin starts, which is why the filing gets stricter. Three units.",
+        "Silver next. Higher grade, identical procedure. Three units.",
         "There is a recertification review on VD-77 units this quarter. I have filed the objection. It does not concern you.",
       ],
       haul_gold: [
-        "You are getting the idea. Gold is where the real money is logged.",
-        "Three units. Contested rings, and the tribunal has a form for that which I refuse to file twice.",
+        "Gold. Three units. Contested rings — and a form I refuse to file twice.",
         "Do not advertise what you are hauling.",
       ],
       haul_platinum: [
-        "Platinum is rare. Locate it, haul it, do not lose it.",
-        "Three units. Rare cargo draws attention from parties who do not file anything at all.",
+        "Platinum. Locate it, haul it, do not lose it. Three units.",
+        "Rare cargo draws attention from parties who do not file anything at all.",
       ],
       refine_drone: [
-        "Raw ore files as ballast with a price attached. Refine it into bars and the same tonnage changes category entirely.",
-        "Also fit a drone. Unescorted assets get written off, and I dislike writing things off.",
+        "Refine the ore into bars. Same tonnage, new category entirely.",
+        "Fit a drone. Unescorted assets get written off, and I dislike writing things off.",
       ],
       wing_two: [
-        "A second drone. Two lets you work two sites at once, which the filings will notice before I do.",
-        "That is the difference between scraping by and building something.",
+        "Your tug fields one escort. Build a second and park it in the hangar.",
+        "The filings will notice reserve capacity. So will the next platform you hold.",
       ],
       take_outpost: [
-        "New classification of assignment. There is an enemy outpost in the register, and the register is going to be corrected.",
-        "Clear it and hold the platform. Nothing about this job is cargo.",
-        "You are not a hauler on my books any more. You have not been for some time.",
+        "New classification. An enemy outpost is in the register. Correct the register.",
+        "Clear it and hold the platform. You are not a hauler on my books any more.",
       ],
       garrison_outpost: [
         "Station a drone on it. An unheld position is a position you merely visited.",
-        "That outpost files under your name now. That is how this works.",
+        "That outpost files under your name now.",
       ],
+    },
+    splashLines: {
+      haul_junk: ["Debris on a Dominion approach is not trash. It is an unfinished filing."],
+      haul_rock: ["Ore rocks in the lane. Tonnage waiting for a name."],
+      haul_copper: ["Class-three copper. The floor every other grade stands on."],
+      haul_silver: ["Silver margin. Stricter filings. Same beam."],
+      haul_gold: ["Gold rings on the board. Contested. Logged. Owed."],
+      haul_platinum: ["Platinum. Rare enough that silence is part of the procedure."],
+      refine_drone: ["Refinery bay. Ballast becomes decision."],
+      wing_two: ["One escort. One hangar reserve. Capacity is a filing category."],
+      take_outpost: ["A platform flying the wrong flag. The register will not fix itself."],
+      garrison_outpost: ["Hold what you took. Visiting is not victory."],
     },
     outro: [
       "You know how to haul. Time to learn the other half of the job.",
@@ -168,50 +256,85 @@ const ONBOARD_VN = {
       "Nothing on the threat board. Go, sign for it, come back. I have a tribunal to be late for.",
     ] },
   nox: { bg: "bg_nox_cryo", portrait: "nox_sive", pos: "center", speaker: "SIVE",
+    hire: {
+      splash: "act_nox_dock_haze",
+      arrive: [
+        { speaker: null, text: "The mooring air tastes of frost and patience. {He} has nothing left but a request and a pulse." },
+        { speaker: "YOU", text: "I need work. And a hull that keeps the vacuum on the correct side." },
+        { speaker: null, text: "Nobody rushes {him}. In Covenant space, hurry is a kind of rudeness." },
+      ],
+      meet_m: [
+        { speaker: null, text: "A hooded figure waits in the haze as if {he} were expected. Handler Sive. Glass and galaxy for a face." },
+        { speaker: "SIVE", text: "You arrived in a pod. That is inefficient, and yet you arrived." },
+        { speaker: "SIVE", text: "The Covenant does not employ. It invests. A man who refuses to write himself off is… interesting data." },
+        { speaker: "YOU", text: "Invest, then. Tell me what to haul." },
+      ],
+      meet_f: [
+        { speaker: null, text: "A hooded figure waits in the haze as if {he} were expected. Handler Sive. Glass and galaxy for a face." },
+        { speaker: "SIVE", text: "You arrived in a pod. That is inefficient, and yet you arrived." },
+        { speaker: "SIVE", text: "The Covenant does not employ. It invests. A woman who refuses to write herself off is… interesting data." },
+        { speaker: "YOU", text: "Invest, then. Tell me what to haul." },
+      ],
+      offer: [
+        { speaker: "SIVE", text: "Berth. Fuel. A hull that is not on fire. In exchange: work." },
+        { speaker: "SIVE", text: "You are an investment. My investment. I intend to see you appreciate." },
+        { speaker: "SIVE", text: "The first task is already waiting. You will find it beneath you. That is part of it." },
+      ],
+    },
     lines: {
       haul_junk: [
         "Ten pieces of debris. Bring them in.",
         "You will find this beneath you. That is part of it.",
       ],
       haul_rock: [
-        "Now ten rocks. You will notice they feel identical to the debris.",
-        "They are not. The difference is written on a ledger somewhere, and the ledger is what matters.",
+        "Now ten rocks. They feel identical to the debris. They are not.",
+        "The difference is written on a ledger somewhere, and the ledger is what matters.",
       ],
       haul_copper: [
-        "Copper. Three. We find copper where we expect to find copper.",
+        "Copper. Three. We find it where we expect to find it.",
         "That is what makes it the starter ore, and what makes it worth so little.",
       ],
       haul_silver: [
-        "Good. Silver next. Worth more, moves the same way.",
-        "Silver is where the margin begins. You are being measured against yesterday, not against anyone else.",
+        "Silver next. Worth more, moves the same way. Three.",
+        "You are being measured against yesterday, not against anyone else.",
       ],
       haul_gold: [
-        "You are getting the idea. Gold is the real money.",
-        "Three. You will go further out than is sensible, and gold draws attention.",
+        "Gold. Three. You will go further out than is sensible.",
         "Do not advertise what you are carrying.",
       ],
       haul_platinum: [
-        "Platinum is rare. Find it, haul it, do not lose it.",
-        "Three. Rare enough that others will notice you have it.",
+        "Platinum. Three. Rare enough that others will notice.",
         "I would prefer they noticed later rather than sooner.",
+        "LIRA has been assigned to your watch rotation. Routine.",
       ],
       refine_drone: [
-        "Ore is potential. Bars are decision. Take it to the refinery and watch the number stop being a maybe.",
-        "And fit a drone. The Covenant does not send its investments out alone — it looks careless.",
+        "Ore is potential. Bars are decision. Refine it.",
+        "Fit a drone. The Covenant does not send its investments out alone — it looks careless.",
       ],
       wing_two: [
-        "A second drone. Two means you can work two sites at once.",
-        "That is the difference between scraping by and building something. Sit with which you have been doing.",
+        "Your tug flies one. Build a second for the hangar.",
+        "Reserve is how holding becomes possible — and how you stop scraping by.",
       ],
       take_outpost: [
         "This is the first thing I have asked you to take rather than carry.",
-        "An outpost. Someone else's. Clear it, hold it, and notice how little the difference troubles you.",
-        "You have not been a hauler for some time. I wondered when you would say so.",
+        "Clear it, hold it. You have not been a hauler for some time.",
       ],
       garrison_outpost: [
-        "Station a drone on the platform. Holding is harder than taking, and far less satisfying.",
-        "That outpost works for you now. That is how this works.",
+        "Station a drone. Holding is harder than taking, and far less satisfying.",
+        "That outpost works for you now.",
       ],
+    },
+    splashLines: {
+      haul_junk: ["Debris. Beneath you. That is the first measurement."],
+      haul_rock: ["Rocks that look like junk until a ledger says otherwise."],
+      haul_copper: ["Copper where copper is expected. The floor of every later grade."],
+      haul_silver: ["Silver. Yesterday's measure. Today's margin."],
+      haul_gold: ["Gold further out than is sensible. Attention follows."],
+      haul_platinum: ["Platinum. Rarity is just delayed attention."],
+      refine_drone: ["The refinery turns maybes into decisions."],
+      wing_two: ["One on the wing. One waiting. Care, from a certain angle."],
+      take_outpost: ["Taking, not carrying. Notice how little the difference troubles you."],
+      garrison_outpost: ["Holding. The unsatisfying half of ownership."],
     },
     outro: [
       "You know how to haul now. Time to learn the other half of this job.",
@@ -223,34 +346,258 @@ const ONBOARD_VN = {
     ] },
 };
 
-// Register one terminal VN scene per faction per step: <fac>_onb_01, _02, ...
-// vnSelfTest's per-scene loop validates these for free (dialogue, resolvable
-// background, resolvable portrait); they sit outside the act CHAINS walk on
-// purpose, since each is a standalone one-shot rather than a chain.
+// Register hire chains + multi-scene quest briefs:
+//   <fac>_hire_01/02/03  — dock crowd → contact meet → first offer
+//   <fac>_onb_<nn>a      — mission splash plate
+//   <fac>_onb_<nn>       — contact briefing (terminal; grants already landed)
+// trap / outro unchanged (single dock scene).
 (function () {
   for (const fac in ONBOARD_VN) {
     const v = ONBOARD_VN[fac];
-    const scene = (id, lines, next) => {
-      VN_SCENES[id] = {
-        id, background: v.bg,
-        character: { portrait: v.portrait, expression: "neutral", position: v.pos },
-        dialogue: (lines || []).map(text => ({ speaker: v.speaker, text })),
-        choices: null, next: next || null, autoAdvance: null,
-      };
+    const add = (sc) => { VN_SCENES[sc.id] = sc; };
+    const contact = (expr) =>
+      ({ portrait: v.portrait, expression: expr || "neutral", position: v.pos });
+    const you = (expr) =>
+      ({ portrait: "player_hauler", expression: expr || "weary", position: "left" });
+
+    // ---- hire (gender meet line swapped at runtime in startHire) ----
+    if (v.hire) {
+      add({ id: fac + "_hire_01", background: v.hire.splash || "onboard_dock_crowd",
+        character: you("weary"),
+        dialogue: v.hire.arrive,
+        choices: null, next: fac + "_hire_02", autoAdvance: null });
+      // placeholder meet — overwritten per gender when hire starts
+      add({ id: fac + "_hire_02", background: v.bg,
+        character: contact("neutral"),
+        dialogue: v.hire.meet_m || v.hire.meet_f,
+        choices: null, next: fac + "_hire_03", autoAdvance: null });
+      add({ id: fac + "_hire_03", background: v.bg,
+        character: contact("neutral"),
+        dialogue: (v.hire.offer || []).map(text =>
+          typeof text === "string" ? { speaker: v.speaker, text } : text),
+        choices: null, next: null, autoAdvance: null });
+    }
+
+    // ---- per-quest: splash → briefing ----
+    ONBOARD_STEPS.forEach((key, i) => {
+      const n = String(i + 1).padStart(2, "0");
+      const briefId = fac + "_onb_" + n;
+      const splashId = briefId + "a";
+      const mBg = ONBOARD_MISSION_BG[key] || v.bg;
+      const sLines = (v.splashLines && v.splashLines[key]) || [];
+      add({ id: splashId, background: mBg, character: null,
+        dialogue: (sLines.length ? sLines : ["The job is waiting."]).map(text =>
+          ({ speaker: null, text })),
+        choices: null, next: briefId, autoAdvance: null });
+      add({ id: briefId, background: v.bg,
+        character: contact("neutral"),
+        dialogue: (v.lines[key] || []).map(text => ({ speaker: v.speaker, text })),
+        choices: null, next: null, autoAdvance: null });
+    });
+
+    // trap + outro (dock, contact voice only)
+    add({ id: fac + "_onb_trap", background: v.bg,
+      character: contact("neutral"),
+      dialogue: (v.trap || []).map(text => ({ speaker: v.speaker, text })),
+      choices: null, next: "merc_ambush_01", autoAdvance: null });
+    add({ id: fac + "_onb_outro", background: v.bg,
+      character: contact("neutral"),
+      dialogue: (v.outro || []).map(text => ({ speaker: v.speaker, text })),
+      choices: null, next: null, autoAdvance: null });
+  }
+
+  // ---- cold open (pre-Q1) — THREE unique paths, one per faction ----
+  // Structure is shared (title → system → ship → cockpit → hazard → fail →
+  // impact → eject → approach → ramp); art + copy are faction-specific so
+  // Krag / Vex / Nox each feel like a different campaign door. Path keys off
+  // playerFaction (the board you signed with / home dock), not face species —
+  // the chosen pilot portrait still shows on YOU cards.
+  // Plates: sprites/intro/  ·  gender tokens via GAME.genderText.
+  if (typeof VN_SCENES !== "undefined") {
+    const add = (sc) => { VN_SCENES[sc.id] = sc; };
+    const you = (expr, pos) =>
+      ({ portrait: "player_hauler", expression: expr || "neutral", position: pos || "left" });
+
+    // Per-faction beat tables. ids are cold_<fac>_01 … _10.
+    const PATHS = {
+      krag: {
+        dock: "bg_krag_dock",
+        beats: [
+          { bg: "intro_starfield", face: null, auto: 4500, lines: [
+            { speaker: null, text: "SPACE HAULER" },
+            { speaker: null, text: "In the Mara system, nothing moves unless someone tows it." },
+          ]},
+          { bg: "intro_solar_system", face: null, lines: [
+            { speaker: null, text: "Eight worlds. Three flags. One war chewing the belt for two hundred cycles." },
+            { speaker: null, text: "You signed with the Krag Combine — the machine that wastes nothing, and is always hungry." },
+            { speaker: null, text: "Today that hunger has a berth number. Yours." },
+          ]},
+          { bg: "intro_krag_ship", face: null, lines: [
+            { speaker: null, text: "A Vulture-class tug. Three hundred thousand klicks on the drive. Name painted over twice." },
+            { speaker: null, text: "Empty hold. Thin fuel. One last corridor between you and a Combine dock that still takes cash." },
+          ]},
+          { bg: "intro_krag_cockpit", face: "neutral", lines: [
+            { speaker: null, text: "The cockpit smells of ozone and old coffee. Every warning light has been silenced once already." },
+            { speaker: "YOU", text: "Just make Homeport. Then we argue about the rest." },
+            { speaker: null, text: "The scopes paint a purple wall ahead — a nebula finger nobody charts because the charts that do end mid-sentence." },
+          ]},
+          { bg: "intro_krag_hazard", face: null, lines: [
+            { speaker: null, text: "You cut the edge of the cloud to shave six hours off the run. Combine math: risk is cheaper than fuel." },
+            { speaker: null, text: "Beauty first. Then the static. Then the instruments start lying with confidence." },
+          ]},
+          { bg: "intro_krag_systems", face: "weary", lines: [
+            { speaker: null, text: "Life support drops a tone you only hear in training holos." },
+            { speaker: "YOU", text: "No. No — stay with me —" },
+            { speaker: null, text: "Cabin pressure bleeds. The nav core reboots into pure spite. Somewhere in the cloud, rock is moving." },
+          ]},
+          { bg: "intro_krag_impact", face: null, auto: 5500, lines: [
+            { speaker: null, text: "The rock does not hail. It does not care about Combine manifests." },
+            { speaker: null, text: "It hits the port thruster hard enough to teach the hull a new shape." },
+            { speaker: null, text: "Alarms. Foam. A sound no ship should make twice." },
+          ]},
+          { bg: "intro_krag_escape", face: "weary", lines: [
+            { speaker: null, text: "The pod jettisons with a kick that empties the lungs." },
+            { speaker: "YOU", text: "Beacon on. Nearest Combine dock. Anything with air." },
+            { speaker: null, text: "Behind {him}, the tug tumbles into the purple dark, still trying to be a ship." },
+            { speaker: null, text: "Ahead: Homeport lights. Or close enough to die trying." },
+          ]},
+          { bg: "intro_krag_station", face: null, lines: [
+            { speaker: null, text: "The docking ring grows from a spark to a door of bone-plate and steel." },
+            { speaker: null, text: "No contract. No guild patch. No ship. Just a pilot in a can and a debt that survived the crash." },
+          ]},
+          // Arrival only — hire VN introduces the contact next.
+          { bg: "bg_krag_dock", face: "weary", lines: [
+            { speaker: null, text: "The pod hits the cradle hard enough to rattle teeth. Longshoremen count the dents the way bankers count debt." },
+            { speaker: "YOU", text: "Still breathing. Still broke. Still here." },
+            { speaker: null, text: "No ship. No contract. A spaceport full of work that does not yet know {his} name." },
+          ]},
+        ],
+      },
+
+      vex: {
+        dock: "bg_vex_hangar",
+        beats: [
+          { bg: "intro_starfield", face: null, auto: 4500, lines: [
+            { speaker: null, text: "SPACE HAULER" },
+            { speaker: null, text: "In the Mara system, nothing moves unless someone tows it." },
+          ]},
+          { bg: "intro_solar_system", face: null, lines: [
+            { speaker: null, text: "Eight worlds. Three flags. One war logged, numbered, and owed." },
+            { speaker: null, text: "You signed with the Vex Dominion — sunward order that fortifies first and asks second." },
+            { speaker: null, text: "Today that order has a civilian tag on your hull. Temporary. Allegedly." },
+          ]},
+          { bg: "intro_vex_ship", face: null, lines: [
+            { speaker: null, text: "A Vulture-class tug on a sunward lane. Civilian paint over a frame that still remembers formation flying." },
+            { speaker: null, text: "Empty hold. Thin fuel. One filed corridor between you and a Dominion hangar that still processes work orders." },
+          ]},
+          { bg: "intro_vex_cockpit", face: "neutral", lines: [
+            { speaker: null, text: "The cockpit is cleaner than the ship deserves. Someone taught you to log every warning before silencing it." },
+            { speaker: "YOU", text: "Stay in the lane. Make the hangar. File the rest later." },
+            { speaker: null, text: "Scopes paint a picket wall ahead — Dominion hulls, lance arrays warm, a gap just wide enough for a freighter that files correctly." },
+          ]},
+          { bg: "intro_vex_hazard", face: null, lines: [
+            { speaker: null, text: "You transmit the civilian codes on the scheduled frequency." },
+            { speaker: null, text: "The picket does not answer. Live-fire trials do not always check the registry twice." },
+          ]},
+          { bg: "intro_vex_systems", face: "weary", lines: [
+            { speaker: null, text: "Proximity alarms stack until the board is one red note." },
+            { speaker: "YOU", text: "I am filed. I am filed —" },
+            { speaker: null, text: "Something in the trial grid mistakes your tug for a target drone. Doctrine is perfect. The targeting solution is not." },
+          ]},
+          { bg: "intro_vex_impact", face: null, auto: 5500, lines: [
+            { speaker: null, text: "The near-miss is not a miss." },
+            { speaker: null, text: "Debris and lance wash strip the port thruster like a lesson in humility." },
+            { speaker: null, text: "Alarms. Foam. A scar the Dominion will log — if you live to be a number." },
+          ]},
+          { bg: "intro_vex_escape", face: "weary", lines: [
+            { speaker: null, text: "The pod jettisons clean. Even the ejector still believes in procedure." },
+            { speaker: "YOU", text: "Mayday. Civilian. Nearest Dominion hangar. Request emergency berth." },
+            { speaker: null, text: "Behind {him}, the tug becomes a training footnote. Ahead: cold blue hangar lights that do not care who you were." },
+          ]},
+          { bg: "intro_vex_station", face: null, lines: [
+            { speaker: null, text: "The hangar mouth opens with machine precision." },
+            { speaker: null, text: "No insignia. No ship. No file that still matches a living pilot. Just a can on a cradle and work still needing hands." },
+          ]},
+          { bg: "bg_vex_hangar", face: "weary", lines: [
+            { speaker: null, text: "The cradle locks. Technicians count damage the way tribunals count scars." },
+            { speaker: "YOU", text: "Still breathing. Still broke. Still here." },
+            { speaker: null, text: "No ship. No posting. A hangar full of work orders that have not found {him} yet." },
+          ]},
+        ],
+      },
+
+      nox: {
+        dock: "bg_nox_cryo",
+        beats: [
+          { bg: "intro_starfield", face: null, auto: 4500, lines: [
+            { speaker: null, text: "SPACE HAULER" },
+            { speaker: null, text: "In the Mara system, nothing moves unless someone tows it." },
+          ]},
+          { bg: "intro_solar_system", face: null, lines: [
+            { speaker: null, text: "Eight worlds. Three flags. One war older than any honest chart." },
+            { speaker: null, text: "You signed with the Nox Covenant — patient, outer-dark, already reading the ending." },
+            { speaker: null, text: "Today that patience has an investment. You." },
+          ]},
+          { bg: "intro_nox_ship", face: null, lines: [
+            { speaker: null, text: "A Vulture-class tug on the outer rim. The sun is a rumor. Traffic is a theory." },
+            { speaker: null, text: "Empty hold. Thin fuel. One quiet heading toward a Covenant mooring that does not advertise." },
+          ]},
+          { bg: "intro_nox_cockpit", face: "neutral", lines: [
+            { speaker: null, text: "The cockpit frost never quite clears. Instruments glow violet-cyan, as if the ship is thinking in a language you only half speak." },
+            { speaker: "YOU", text: "Make the mooring. Keep the signal noise out of the cabin." },
+            { speaker: null, text: "Scopes paint a bloom in the dark — rhythmic, mathematical, wrong for any rock." },
+          ]},
+          { bg: "intro_nox_hazard", face: null, lines: [
+            { speaker: null, text: "You alter course a fraction to skirt the bloom. The bloom alters with you." },
+            { speaker: null, text: "Not pursuit. Attention. As if something out there is taking notes." },
+          ]},
+          { bg: "intro_nox_systems", face: "weary", lines: [
+            { speaker: null, text: "Life support does not fail loudly. It fails politely, one degree at a time." },
+            { speaker: "YOU", text: "I did not ask for a demonstration —" },
+            { speaker: null, text: "Frost crawls the glass from the inside. The nav core fills with star-static that is not stars." },
+          ]},
+          { bg: "intro_nox_impact", face: null, auto: 5500, lines: [
+            { speaker: null, text: "There is no flash. No rock. Only a seam opening in the hull as if the dark decided the pressure differential was interesting." },
+            { speaker: null, text: "Atmosphere leaves in glittering ice. The ship stops pretending to be sealed." },
+            { speaker: null, text: "Silence. Then the ejector, which does not ask permission." },
+          ]},
+          { bg: "intro_nox_escape", face: "weary", lines: [
+            { speaker: null, text: "The pod drifts more than it flies. Covenant beacons do not shout; they wait to be found." },
+            { speaker: "YOU", text: "Beacon on. Outer mooring. Anyone still collecting strays." },
+            { speaker: null, text: "Behind {him}, the tug becomes a quiet lesson. Ahead: frost-haze windows that have already counted {his} arrival." },
+          ]},
+          { bg: "intro_nox_station", face: null, lines: [
+            { speaker: null, text: "The mooring ring does not hurry. It simply is there when you need it, which is worse." },
+            { speaker: null, text: "No contract you remember signing. No ship. Just a pilot in a can and an investment that refuses to write itself off." },
+          ]},
+          { bg: "bg_nox_cryo", face: "weary", lines: [
+            { speaker: null, text: "The cradle accepts the pod without comment. The air tastes of frost and patience." },
+            { speaker: "YOU", text: "Still breathing. Still broke. Still here." },
+            { speaker: null, text: "No ship. No classification. A mooring that already knows {he} will ask for work." },
+          ]},
+        ],
+      },
     };
-    ONBOARD_STEPS.forEach((key, i) =>
-      scene(fac + "_onb_" + String(i + 1).padStart(2, "0"), v.lines[key]));
-    // The Q10 catastrophe opens in the contact's own voice, on their own dock,
-    // sounding exactly like every briefing before it — that is the whole trick.
-    // From here the chain leaves faction space for good and joins the shared
-    // merc_* scenes below, so this is the ONLY per-faction beat of the ambush.
-    scene(fac + "_onb_trap", v.trap, "merc_ambush_01");
-    // ...plus one closing scene, played on the LAST rung's turn-in. Named
-    // "_outro" rather than "_07" on purpose: it is not a briefing and there is
-    // no seventh tutor quest behind it. It carries the Q6 completion beat and
-    // the segue into Act 0, so it deliberately sits OUTSIDE the act chains the
-    // vnSelfTest walk enforces (it is a one-shot, like the briefings).
-    scene(fac + "_onb_outro", v.outro);
+
+    for (const fac of Object.keys(PATHS)) {
+      const path = PATHS[fac];
+      const beats = path.beats;
+      for (let i = 0; i < beats.length; i++) {
+        const b = beats[i];
+        const id = "cold_" + fac + "_" + String(i + 1).padStart(2, "0");
+        const next = i + 1 < beats.length
+          ? "cold_" + fac + "_" + String(i + 2).padStart(2, "0")
+          : null;
+        // Last beat uses the live faction dock plate (may match b.bg already).
+        const bg = (i === beats.length - 1) ? (path.dock || b.bg) : b.bg;
+        add({
+          id, background: bg,
+          character: b.face ? you(b.face, "left") : null,
+          dialogue: b.lines,
+          choices: null, next, autoAdvance: b.auto || null,
+        });
+      }
+    }
   }
 
   // ---- the catastrophe, shared by all three factions ----------------------
@@ -306,9 +653,11 @@ const ONBOARD_VN = {
 })();
 
 Object.assign(GAME, {
+  // Briefings start on the mission splash (*a), which chains into the contact
+  // scene (* without suffix). Terminal node is still the contact brief.
   onboardSceneId(i) {
     const fac = this.state.playerFaction;
-    return fac ? fac + "_onb_" + String(i + 1).padStart(2, "0") : null;
+    return fac ? fac + "_onb_" + String(i + 1).padStart(2, "0") + "a" : null;
   },
   onboardOutroSceneId() {
     const fac = this.state.playerFaction;
@@ -344,9 +693,66 @@ Object.assign(GAME, {
   // Called by _beginRun (game/title.js) on a brand-new game, in the slot the
   // Act 0 prologue used to occupy. A faction with no ladder falls straight
   // through to the old behaviour rather than starting a run with nothing.
+  // Order: hire VN (pilot looking for work → contact) → grant Q1 + first brief.
   startOnboarding() {
     if (!ONBOARD_VN[this.state.playerFaction]) { this.showOpeningScene(); return false; }
+    if (this.startHire()) return true;
     return !!this._onboardGrant(0);
+  },
+
+  // Hire chain: introduce the pilot at the port and the faction contact before
+  // any job is granted. Gender-specific meet lines are swapped onto hire_02.
+  startHire() {
+    if (HEADLESS || typeof document === "undefined") return false;
+    if (this._vn) return false;
+    const fac = this.state.playerFaction;
+    if (!fac || !ONBOARD_VN[fac] || !ONBOARD_VN[fac].hire) return false;
+    const vn = this._vnSave();
+    if (vn.seen && vn.seen.onb_hire) return false;
+    const root = fac + "_hire_01";
+    if (typeof VN_SCENES === "undefined" || !VN_SCENES[root]) return false;
+    // Patch meet scene dialogue for gender before playing.
+    const meet = VN_SCENES[fac + "_hire_02"];
+    const h = ONBOARD_VN[fac].hire;
+    if (meet && h) {
+      const g = (typeof this.playerGender === "function" && this.playerGender() === "f") ? "f" : "m";
+      const lines = (g === "f" ? h.meet_f : h.meet_m) || h.meet_m || h.meet_f;
+      if (lines) meet.dialogue = lines.slice();
+    }
+    return this.vnStart(root, () => {
+      this._vnSave().seen.onb_hire = true;
+      this.saveGame();
+      this._onboardGrant(0);   // Q1 + splash→brief
+    });
+  },
+
+  // Cold open — plays once after face pick, before Q1. Shows the pilot's last
+  // haul before they walk onto the faction dock. Uses the chosen player
+  // portrait. Returns true if the VN started (onComplete → startOnboarding).
+  startColdOpen() {
+    if (HEADLESS || typeof document === "undefined") return false;
+    if (this._vn) return false;
+    const vn = this._vnSave();
+    if (vn.seen && vn.seen.cold_open) return false;
+    // One unique 10-beat path per faction (cold_krag_01 / cold_vex_01 / cold_nox_01).
+    const fac = this.state.playerFaction || "krag";
+    const root = "cold_" + fac + "_01";
+    if (typeof VN_SCENES === "undefined" || !VN_SCENES[root]) {
+      // Fallback if a faction chain is missing — try krag, else skip to Q1.
+      if (fac !== "krag" && VN_SCENES.cold_krag_01) {
+        return this.vnStart("cold_krag_01", () => {
+          this._vnSave().seen.cold_open = true;
+          this.saveGame();
+          this.startOnboarding();
+        });
+      }
+      return false;
+    }
+    return this.vnStart(root, () => {
+      this._vnSave().seen.cold_open = true;
+      this.saveGame();
+      this.startOnboarding();
+    });
   },
 
   // Soft hook from turnInQuest (game/quests.js) — fires only for kind "tutor".
@@ -458,9 +864,11 @@ Object.assign(GAME, {
     // Rebuilt rather than switched: switchActiveShip refuses undocked and only
     // moves between hulls you already own, and the point here is that you own
     // nothing. Resync order copies switchActiveShip (player.js) exactly.
-    ForgeEquipment.initEquipment(CONFIG.equipSlots);
+    const nSlots = this.hullEquipSlots
+      ? this.hullEquipSlots(CONFIG.hulls.vulture) : (CONFIG.hulls.vulture.equipSlots || CONFIG.equipSlots);
+    ForgeEquipment.initEquipment(nSlots);
     s.ships = [{ id: 1, hullKey: "vulture", name: CONFIG.hulls.vulture.name,
-                 slots: new Array(CONFIG.equipSlots).fill(null) }];
+                 slots: new Array(nSlots).fill(null) }];
     s.activeShipId = 1;
     this._nextShipId = 2;
     this.recomputeDerived();
@@ -697,16 +1105,17 @@ Object.assign(GAME, {
         const b7 = this._serializeQuest(q7);
         check(b7.action === "refine_drone" && b7.have === q7.have, fac + ": Q7 must serialize");
 
-        // ---- Q8: a wing of two --------------------------------------------
+        // ---- Q8: hangar reserve (own 2; starter only escorts 1) ------------
         check(this.turnInQuest(q7), fac + ": Q7 turn-in failed");
         const q8 = s.quests[0];
         check(q8 && q8.action === "wing_two", fac + ": expected wing_two, got " + (q8 && q8.action));
         if (!q8) continue;
-        check(!this.questObjectiveDone(q8), fac + ": Q8 must not be done at one escort");
-        check(q8.have === 1, fac + ": Q8 should read 1/2 with one escort, got " + q8.have);
-        s.playerFleet.push(mkDrone(s, 2));
-        check(this.setDroneRole(s.playerFleet.length - 1, "escort").ok, fac + ": second setDroneRole failed");
-        check(this.questObjectiveDone(q8), fac + ": Q8 should be done at two escorts");
+        check(!this.questObjectiveDone(q8), fac + ": Q8 must not be done with only one owned drone");
+        check(q8.have === 1, fac + ": Q8 should read 1/2 with one owned, got " + q8.have);
+        s.playerFleet.push(mkDrone(s, 2));   // second stays hangar — starter wing is 1
+        check(this.escortCap() === 1, fac + ": starter escortCap must still be 1");
+        check(this.escorts(s).length === 1, fac + ": only one escort on starter after second build");
+        check(this.questObjectiveDone(q8), fac + ": Q8 should be done at two owned drones");
 
         // ---- Q9: take an outpost ------------------------------------------
         check(this.turnInQuest(q8), fac + ": Q8 turn-in failed");

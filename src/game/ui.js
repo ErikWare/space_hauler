@@ -201,8 +201,8 @@ Object.assign(GAME, {
 
   // ================= DOM LOADOUT PANEL (#loadoutPanel — build.py <body>) ========
   // The one-stop refit screen: a carousel over [player ships…, fleet drones…].
-  // Center: baked sprite portrait; flanks: the ship's 6 flat rack slots (drones
-  // show their 3 typed module slots); below: full stat readout + the cargo
+  // Center: baked sprite portrait; below: the hull's equipSlots module rack
+  // (3–6 by hull; drones use DRONES.slotCount); then full stat readout + cargo
   // grid. Tap a slot or a cargo tile → detail modal with stat DELTA preview
   // computed statelessly via ForgeEquipment.applyItemsToStats — the live rack
   // is only touched for the ACTIVE ship (gearEquip/gearUnequip).
@@ -809,8 +809,13 @@ Object.assign(GAME, {
       lo.activeBtn.textContent = isActive ? "★ ACTIVE SHIP" : "SET ACTIVE";
       lo.activeBtn.classList.toggle("on", isActive);
       lo.activeBtn.disabled = isActive;
-      // 6 flat slots in a 3-col grid below the portrait (left-to-right reading order)
-      for (const i of [0, 1, 2, 3, 4, 5]) this._loSlotEl(lo.slotsGrid, ship.slots[i], { slot: String(i) }, "slot " + (i + 1));
+      // Hull rack size (3–6). Prefer ship.slots length when already sized to this hull.
+      const nSlots = this.hullEquipSlots
+        ? this.hullEquipSlots(hull)
+        : (hull.equipSlots != null ? hull.equipSlots : CONFIG.equipSlots);
+      const n = Math.min(nSlots, (ship.slots && ship.slots.length) || nSlots);
+      for (let i = 0; i < n; i++)
+        this._loSlotEl(lo.slotsGrid, ship.slots[i], { slot: String(i) }, "slot " + (i + 1));
     } else {
       const d = page.drone, spec = DRONES.tiers[d.tier];
       const roleLbl = { escort: "ESCORT WING", hangar: "IN HANGAR", trade: "ON TRADE RUN" }[d.role] || d.role;

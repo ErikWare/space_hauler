@@ -33,46 +33,95 @@ const VN_ASSETS = {
   bg_vex_tribunal:     { src: "sprites/station_vex.png",  pos: "center 30%" },
   bg_vex_hangar:       { src: "sprites/station_vex.png",  pos: "center 65%" },
   bg_nox_cryo:         { src: "sprites/nebula_blue.png" },
-  // act 1 interiors/exteriors — art pending, each degrades to a shipped plate
-  bg_krag_relay:       { fallback: "bg_space_contested" },
-  bg_vex_picket:       { fallback: "bg_space_contested" },
-  bg_nox_deepdark:     { fallback: "bg_nox_cryo" },
-  // act 1 splashes — the three bespoke panels the manifest already planned for
-  // this act. Character-less scenes, full-bleed; fallbacks keep them playable.
-  krag_splash_moons_debt:   { fallback: "bg_krag_dock" },
-  vex_splash_nine_seconds:  { fallback: "bg_vex_convoy" },
-  nox_splash_patient_answer:{ fallback: "bg_nox_cryo" },
+  // cold-open intro plates (sprites/intro/) — wide cinematic, no lettering
+  // Shared title/system beats, then per-faction paths (krag / vex / nox).
+  intro_starfield:         { src: "sprites/intro/intro_starfield.png" },
+  intro_solar_system:      { src: "sprites/intro/intro_solar_system.png" },
+  // Krag — belt grit, nebula shortcut, asteroid
+  intro_krag_ship:         { src: "sprites/intro/intro_vulture_tug.png" },
+  intro_krag_cockpit:      { src: "sprites/intro/intro_cockpit.png" },
+  intro_krag_hazard:       { src: "sprites/intro/intro_nebula.png" },
+  intro_krag_systems:      { src: "sprites/intro/intro_systems_fail.png" },
+  intro_krag_impact:       { src: "sprites/intro/intro_impact.png" },
+  intro_krag_escape:       { src: "sprites/intro/intro_escape_pod.png" },
+  intro_krag_station:      { src: "sprites/intro/intro_station_approach.png" },
+  // Vex — sunward lanes, picket interdiction, hangar
+  intro_vex_ship:          { src: "sprites/intro/intro_vex_ship.png" },
+  intro_vex_cockpit:       { src: "sprites/intro/intro_vex_cockpit.png" },
+  intro_vex_hazard:        { src: "sprites/intro/intro_vex_picket.png" },
+  intro_vex_systems:       { src: "sprites/intro/intro_vex_systems.png" },
+  intro_vex_impact:        { src: "sprites/intro/intro_vex_impact.png" },
+  intro_vex_escape:        { src: "sprites/intro/intro_vex_escape.png" },
+  intro_vex_station:       { src: "sprites/intro/intro_vex_station.png" },
+  // Nox — outer dark, listening signal, cryo dock
+  intro_nox_ship:          { src: "sprites/intro/intro_nox_ship.png" },
+  intro_nox_cockpit:       { src: "sprites/intro/intro_nox_cockpit.png" },
+  intro_nox_hazard:        { src: "sprites/intro/intro_nox_signal.png" },
+  intro_nox_systems:       { src: "sprites/intro/intro_nox_systems.png" },
+  intro_nox_impact:        { src: "sprites/intro/intro_nox_impact.png" },
+  intro_nox_escape:        { src: "sprites/intro/intro_nox_escape.png" },
+  intro_nox_station:       { src: "sprites/intro/intro_nox_station.png" },
+  // legacy keys (kept so older scene ids / tools still resolve)
+  intro_vulture_tug:       { src: "sprites/intro/intro_vulture_tug.png" },
+  intro_cockpit:           { src: "sprites/intro/intro_cockpit.png" },
+  intro_nebula:            { src: "sprites/intro/intro_nebula.png" },
+  intro_systems_fail:      { src: "sprites/intro/intro_systems_fail.png" },
+  intro_impact:            { src: "sprites/intro/intro_impact.png" },
+  intro_escape_pod:        { src: "sprites/intro/intro_escape_pod.png" },
+  intro_station_approach:  { src: "sprites/intro/intro_station_approach.png" },
+  // onboarding mission plates (shared visual language across factions)
+  onboard_debris:          { src: "sprites/intro/onboard_debris.png" },
+  onboard_ore_ring:        { src: "sprites/intro/onboard_ore_ring.png" },
+  onboard_ore_rich:        { src: "sprites/intro/onboard_ore_rich.png" },
+  onboard_refinery:        { src: "sprites/intro/onboard_refinery.png" },
+  onboard_drone_wing:      { src: "sprites/intro/onboard_drone_wing.png" },
+  onboard_outpost:         { src: "sprites/intro/onboard_outpost.png" },
+  onboard_garrison:        { src: "sprites/intro/onboard_garrison.png" },
+  onboard_dock_crowd:      { src: "sprites/intro/onboard_dock_crowd.png" },
+  // act 1 interiors/exteriors
+  bg_krag_relay:       { src: "sprites/intro/act_krag_ember_relay.png" },
+  bg_vex_picket:       { src: "sprites/intro/act_vex_picket.png" },
+  bg_nox_deepdark:     { src: "sprites/intro/act_nox_deepdark.png" },
+  // act 1 splashes
+  krag_splash_moons_debt:   { src: "sprites/intro/act_krag_moons_debt.png" },
+  vex_splash_nine_seconds:  { src: "sprites/intro/act_vex_nine_seconds.png" },
+  nox_splash_patient_answer:{ src: "sprites/intro/act_nox_patient.png" },
+  // Vex / Nox act plates
+  act_vex_medical:     { src: "sprites/intro/act_vex_medical.png" },
+  act_vex_tribunal:    { src: "sprites/intro/act_vex_tribunal.png" },
+  act_vex_hangar_crowd:{ src: "sprites/intro/act_vex_hangar_crowd.png" },
+  act_nox_cryo_hall:   { src: "sprites/intro/act_nox_cryo_hall.png" },
+  act_nox_mooring:     { src: "sprites/intro/act_nox_mooring.png" },
+  act_nox_dock_haze:   { src: "sprites/intro/act_nox_dock_haze.png" },
+  // Krag act plates (sprites/intro/act_krag_*) — full campaign visual spine
+  act_krag_sealed_crate:    { src: "sprites/intro/act_krag_sealed_crate.png" },
+  act_krag_mining_charges:  { src: "sprites/intro/act_krag_mining_charges.png" },
+  act_krag_vex_ambush:      { src: "sprites/intro/act_krag_vex_ambush.png" },
+  act_krag_courier:         { src: "sprites/intro/act_krag_courier.png" },
+  act_krag_survey_wreck:    { src: "sprites/intro/act_krag_survey_wreck.png" },
+  act_krag_annex:           { src: "sprites/intro/act_krag_annex.png" },
+  act_krag_tether:          { src: "sprites/intro/act_krag_tether.png" },
   // ---- acts 2-3 --------------------------------------------------------
-  // Shared disaster plates. NOTE: these point straight at storyline/assets/
-  // generated/ rather than sprites/, because the manifest's manual "pick a
-  // candidate and copy the winner to sprites/" step has not been run for ANY
-  // generated asset yet (bg_krag_relay et al. are still fallback entries for
-  // the same reason). Paths are runtime-relative to the repo root exactly like
-  // sprites/, so they render today. When the pick/copy pass happens, move these
-  // four to sprites/ and change the four srcs here — nothing else references them.
   explosion_debris_field:   { src: "storyline/assets/generated/explosion_debris_field_01.png" },
   explosion_cockpit_impact: { src: "storyline/assets/generated/explosion_cockpit_impact_01.png" },
   explosion_silent_wreck:   { src: "storyline/assets/generated/explosion_silent_wreck_01.png" },
-  // The mercenary restart's wake-up dock (game/onboarding.js). A neutral
-  // scrapyard well outside faction space — art pending, so it degrades to the
-  // grubbiest station plate that ships today rather than to a faction interior.
   bg_wreckers_anchorage:    { fallback: "bg_krag_dock" },
   space_splash:             { fallback: "bg_space_contested" },
-  // act 2/3 interiors — art pending, each degrades to a shipped plate
-  bg_krag_terrace:     { src: "sprites/station_krag.png", pos: "center 70%" },
-  bg_krag_archive:     { fallback: "bg_krag_dock" },
-  bg_krag_elder:       { fallback: "bg_krag_dock" },
-  bg_vex_ghost_relay:  { src: "sprites/nebula_green.png" },
+  // act 2/3 interiors — Krag now has dedicated plates
+  bg_krag_terrace:     { src: "sprites/intro/act_krag_terrace.png" },
+  bg_krag_archive:     { src: "sprites/intro/act_krag_archive.png" },
+  bg_krag_elder:       { src: "sprites/intro/act_krag_elder_hab.png" },
+  bg_vex_ghost_relay:  { src: "sprites/intro/act_vex_ghost_relay.png" },
   bg_vex_wreck_site:   { src: "sprites/nebula_red.png" },
-  bg_nox_mooring:      { fallback: "bg_nox_deepdark" },
-  bg_nox_prime:        { src: "sprites/station_nox.png", pos: "center 40%" },
+  bg_nox_mooring:      { src: "sprites/intro/act_nox_mooring.png" },
+  bg_nox_prime:        { src: "sprites/intro/act_nox_prime.png" },
   // act 2/3 splashes
-  krag_splash_forged_annex: { fallback: "krag_splash_moons_debt" },
-  krag_splash_verdict:      { fallback: "bg_krag_terrace" },
-  vex_splash_nine_seconds_again: { fallback: "vex_splash_nine_seconds" },
-  vex_splash_banners:       { fallback: "bg_vex_tribunal" },
-  nox_splash_census:        { fallback: "nox_splash_patient_answer" },
-  nox_splash_wrong_question:{ fallback: "bg_nox_prime" },
+  krag_splash_forged_annex: { src: "sprites/intro/act_krag_forged_splash.png" },
+  krag_splash_verdict:      { src: "sprites/intro/act_krag_verdict.png" },
+  vex_splash_nine_seconds_again: { src: "sprites/intro/act_vex_nine_seconds.png" },
+  vex_splash_banners:       { src: "sprites/intro/act_vex_banners.png" },
+  nox_splash_census:        { src: "sprites/intro/act_nox_census.png" },
+  nox_splash_wrong_question:{ src: "sprites/intro/act_nox_wrong_q.png" },
   // portraits — the five shipped character paintings (sprites.js:113-117)
   // zoom is height-based ("auto N%") so the vertical crop is exact — it's what
   // crops the baked-in title lettering off krag_leader.png. Calibrated by eye
@@ -113,20 +162,15 @@ const VN_ASSETS = {
   vex_kael_shaken:     { fallback: "vex_kael_neutral" },
   vex_dren_tired:      { fallback: "vex_dren_neutral" },
   nox_sive_grave:      { fallback: "nox_sive_neutral" },
-  // acts 2-3 new faces — no art yet, so each degrades to its faction's lead.
-  // Named per faction so the manifest can grow a lock string for them later.
-  krag_archivist_neutral: { fallback: "krag_voss_neutral" },
-  krag_harrow_neutral:    { fallback: "krag_voss_neutral" },
-  krag_harrow_weary:      { fallback: "krag_harrow_neutral" },
-  // job-board fixer portraits — art pending; each falls back to the closest
-  // faction lead until generated portraits land in the manifest.
-  // krag_voss as fallback for harlan/oryn (belt-weathered human aesthetic)
-  // vex_dren for zera (analytical, non-military bearing)
-  // nox_sive for pell (outer-dark, Covenant-adjacent)
-  harlan_neutral: { fallback: "krag_voss_neutral" },
-  zera_neutral:   { fallback: "vex_dren_neutral" },
-  pell_neutral:   { fallback: "nox_sive_neutral" },
-  oryn_neutral:   { fallback: "krag_voss_neutral" },
+  // acts 2-3 new faces — dedicated portraits (sprites/intro/)
+  krag_archivist_neutral: { src: "sprites/intro/krag_archivist_neutral.png", edge: "#c98f4e" },
+  krag_harrow_neutral:    { src: "sprites/intro/krag_harrow_neutral.png", edge: "#ffd08a" },
+  krag_harrow_weary:      { src: "sprites/intro/krag_harrow_neutral.png", edge: "#ffd08a" },
+  // job-board fixers — dedicated portraits (sprites/intro/)
+  harlan_neutral: { src: "sprites/intro/harlan.png", edge: "#c8a96e" },
+  zera_neutral:   { src: "sprites/intro/zera.png",   edge: "#7ec8e3" },
+  pell_neutral:   { src: "sprites/intro/pell.png",   edge: "#b48aff" },
+  oryn_neutral:   { src: "sprites/intro/oryn.png",   edge: "#ff8c6e" },
 };
 
 // speaker name → dialogue-box name colour (null speaker = italic narration)
@@ -189,42 +233,52 @@ const VN_SCENES = {};
   const add = (sc) => { VN_SCENES[sc.id] = sc; };
 
   /* ===== KRAG COMBINE — survival. Gritty, weary, defiant. ===== */
-  add({ id: "krag_a0_01", background: "bg_space_contested", character: null,
+  // Promotion frame — then flashback of the run that put you on his list.
+  add({ id: "krag_a0_01", background: "bg_krag_dock",
+    character: { portrait: "krag_voss", expression: "neutral", position: "right" },
     dialogue: [
       { speaker: "VOSS", text: "You've been useful. That's harder to find than it sounds. I want to talk about what comes next." },
       { speaker: null, text: "Six jobs on the Combine ledger — junk, rock, and four grades of ore — and today he says your name like it's a word instead of a berth number." },
-      { speaker: null, text: "But before the errands, before he knew the name at all, there was the run that put you on his list." },
-      { speaker: null, text: "The Ember Gate corridor. Contested space — which is the polite word for a graveyard that still shoots back." },
-      { speaker: null, text: "Your ship was a Vulture-class tug with three hundred thousand klicks on the drive and a name you painted over. Fourteen tons of salvage in the hold: fuel, dock fees, and the loan payment. Barely." },
+      { speaker: "VOSS", text: "But before we talk promotion, you should remember how you got on my list. Because the list is about to get longer." },
+      { speaker: null, text: "Before the errands. Before the name. The Ember Gate corridor — contested space, which is the polite word for a graveyard that still shoots back." },
+    ],
+    choices: null, next: "krag_a0_01b", autoAdvance: null });
+
+  add({ id: "krag_a0_01b", background: "intro_krag_ship", character: null,
+    dialogue: [
+      { speaker: null, text: "A Vulture-class tug. Three hundred thousand klicks on the drive. A name painted over twice." },
+      { speaker: null, text: "Fourteen tons of salvage in the hold: fuel, dock fees, and the loan payment. Barely." },
       { speaker: null, text: "Then the scopes lit up." },
     ],
     choices: null, next: "krag_a0_02", autoAdvance: null });
 
-  add({ id: "krag_a0_02", background: "bg_space_contested", character: null,
+  add({ id: "krag_a0_02", background: "act_krag_vex_ambush", character: null,
     dialogue: [
       { speaker: null, text: "Two contacts burn in from the shadow of a dead freighter. Vex patrol — long-range lances already warming." },
       { speaker: "YOU", text: "Come on, old girl. Don't die in the dark." },
       { speaker: null, text: "The reactor redlines. The hull groans like it's remembering every hit it ever took." },
+      { speaker: null, text: "Fourteen tons of rent. Two lances. One bad arithmetic." },
     ],
     choices: [
       { label: "Dump the salvage. Run empty, run alive.", next: "krag_a0_03a", flag: "krag_dumped_cargo" },
       { label: "Keep the load. Outrun them heavy.",        next: "krag_a0_03b", flag: "krag_kept_cargo" },
     ], next: null, autoAdvance: null });
 
-  add({ id: "krag_a0_03a", background: "bg_space_contested", character: null,
+  add({ id: "krag_a0_03a", background: "onboard_debris", character: null,
     dialogue: [
       { speaker: null, text: "Fourteen tons of scrap tumble into the black. The tug leaps like she's young again." },
       { speaker: "YOU", text: "That was rent. That was the loan. That was everything." },
       { speaker: null, text: "But the lances fall behind, and the dark swallows you whole. You make Homeport Mira with an empty hold and a beating heart." },
+      { speaker: null, text: "Alive is a kind of wealth. You will spend years learning how expensive it was." },
     ],
     choices: null, next: "krag_a0_04", autoAdvance: null });
 
-  add({ id: "krag_a0_03b", background: "bg_space_contested", character: null,
+  add({ id: "krag_a0_03b", background: "explosion_cockpit_impact", character: null,
     dialogue: [
       { speaker: null, text: "You hold the load. The tug bucks through the debris field, threading rocks a drunk wouldn't dare." },
       { speaker: null, text: "A lance clips the aft plating. Alarms. Fire. Foam. Silence." },
       { speaker: "YOU", text: "Still flying. Still flying. That's all that counts." },
-      { speaker: null, text: "You limp into Homeport Mira trailing vapor — cargo intact, hull held together by rust and spite." },
+      { speaker: null, text: "You limp into Homeport Mira trailing vapor — cargo intact, hull held together by rust and spite. The Combine notices both." },
     ],
     choices: null, next: "krag_a0_04", autoAdvance: null });
 
@@ -274,9 +328,17 @@ const VN_SCENES = {};
       { speaker: null, text: "He presses a dented data chip into your palm. It's warm from his hand, and heavy as a verdict." },
       { speaker: "VOSS", text: "Dock privileges, fuel at Combine rates, a berth that doesn't leak. Work, and the machine keeps you." },
       { speaker: "VOSS", text: "The Combine wastes nothing, hauler. Don't be the first exception." },
-      { speaker: null, text: "Beyond the viewport the strip-mined moons hang like chewed bones. Somewhere out there is everything they owe you — and everything you're going to take." },
+      { speaker: "VOSS", text: "And when a sled rides heavier than its paper — you tell me the number. Not the paper. Never the paper first." },
     ],
-    choices: null, next: null, autoAdvance: null });
+    choices: null, next: "krag_a0_08", autoAdvance: null });
+
+  add({ id: "krag_a0_08", background: "krag_splash_moons_debt", character: null,
+    dialogue: [
+      { speaker: null, text: "Beyond the viewport the strip-mined moons hang like chewed bones." },
+      { speaker: null, text: "Somewhere out there is everything they owe you — and everything you're going to take." },
+      { speaker: null, text: "You do not know yet that the debt was never theirs to collect. That knowledge is later. For now: work." },
+    ],
+    choices: null, next: null, autoAdvance: 7000 });
 
   /* ===== VEX DOMINION — duty. Disciplined, tense, honour-bound. ===== */
   add({ id: "vex_a0_01", background: "bg_vex_convoy", character: null,
@@ -453,35 +515,39 @@ const VN_SCENES = {};
       { speaker: "VOSS", text: "One container. Sealed at the Combine end, opened at the Combine end. It rides to the Ember Gate relay and you hand it to a man who won't give you his name." },
       { speaker: "YOU",  text: "What's in it?" },
       { speaker: "VOSS", text: "That's the part you're paid not to ask. The pay is good precisely because the question is expensive." },
+      { speaker: "VOSS", text: "And if a sled rides heavy — you already know what I want to hear first." },
     ],
     choices: null, next: "krag_a1_02", autoAdvance: null });
 
-  add({ id: "krag_a1_02", background: "bg_krag_dock",
+  add({ id: "krag_a1_02", background: "act_krag_sealed_crate",
     character: { portrait: "player_hauler", expression: "weary", position: "left" },
     dialogue: [
       { speaker: null, text: "The loaders bring it up on a grav-sled and the sled sits low — lower than the manifest wants you to believe." },
       { speaker: "FOREMAN", text: "Says four tons. Rides like nine. Sled don't read paperwork." },
       { speaker: null, text: "The seal is Combine-stamped, wax over a magnetic lock. Breaking it would be obvious. Breaking it would also be answering the question Voss priced." },
+      { speaker: null, text: "You can feel the Combine watching both choices. That is what a ledger is — a way of watching without being present." },
     ],
     choices: [
       { label: "Crack the seal. Know what you're carrying.", next: "krag_a1_03a", flag: "krag_a1_opened_crate" },
       { label: "Leave it sealed. Ignorance is the job.",     next: "krag_a1_03b", flag: "krag_a1_sealed_crate" },
     ], next: null, autoAdvance: null });
 
-  add({ id: "krag_a1_03a", background: "bg_krag_dock", character: null,
+  add({ id: "krag_a1_03a", background: "act_krag_mining_charges", character: null,
     dialogue: [
-      { speaker: null, text: "The wax gives with a sound like a knuckle cracking. Inside: mining charges, packed in rows, Combine-milled and stencilled in a hand you don't recognise." },
+      { speaker: null, text: "The wax gives with a sound like a knuckle cracking. Inside: mining charges, packed in rows, Combine-milled — and stencilled in a hand you don't recognise." },
       { speaker: null, text: "Not ore. Not relief crates. Nine tons of things that make holes." },
       { speaker: "YOU", text: "Four tons of ore. Right." },
       { speaker: null, text: "You re-seat the wax as best you can. It'll pass a glance and fail an inspection, which is exactly the margin you fly in." },
+      { speaker: null, text: "You file the number in your head: nine. Not four. Nine." },
     ],
     choices: null, next: "krag_a1_04", autoAdvance: null });
 
-  add({ id: "krag_a1_03b", background: "bg_krag_dock", character: null,
+  add({ id: "krag_a1_03b", background: "act_krag_sealed_crate", character: null,
     dialogue: [
       { speaker: null, text: "You leave the wax alone. Twenty years hauling taught you the trick of it: you don't carry the cargo, you carry the paperwork, and the paperwork says four tons of ore." },
       { speaker: "YOU", text: "Four tons of ore. Whatever you say." },
-      { speaker: null, text: "The sled still rides low all the way to the ramp. You make a point of not watching it." },
+      { speaker: null, text: "The sled still rides low all the way to the ramp. You make a point of not watching it — and you still know." },
+      { speaker: null, text: "Ignorance is a skill. You have never been as good at it as you pretend." },
     ],
     choices: null, next: "krag_a1_04", autoAdvance: null });
 
@@ -498,28 +564,31 @@ const VN_SCENES = {};
       { label: "Open a channel. Make them say it out loud.", next: "krag_a1_05b", flag: "krag_a1_opened_channel" },
     ], next: null, autoAdvance: null });
 
-  add({ id: "krag_a1_05a", background: "bg_krag_relay", character: null,
+  add({ id: "krag_a1_05a", background: "act_krag_vex_ambush", character: null,
     dialogue: [
       { speaker: null, text: "You firewall it. The tug is nine tons over and flies like a barge full of wet sand, and you fly her anyway, straight down the relay's throat where the lances can't lead you without hitting their own dish." },
       { speaker: null, text: "Something hits aft. Something always hits aft." },
       { speaker: null, text: "You come out the far side venting atmosphere, cargo intact, hands steady in the way that only happens after." },
+      { speaker: "YOU", text: "Still flying. File that." },
     ],
     choices: null, next: "krag_a1_06", autoAdvance: null });
 
-  add({ id: "krag_a1_05b", background: "bg_krag_relay", character: null,
+  add({ id: "krag_a1_05b", background: "act_krag_vex_ambush", character: null,
     dialogue: [
       { speaker: "YOU",    text: "Patrol, this is the hauler. You called my freight restricted before you scanned it. How's that?" },
       { speaker: null,     text: "A pause. Three seconds of open channel, which is a very long time when two lances are warm." },
       { speaker: "PATROL", text: "...Cut your drive, hauler." },
       { speaker: null,     text: "Not a denial. You log the timestamp, because a pause like that is worth more than the cargo, and you run while they're still deciding what to say next." },
+      { speaker: null,     text: "Three seconds. You will hear them again in other rooms, later, when people who file things pretend they do not know you." },
     ],
     choices: null, next: "krag_a1_06", autoAdvance: null });
 
-  add({ id: "krag_a1_06", background: "bg_krag_relay", character: null,
+  add({ id: "krag_a1_06", background: "act_krag_courier", character: null,
     dialogue: [
       { speaker: null,    text: "The man at the relay doesn't give his name. He doesn't check the seal either — he checks the WEIGHT, on a scale he brought himself." },
       { speaker: "COURIER", text: "Nine. Good. Tell Voss it's nine." },
       { speaker: null,    text: "He signs a chit that says four, and hands it over without any expression at all." },
+      { speaker: null,    text: "Four on paper. Nine in the world. The Combine lives in the gap — and so, today, do you." },
     ],
     choices: null, next: "krag_a1_07", autoAdvance: null });
 
@@ -530,6 +599,7 @@ const VN_SCENES = {};
       { speaker: null,   text: "He counts credits onto the counter the old way, in stacks, so you can watch the number grow. It's more than the run was worth. It's meant to be noticed." },
       { speaker: "YOU",  text: "They were waiting at the relay, Voss. Lit up, on my route, six hours out with no traffic." },
       { speaker: "VOSS", text: "I heard." },
+      { speaker: null,   text: "He does not look surprised. That is worse than if he had." },
     ],
     choices: null, next: "krag_a1_08", autoAdvance: null });
 
@@ -539,7 +609,8 @@ const VN_SCENES = {};
       { speaker: "YOU",  text: "Then you know what it means. Three people had that route." },
       { speaker: "VOSS", text: "Four. You're forgetting the man who filed it, and he's Combine to the bone, and he's been Combine longer than you've been alive." },
       { speaker: "VOSS", text: "So either the Vex are reading our filings, or somebody upstairs is selling them. I've been carrying that arithmetic for a while now and I don't like where it lands." },
-      { speaker: "VOSS", text: "Keep flying. Keep the chit. And next time a sled rides heavier than its paper — you tell me the number, not the paper." },
+      { speaker: "VOSS", text: "Keep flying. Keep the chit. Next time a sled rides heavier than its paper — you tell me the number, not the paper." },
+      { speaker: "VOSS", text: "And if you hear a name like Reva on the salvage channels — leave her alone. Or don't. She bites either way." },
     ],
     choices: null, next: "krag_a1_09", autoAdvance: null });
 
@@ -549,8 +620,10 @@ const VN_SCENES = {};
       { speaker: null, text: "Three of them, strip-mined to the mantle. Terraced down to nothing in forty years of shifts your parents worked and their parents worked. Chewed bones in a low orbit." },
       { speaker: null, text: "The Combine took them apart in a hurry, and everyone alive remembers why: the Vex were coming, and a moon is worth less than a fleet." },
       { speaker: null, text: "You have never once questioned that. Neither has anyone you know. It is simply the shape of the sky you grew up under." },
+      { speaker: null, text: "A chit that says four. A scale that said nine. A pause on an open channel that was not a denial." },
+      { speaker: null, text: "Somewhere under those moons, the arithmetic is already walking toward a door." },
     ],
-    choices: null, next: null, autoAdvance: 9000 });
+    choices: null, next: null, autoAdvance: 10000 });
 
   /* ===== VEX — "THE PICKET". Dren gives the assignment; Kael's tribunal
      still owns the leash. The order and the right thing are nine seconds
@@ -565,7 +638,7 @@ const VN_SCENES = {};
     ],
     choices: null, next: "vex_a1_02", autoAdvance: null });
 
-  add({ id: "vex_a1_02", background: "bg_vex_tribunal",
+  add({ id: "vex_a1_02", background: "act_vex_tribunal",
     character: { portrait: "vex_kael", expression: "neutral", position: "right" },
     dialogue: [
       { speaker: null,   text: "Kael is waiting at the hangar mouth. He does not appear to have walked there; he simply is there, the way a rule is." },
@@ -581,6 +654,7 @@ const VN_SCENES = {};
       { speaker: null, text: "Then the tenth hour brings a hull off the Ember Gate approach at an angle nobody flies on purpose — running hot, running silent, transponder dark." },
       { speaker: "WING TWO", text: "Picket, I have it. Cross-referencing... it's on the list. Interdict authorised." },
       { speaker: null, text: "Your own scope says something else. The heat signature is wrong for a runner. It's wrong for anything with guns." },
+      { speaker: null, text: "Nine seconds is the whole of a doctrine. You can feel the number in your hands." },
     ],
     choices: null, next: "vex_a1_04", autoAdvance: null });
 
@@ -593,18 +667,19 @@ const VN_SCENES = {};
     ],
     choices: null, next: "vex_a1_05", autoAdvance: 9000 });
 
-  add({ id: "vex_a1_05", background: "bg_vex_picket", character: null,
+  add({ id: "vex_a1_05", background: "act_vex_medical", character: null,
     dialogue: [
       { speaker: null, text: "You put a narrow scan on it, which takes nine seconds, which is nine seconds longer than the order allows." },
       { speaker: null, text: "It's a medical tender. Civilian registry, Combine-flagged, ninety-one souls aboard and a reactor bleeding neutrons into the cabin space. Running dark because its transponder is on fire." },
       { speaker: "WING TWO", text: "Picket? You're not firing. It's ON THE LIST." },
+      { speaker: null, text: "The list does not have faces. Your scope does." },
     ],
     choices: [
       { label: "It's on the list. Interdict.",            next: "vex_a1_06a", flag: "vex_a1_held_the_line" },
       { label: "Break off. Ninety-one people is a fact.", next: "vex_a1_06b", flag: "vex_a1_broke_formation" },
     ], next: null, autoAdvance: null });
 
-  add({ id: "vex_a1_06a", background: "bg_vex_picket", character: null,
+  add({ id: "vex_a1_06a", background: "act_vex_medical", character: null,
     dialogue: [
       { speaker: null, text: "You interdict. The tender cuts its burn and goes dead in the water the moment your lances paint it — no evasion, no answer, nothing but a hull full of people waiting to see what you are." },
       { speaker: null, text: "Boarding finds the reactor exactly where your scan said it was. Fourteen dead of exposure before the Dominion crews get the shielding up. It would have been ninety-one without the intercept." },
@@ -612,12 +687,13 @@ const VN_SCENES = {};
     ],
     choices: null, next: "vex_a1_07", autoAdvance: null });
 
-  add({ id: "vex_a1_06b", background: "bg_vex_picket", character: null,
+  add({ id: "vex_a1_06b", background: "act_vex_medical", character: null,
     dialogue: [
       { speaker: "YOU",       text: "Wing Two, break off. That's a medical hull, ninety-one aboard, reactor's cooking them." },
       { speaker: "WING TWO",  text: "That is not the call you get to make." },
       { speaker: null,        text: "You make it anyway. You put your tug between the lances and the tender and you burn alongside it all the way to the Dominion mooring, close escort, close enough to read its hull number." },
       { speaker: null,        text: "Fourteen die of exposure before the crews get shielding up. Without the escort it would have been all of them. Nobody thanks you. The log records a formation break." },
+      { speaker: null,        text: "You will meet Cade later. He will understand the log and the break. Kael will understand only the log." },
     ],
     choices: null, next: "vex_a1_07", autoAdvance: null });
 
@@ -771,6 +847,7 @@ const VN_SCENES = {};
       { speaker: "VOSS", text: "I did the arithmetic I told you I was carrying. Every filing that left this dock in two years, laid against every Vex interdiction that happened inside a week of one." },
       { speaker: "YOU",  text: "And?" },
       { speaker: "VOSS", text: "Forty-one filings. Thirty-nine interdictions. That's not a leak, hauler. A leak drips. That's a pipe, and somebody laid it." },
+      { speaker: "VOSS", text: "Reva says the salvage nets are full of people who used to fly for us and don't anymore. I am choosing not to ask her how she knows." },
     ],
     choices: null, next: "krag_a2_02", autoAdvance: null });
 
@@ -781,6 +858,7 @@ const VN_SCENES = {};
       { speaker: "VOSS", text: "So while you're in the hole, pull something else for me. The original mobilization order. The one that says the Vex were coming and we'd best eat our own moons to meet them." },
       { speaker: "YOU",  text: "Everybody knows that order." },
       { speaker: "VOSS", text: "Everybody knows ABOUT it. I've been Combine sixty years and I have never held it. Neither has anyone I've asked, and I've started asking, and people have started getting quiet." },
+      { speaker: "VOSS", text: "Quiet is a kind of answer. I want the paper." },
     ],
     choices: null, next: "krag_a2_03", autoAdvance: null });
 
@@ -789,21 +867,23 @@ const VN_SCENES = {};
       { speaker: null, text: "Terrace Nine comes up out of the dark like a staircase built by something that ate the building. Forty years of shifts cut it into descending rings, each one the width of a city, each one empty." },
       { speaker: null, text: "The bunker is a wart on the lowest terrace, lit by three lamps. One of them is out, and has clearly been out a while." },
       { speaker: null, text: "And in the moon's shadow, in an orbit slow enough to have taken two centuries to decay this far, something is hanging that the charts do not mention." },
+      { speaker: null, text: "You think of Voss's father on Terrace Four. You think of lungs full of rock and pride. The moon does not care which thought you finish first." },
     ],
     choices: null, next: "krag_a2_04", autoAdvance: null });
 
-  add({ id: "krag_a2_04", background: "explosion_silent_wreck", character: null,
+  add({ id: "krag_a2_04", background: "act_krag_survey_wreck", character: null,
     dialogue: [
       { speaker: null, text: "Combine hull. Survey pattern — the long spine and the twin sensor booms, one of them sheared. The registry is burned off, but you know the frame. It came out of the same yard as your tug, four generations back." },
       { speaker: null, text: "It has been dead a long time. Long enough that the ice on it has ice on it." },
       { speaker: "YOU", text: "Nobody logged you. Two hundred years in a marked orbit off a Combine moon, and nobody logged you." },
+      { speaker: null, text: "That is not a wreck. That is a silence with a hull around it." },
     ],
     choices: [
       { label: "Board her. The paperwork keeps.",     next: "krag_a2_05a", flag: "krag_a2_boarded_wreck" },
       { label: "Fly past. The bunker is the job.",    next: "krag_a2_05b", flag: "krag_a2_skipped_wreck" },
     ], next: null, autoAdvance: null });
 
-  add({ id: "krag_a2_05a", background: "explosion_silent_wreck", character: null,
+  add({ id: "krag_a2_05a", background: "act_krag_survey_wreck", character: null,
     dialogue: [
       { speaker: null, text: "You seal to a lock that opens on the first try, because nobody ever closed it properly, because whoever went out last was in a hurry." },
       { speaker: null, text: "The crew is still aboard. Six of them, in their seats, harnessed in. They died of the cold, slowly, in order, and the last one to go had time to fold the hands of the one beside her." },
@@ -834,7 +914,7 @@ const VN_SCENES = {};
     ],
     choices: null, next: "krag_a2_07", autoAdvance: null });
 
-  add({ id: "krag_a2_07", background: "bg_krag_archive",
+  add({ id: "krag_a2_07", background: "act_krag_annex",
     character: { portrait: "krag_archivist", expression: "neutral", position: "left" },
     dialogue: [
       { speaker: null, text: "The mobilization order is one page, and one page is enough to eat three moons with. Strip the Terraces. Mobilize the yards. Grounds: confirmed Vex staging at the Ember Gate approach, forty capital hulls, per survey annex attached." },
@@ -842,7 +922,8 @@ const VN_SCENES = {};
       { speaker: "ARCHIVIST", text: "That did not come off our press." },
       { speaker: "YOU",       text: "You're sure." },
       { speaker: "ARCHIVIST", text: "I have fed the Combine press for fifty-one years, hauler. I know its teeth marks the way you know your own drive note. That annex is a stranger." },
-      { speaker: "ARCHIVIST", text: "No origin stamp on it either. Just a form number, and a countersign I have never been able to source." },
+      { speaker: "ARCHIVIST", text: "No origin stamp on it either. Just a form number, and a countersign I have never been able to source. I have tried. I have had decades to try." },
+      { speaker: null,        text: "He does not ask if you will take it. He already knows you will. That is why you are the second." },
     ],
     choices: null, next: "krag_a2_08", autoAdvance: null });
 
@@ -926,9 +1007,11 @@ const VN_SCENES = {};
       { speaker: null, text: "Standing on a dock with a forged sheet of paper between you and a man who has just been informed that his entire inheritance was a clerical insertion, it stops sounding like pride." },
       { speaker: null, text: "It sounds like what people say afterward, about what they had to do, when there was nothing left to do it with." },
       { speaker: null, text: "Somebody signed the countersign. Somebody Combine, somebody senior, somebody who had to have known that annex was a stranger the moment they touched it." },
-      { speaker: null, text: "Voss is already looking it up. He has the expression of a man walking toward a door he has spent sixty years not opening." },
+      { speaker: null, text: "Survey Team Seven said there was no fleet. Someone stopped the recording from the other end. The annex said the opposite. Wrong stock. No stamp." },
+      { speaker: null, text: "Voss is already looking up the countersign. He has the expression of a man walking toward a door he has spent sixty years not opening." },
+      { speaker: null, text: "You will open it with him. That is what the ledger bought, when it bought you." },
     ],
-    choices: null, next: null, autoAdvance: 9000 });
+    choices: null, next: null, autoAdvance: 10000 });
 
   /* ===== KRAG ACT 3 — "THE COUNTERSIGN". Elder Harrow signed it, knew it
      was forged, and used it anyway. The defining choice is what a working
@@ -966,7 +1049,7 @@ const VN_SCENES = {};
       { speaker: "VOSS", text: "Hn. The Combine wastes nothing." },
       { speaker: null,   text: "It is not approval, exactly. But he stops checking the tube every few minutes, which for Voss is the same thing." },
     ],
-    choices: null, next: "krag_a3_04", autoAdvance: null });
+    choices: null, next: "krag_a3_03c", autoAdvance: null });
 
   add({ id: "krag_a3_03b", background: "bg_krag_dock",
     character: { portrait: "krag_voss", expression: "neutral", position: "right" },
@@ -976,6 +1059,16 @@ const VN_SCENES = {};
       { speaker: "VOSS", text: "You're quiet." },
       { speaker: "YOU",  text: "I'm counting exits. It's a habit." },
     ],
+    choices: null, next: "krag_a3_03c", autoAdvance: null });
+
+  add({ id: "krag_a3_03c", background: "act_krag_tether", character: null,
+    dialogue: [
+      { speaker: null, text: "The tether rises from Mira like a needle someone left in the sky on purpose." },
+      { speaker: null, text: "Hab eleven hangs at the end of it — sparse, cold, appointment book empty. Two people and a document tube climb in silence." },
+      { speaker: "VOSS", text: "If this goes wrong, you fly. I talk. That is the division of labor." },
+      { speaker: "YOU",  text: "And if talking goes wrong?" },
+      { speaker: "VOSS", text: "Then we both fly. I have practiced that too." },
+    ],
     choices: null, next: "krag_a3_04", autoAdvance: null });
 
   add({ id: "krag_a3_04", background: "bg_krag_elder",
@@ -984,6 +1077,7 @@ const VN_SCENES = {};
       { speaker: null, text: "Elder Harrow is very small. That is the first thing, and it is not what either of you prepared for. The bone plate has gone translucent at the edges; the ember in his eyes has banked down to something you could hold a hand near." },
       { speaker: "HARROW", text: "Dockmaster. And a hauler with a document tube." },
       { speaker: "HARROW", text: "Sit down. Both of you. I have been expecting somebody with a document tube for a hundred and ninety-one years and I would like to be sitting when it finally arrives." },
+      { speaker: null, text: "Through the viewport: the moons. Still chewed. Still waiting for someone to tell them a different story." },
     ],
     choices: null, next: "krag_a3_05", autoAdvance: null });
 
@@ -1022,7 +1116,7 @@ const VN_SCENES = {};
     ],
     choices: null, next: "krag_a3_08", autoAdvance: null });
 
-  add({ id: "krag_a3_08", background: "explosion_debris_field",
+  add({ id: "krag_a3_08", background: "act_krag_tether",
     character: { portrait: "krag_harrow", expression: "weary", position: "right" },
     dialogue: [
       { speaker: null,       text: "The tether alarm goes at that exact moment, which is not a coincidence, and all three of you know it is not a coincidence." },
@@ -1030,6 +1124,7 @@ const VN_SCENES = {};
       { speaker: "HARROW",   text: "Ah. They read my appointment book too. I did wonder who kept it so tidy." },
       { speaker: null,       text: "Through the viewport: two cutters coming up the tether line, and behind them, in the far dark, the moons. Terraced down to nothing. Lit from below by the yards the lie built." },
       { speaker: "VOSS",     text: "Hauler. Whatever we do about this, we do it in the next ninety seconds, and then we live in it." },
+      { speaker: "HARROW",   text: "I have lived in it already. You two are only late to the room." },
     ],
     choices: null, next: "krag_a3_09", autoAdvance: null });
 
@@ -1763,13 +1858,29 @@ const VN_SCENES = {};
      ===================================================================== */
 
   /* ===== REVA — Krag Combine. Deadpan, competent, funny on a two-second
-     delay. Running gag: "That's not structural." Breaks on the last line. */
+     delay. Running gag: "That's not structural." Breaks on the last line.
+     dialogue_m / dialogue_f: gendered first-meet and romance beats. */
   add({ id: "krag_comp_intro", background: "bg_krag_dock",
     character: { portrait: "krag_reva", expression: "neutral", position: "right" },
     dialogue: [
       { speaker: null, text: "A salvager out of the Krag debris fields, hull plating that belongs to at least three different ships. She has been watching you park for about thirty seconds longer than polite." },
       { speaker: "REVA", text: "You're still flying that? Either you're very lucky or very cheap. I haven't decided if I like either." },
-    ], choices: null, next: null, autoAdvance: null });
+    ],
+    dialogue_m: [
+      { speaker: null, text: "A salvager out of the Krag debris fields, hull plating that belongs to at least three different ships. She has been watching you park for about thirty seconds longer than polite." },
+      { speaker: "REVA", text: "You're still flying that? Either you're very lucky or very cheap. I haven't decided if I like either." },
+      { speaker: "REVA", text: "Most men who limp into Mira like that are already dead and haven't noticed. You noticed. That's interesting." },
+      { speaker: "YOU",  text: "Interesting is a start." },
+      { speaker: "REVA", text: "Don't get ideas. Interesting is also what I call a hull that might explode." },
+    ],
+    dialogue_f: [
+      { speaker: null, text: "A salvager out of the Krag debris fields, hull plating that belongs to at least three different ships. She has been watching you park for about thirty seconds longer than polite." },
+      { speaker: "REVA", text: "You're still flying that? Either you're very lucky or very cheap. I haven't decided if I like either." },
+      { speaker: "REVA", text: "Most women who limp into Mira like that are already dead and haven't noticed. You noticed. That's interesting." },
+      { speaker: "YOU",  text: "Interesting is a start." },
+      { speaker: "REVA", text: "Don't get ideas. Interesting is also what I call a hull that might explode." },
+    ],
+    choices: null, next: null, autoAdvance: null });
 
   add({ id: "krag_comp_beat2", background: "bg_space_contested",
     character: { portrait: "krag_reva", expression: "neutral", position: "right" },
@@ -1778,7 +1889,9 @@ const VN_SCENES = {};
       { speaker: "REVA", text: "I was already in the neighborhood." },
       { speaker: "YOU",  text: "Right. Thanks." },
       { speaker: "REVA", text: "Don't." },
-      { speaker: null,   text: "She means it. You don't." },
+      { speaker: null,   text: "She means it. You don't. The channel stays open three seconds longer than it needs to — long enough that both of you notice and neither of you hangs up first." },
+      { speaker: "REVA", text: "...That's not structural." },
+      { speaker: null,   text: "She means the silence. Or the hull. Or the thing neither of you will name yet." },
     ], choices: null, next: null, autoAdvance: null });
 
   add({ id: "krag_comp_beat3", background: "bg_krag_dock",
@@ -1786,15 +1899,36 @@ const VN_SCENES = {};
     dialogue: [
       { speaker: "REVA", text: "Previous crew I ran with — good people, every one of them. Combine had them hauling manifests they didn't know were live ordinance until the Vex intercepted." },
       { speaker: "REVA", text: "Three survivors out of eleven. One of them was me, which tells you more about my luck than my virtue." },
-      { speaker: null,   text: "A pause. She finds something to look at behind you." },
+      { speaker: null,   text: "A pause. She finds something to look at behind you, which is how she looks at soft things." },
       { speaker: "REVA", text: "Anyway. That's why I fly solo. Don't read anything into it." },
+      { speaker: "YOU",  text: "I already did." },
+      { speaker: "REVA", text: "...Yeah. Me too. Don't make me say it twice." },
     ], choices: null, next: null, autoAdvance: null });
 
   add({ id: "krag_comp_beat4", background: "bg_krag_dock",
     character: { portrait: "krag_reva", expression: "warm", position: "right" },
     dialogue: [
       { speaker: "REVA", text: "I've decided I like lucky. For the record." },
-    ], choices: null, next: null, autoAdvance: null });
+      { speaker: "YOU",  text: "For the record." },
+      { speaker: "REVA", text: "If we get a after — a real after, not a berth and a next job — I want it quiet. Coffee that isn't burned. A hull that isn't venting. You, still breathing." },
+      { speaker: "REVA", text: "That's the whole plan. Don't make me write it down." },
+      { speaker: null,   text: "She doesn't kiss you. She does the Reva thing: stands close enough that the air changes, and leaves before either of you has to be brave about it." },
+    ],
+    dialogue_m: [
+      { speaker: "REVA", text: "I've decided I like lucky. For the record." },
+      { speaker: "YOU",  text: "For the record." },
+      { speaker: "REVA", text: "If we get a after — a real after — I want it quiet. You, still breathing. Me, not counting exits every time a door opens." },
+      { speaker: "REVA", text: "You're a stubborn man with a soft landing. Don't make me rewrite the plan." },
+      { speaker: null,   text: "She doesn't kiss you. She stands close enough that the air changes, and leaves before either of you has to be brave about it. Your chest does not care about bravery." },
+    ],
+    dialogue_f: [
+      { speaker: "REVA", text: "I've decided I like lucky. For the record." },
+      { speaker: "YOU",  text: "For the record." },
+      { speaker: "REVA", text: "If we get a after — a real after — I want it quiet. You, still breathing. Me, not counting exits every time a door opens." },
+      { speaker: "REVA", text: "You're a stubborn woman with a soft landing. Don't make me rewrite the plan." },
+      { speaker: null,   text: "She doesn't kiss you. She stands close enough that the air changes, and leaves before either of you has to be brave about it. Your chest does not care about bravery." },
+    ],
+    choices: null, next: null, autoAdvance: null });
 
   /* REVA — death scenes */
   add({ id: "krag_comp_death_1", background: "explosion_cockpit_impact",
@@ -1835,7 +1969,22 @@ const VN_SCENES = {};
     dialogue: [
       { speaker: null,   text: "A decommissioned Vex interceptor, faction markings half-scraped. The pilot disembarks like he is still on duty, then remembers he isn't, and doesn't quite stop standing at attention." },
       { speaker: "CADE", text: "They gave me a tribunal and a severance packet. I kept the ship. The tribunal can have the rest." },
-    ], choices: null, next: null, autoAdvance: null });
+    ],
+    dialogue_m: [
+      { speaker: null,   text: "A decommissioned Vex interceptor, faction markings half-scraped. The pilot disembarks like he is still on duty, then remembers he isn't, and doesn't quite stop standing at attention." },
+      { speaker: "CADE", text: "They gave me a tribunal and a severance packet. I kept the ship. The tribunal can have the rest." },
+      { speaker: "CADE", text: "You fly like someone who still believes the formation will hold. That is either admirable or a medical condition. I have not decided which I prefer in a man." },
+      { speaker: "YOU",  text: "Prefer is a strong word." },
+      { speaker: "CADE", text: "Acknowledged. Logged. Not yet countersigned." },
+    ],
+    dialogue_f: [
+      { speaker: null,   text: "A decommissioned Vex interceptor, faction markings half-scraped. The pilot disembarks like he is still on duty, then remembers he isn't, and doesn't quite stop standing at attention." },
+      { speaker: "CADE", text: "They gave me a tribunal and a severance packet. I kept the ship. The tribunal can have the rest." },
+      { speaker: "CADE", text: "You fly like someone who still believes the formation will hold. That is either admirable or a medical condition. I have not decided which I prefer in a woman." },
+      { speaker: "YOU",  text: "Prefer is a strong word." },
+      { speaker: "CADE", text: "Acknowledged. Logged. Not yet countersigned." },
+    ],
+    choices: null, next: null, autoAdvance: null });
 
   add({ id: "vex_comp_beat2", background: "bg_space_contested",
     character: { portrait: "vex_cade", expression: "neutral", position: "right" },
@@ -1844,7 +1993,8 @@ const VN_SCENES = {};
       { speaker: "CADE", text: "Acknowledged, logged, and countersigned." },
       { speaker: "YOU",  text: "You don't have to log compliments." },
       { speaker: "CADE", text: "Old habit. And you're low on starboard shielding — I'm pulling your flank until you've had a chance to reroute." },
-      { speaker: null,   text: "He is already in position before he has finished saying it." },
+      { speaker: null,   text: "He is already in position before he has finished saying it. Cover that is also care, and he will never call it either." },
+      { speaker: "CADE", text: "...For the log. That was not in the rules of engagement. I am aware." },
     ], choices: null, next: null, autoAdvance: null });
 
   add({ id: "vex_comp_beat3", background: "bg_vex_hangar",
@@ -1854,13 +2004,34 @@ const VN_SCENES = {};
       { speaker: "CADE", text: "I've had some time to consider that I might have asked because I wanted the answer to be wrong. Those look the same from outside. The difference is which answer you were hoping for." },
       { speaker: null,   text: "He checks a console reading that doesn't need checking." },
       { speaker: "CADE", text: "Anyway. Filed under ongoing review." },
+      { speaker: "YOU",  text: "What are you hoping for now?" },
+      { speaker: "CADE", text: "That the next answer is allowed to be complicated. And that I am not alone when it arrives." },
     ], choices: null, next: null, autoAdvance: null });
 
   add({ id: "vex_comp_beat4", background: "bg_vex_hangar",
     character: { portrait: "vex_cade", expression: "warm", position: "right" },
     dialogue: [
       { speaker: "CADE", text: "For the record — and I am putting this on the record — I would like to fly with you after this is done, if there is an after." },
-    ], choices: null, next: null, autoAdvance: null });
+      { speaker: "CADE", text: "Not as cover. Not as a formation slot. As the person I want on the other end of the channel when the log is closed." },
+      { speaker: "YOU",  text: "Acknowledged." },
+      { speaker: "CADE", text: "Logged." },
+      { speaker: null,   text: "He does not say countersigned. He looks at you instead, and that is the signature." },
+    ],
+    dialogue_m: [
+      { speaker: "CADE", text: "For the record — I would like to fly with you after this is done, if there is an after." },
+      { speaker: "CADE", text: "Not as cover. As the man I want on the other end of the channel when the log is closed." },
+      { speaker: "YOU",  text: "Acknowledged." },
+      { speaker: "CADE", text: "Logged." },
+      { speaker: null,   text: "He does not say countersigned. He looks at you instead, and that is the signature." },
+    ],
+    dialogue_f: [
+      { speaker: "CADE", text: "For the record — I would like to fly with you after this is done, if there is an after." },
+      { speaker: "CADE", text: "Not as cover. As the woman I want on the other end of the channel when the log is closed." },
+      { speaker: "YOU",  text: "Acknowledged." },
+      { speaker: "CADE", text: "Logged." },
+      { speaker: null,   text: "He does not say countersigned. He looks at you instead, and that is the signature." },
+    ],
+    choices: null, next: null, autoAdvance: null });
 
   /* CADE — death scenes */
   add({ id: "vex_comp_death_1", background: "explosion_cockpit_impact",
@@ -1900,7 +2071,22 @@ const VN_SCENES = {};
     dialogue: [
       { speaker: null,   text: "Covenant escort, current-issue hull, pristine. The pilot who disembarks could be reading a maintenance log or writing one. Her expression does not commit either way." },
       { speaker: "LIRA", text: "I'm here to ensure your activities remain within Covenant parameters. Interesting that your first action was to buy a second coffee. I've filed it under 'behavioral baseline.'" },
-    ], choices: null, next: null, autoAdvance: null });
+    ],
+    dialogue_m: [
+      { speaker: null,   text: "Covenant escort, current-issue hull, pristine. The pilot who disembarks could be reading a maintenance log or writing one. Her expression does not commit either way." },
+      { speaker: "LIRA", text: "I'm here to ensure your activities remain within Covenant parameters. Interesting that your first action was to buy a second coffee. I've filed it under 'behavioral baseline.'" },
+      { speaker: "LIRA", text: "Also filed: that you are a man who buys two coffees when one would do. I have not yet decided if that is waste or hope." },
+      { speaker: "YOU",  text: "Hope is cheaper than a tribunal." },
+      { speaker: "LIRA", text: "I've filed that under 'provocation.' Politely." },
+    ],
+    dialogue_f: [
+      { speaker: null,   text: "Covenant escort, current-issue hull, pristine. The pilot who disembarks could be reading a maintenance log or writing one. Her expression does not commit either way." },
+      { speaker: "LIRA", text: "I'm here to ensure your activities remain within Covenant parameters. Interesting that your first action was to buy a second coffee. I've filed it under 'behavioral baseline.'" },
+      { speaker: "LIRA", text: "Also filed: that you are a woman who buys two coffees when one would do. I have not yet decided if that is waste or hope." },
+      { speaker: "YOU",  text: "Hope is cheaper than a tribunal." },
+      { speaker: "LIRA", text: "I've filed that under 'provocation.' Politely." },
+    ],
+    choices: null, next: null, autoAdvance: null });
 
   add({ id: "nox_comp_beat2", background: "bg_nox_deepdark",
     character: { portrait: "nox_lira", expression: "neutral", position: "right" },
@@ -1909,6 +2095,7 @@ const VN_SCENES = {};
       { speaker: "LIRA", text: "I've filed it under 'asset protection.'" },
       { speaker: "YOU",  text: "Thank you." },
       { speaker: "LIRA", text: "I've filed that under 'unsolicited acknowledgment.' You're welcome. I've filed that under— it's fine. You're welcome." },
+      { speaker: null,   text: "She almost smiles. Almost is a category she does not have a form for yet." },
     ], choices: null, next: null, autoAdvance: null });
 
   add({ id: "nox_comp_beat3", background: "bg_nox_cryo",
@@ -1916,15 +2103,33 @@ const VN_SCENES = {};
     dialogue: [
       { speaker: "LIRA", text: "I should note that my reports to the Covenant have been averaging sixty-three words shorter per cycle than my baseline." },
       { speaker: "LIRA", text: "I believe the deficit is the sections where I would normally detail activities that I have instead described as 'within parameters.' This is technically accurate. I want you to understand it is technically accurate." },
-      { speaker: null,   text: "She doesn't say which activities. You don't ask." },
+      { speaker: null,   text: "She doesn't say which activities. You don't ask. The silence is the warmest thing in the cryo bay." },
       { speaker: "LIRA", text: "I've filed this conversation under 'methodology review.'" },
+      { speaker: "YOU",  text: "File me under something kinder." },
+      { speaker: "LIRA", text: "...I'll consider an amendment." },
     ], choices: null, next: null, autoAdvance: null });
 
   add({ id: "nox_comp_beat4", background: "bg_nox_cryo",
     character: { portrait: "nox_lira", expression: "warm", position: "right" },
     dialogue: [
       { speaker: "LIRA", text: "I have stopped filing things under categories when it comes to you. I wanted you to know I noticed." },
-    ], choices: null, next: null, autoAdvance: null });
+      { speaker: "LIRA", text: "If there is an after — and I am modelling a non-zero probability — I would like coffee that is not a baseline. Just coffee. With you. Unlogged." },
+      { speaker: "YOU",  text: "Unlogged." },
+      { speaker: "LIRA", text: "I've filed that under 'a thing I will not be asking about again.' Which is a lie. I will ask again." },
+    ],
+    dialogue_m: [
+      { speaker: "LIRA", text: "I have stopped filing things under categories when it comes to you. I wanted you to know I noticed." },
+      { speaker: "LIRA", text: "If there is an after, I would like coffee that is not a baseline. Just coffee. With you — a man I am no longer pretending is only an asset. Unlogged." },
+      { speaker: "YOU",  text: "Unlogged." },
+      { speaker: "LIRA", text: "I've filed that under 'a thing I will not be asking about again.' Which is a lie. I will ask again." },
+    ],
+    dialogue_f: [
+      { speaker: "LIRA", text: "I have stopped filing things under categories when it comes to you. I wanted you to know I noticed." },
+      { speaker: "LIRA", text: "If there is an after, I would like coffee that is not a baseline. Just coffee. With you — a woman I am no longer pretending is only an asset. Unlogged." },
+      { speaker: "YOU",  text: "Unlogged." },
+      { speaker: "LIRA", text: "I've filed that under 'a thing I will not be asking about again.' Which is a lie. I will ask again." },
+    ],
+    choices: null, next: null, autoAdvance: null });
 
   /* LIRA — death scenes */
   add({ id: "nox_comp_death_1", background: "explosion_cockpit_impact",
@@ -1987,9 +2192,20 @@ Object.assign(GAME, {
     return k && VN_ASSETS[k] && VN_ASSETS[k].src ? VN_ASSETS[k] : null;
   },
   // Portrait spec → entry: try <portrait>_<expression>, then <portrait>_neutral.
+  // player_hauler resolves to the face chosen at new-game (s.playerPortraitId),
+  // so every "YOU" card shows the pilot the player picked.
   _vnPortraitEntry(spec) {
     if (!spec || !spec.portrait) return null;
-    return this._vnAssetEntry(spec.portrait + "_" + (spec.expression || "neutral"))
+    const expr = spec.expression || "neutral";
+    if (spec.portrait === "player_hauler") {
+      const pid = this.state && this.state.playerPortraitId;
+      if (pid) {
+        const live = this._vnAssetEntry(pid + "_" + expr)
+                  || this._vnAssetEntry(pid + "_neutral");
+        if (live) return live;
+      }
+    }
+    return this._vnAssetEntry(spec.portrait + "_" + expr)
         || this._vnAssetEntry(spec.portrait + "_neutral");
   },
   _vnSave() {   // lazily create the persistent story blob on state
@@ -2001,10 +2217,23 @@ Object.assign(GAME, {
   },
   vnFlag(name) { const s = this.state; return !!(s.vn && s.vn.flags && s.vn.flags[name]); },
 
+  // Apply dialogue_m / dialogue_f on a scene (if present) for the pilot's gender.
+  // Call before rendering any scene that may carry gendered paths.
+  _vnApplyGender(sc) {
+    if (!sc) return sc;
+    if (sc.dialogue_m || sc.dialogue_f) {
+      const g = (typeof this.playerGender === "function" && this.playerGender() === "f") ? "f" : "m";
+      const pick = (g === "f" ? sc.dialogue_f : sc.dialogue_m) || sc.dialogue_m || sc.dialogue_f || sc.dialogue;
+      if (pick) sc.dialogue = pick;
+    }
+    return sc;
+  },
+
   // Start a chain. Returns false if the root scene doesn't exist. onComplete
   // fires exactly once — when a next:null scene finishes OR the player skips.
   vnStart(sceneId, onComplete) {
     if (!VN_SCENES[sceneId]) return false;
+    this._vnApplyGender(VN_SCENES[sceneId]);
     this._vn = { id: null, li: 0, typing: false, onComplete: onComplete || null };
     this._vnShow(true);
     this._vnGoto(sceneId);
@@ -2014,8 +2243,9 @@ Object.assign(GAME, {
   vnSkipTo(sceneId) { return this._vn ? this._vnGoto(sceneId) : false; },
 
   _vnGoto(id) {
-    const sc = VN_SCENES[id];
+    let sc = VN_SCENES[id];
     if (!sc) { this.vnEnd(); return false; }
+    sc = this._vnApplyGender(sc) || sc;
     const v = this._vn;
     v.id = id; v.li = 0;
     this._vnRenderScene(sc);
@@ -2120,7 +2350,9 @@ Object.assign(GAME, {
     clearInterval(this._vnTypeT);
     v.typing = true;
     let n = 0;
-    const txt = ln.text;
+    const raw = ln.text || "";
+    const txt = (typeof this.genderText === "function") ? this.genderText(raw) : raw;
+    v._lineTxt = txt;
     els.text.textContent = "";
     this._vnTypeT = setInterval(() => {
       n += 2;
@@ -2143,15 +2375,17 @@ Object.assign(GAME, {
     const els = this._vnDOM();
     if (!els) return false;   // headless: nothing was actually typing
     clearInterval(this._vnTypeT);
-    els.text.textContent = (sc.dialogue[v.li] || { text: "" }).text;
+    const raw = (sc.dialogue[v.li] || { text: "" }).text || "";
+    els.text.textContent = v._lineTxt || ((typeof this.genderText === "function") ? this.genderText(raw) : raw);
     this._vnLineDone(sc);
     return true;
   },
   _vnShowChoices(sc) {
     const els = this._vnDOM(); if (!els) return;
     els.hint.style.display = "none";
+    const g = (t) => (typeof this.genderText === "function") ? this.genderText(t) : t;
     els.choices.innerHTML = sc.choices.map((c, i) =>
-      '<button class="vnChoice" data-i="' + i + '">' + c.label + "</button>").join("");
+      '<button class="vnChoice" data-i="' + i + '">' + g(c.label) + "</button>").join("");
     for (const b of els.choices.querySelectorAll("[data-i]"))
       b.addEventListener("click", (e) => { e.stopPropagation(); this.vnChoose(+b.getAttribute("data-i")); });
     els.choices.classList.add("show");

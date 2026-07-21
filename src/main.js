@@ -35,7 +35,8 @@ Object.assign(GAME, {
     setSeed(42);
     this.tuneCombatCatalog();                       // slow/heavy gun retune (idempotent, pre-load)
     ForgeItemSystem.loadDB(SPACE_HAULER_CATALOG);   // inject game catalogue into the generic engine
-    ForgeEquipment.initEquipment(CONFIG.equipSlots);
+    ForgeEquipment.initEquipment(
+      (CONFIG.hulls.vulture && CONFIG.hulls.vulture.equipSlots) || CONFIG.equipSlots);
     ForgeCombat.initCombat();
     ForgeFaction.initFactions();
     ForgeWorld.initWorld(42, { onToast: (t) => toast(t) });
@@ -91,6 +92,9 @@ Object.assign(GAME, {
       credits: CONFIG.debugStartCredits, inventory: [], inventoryMax: 60, ore: {},
       homeStationId: stations[0].id, refineBonus: 0,
       playerFaction: null,   // chosen at the title screen's faction pick (persisted; game/title.js)
+      playerPortraitId: null, // face from title picker (game/player_portraits.js)
+      playerGender: null,    // "m"|"f" implied by face pick
+      playerRace: null,      // "krag"|"vex"|"nox" species of the face
       mercenary: false,      // set once, by the Q10 catastrophe (game/onboarding.js): employed → free agent
 
       titleOpen: false,      // world idles under the title screen (session-only; set by showTitleScreen)
@@ -123,7 +127,9 @@ Object.assign(GAME, {
       audioMuted: false,   // HUD speaker toggle (persisted by the save system)
       // multi-ship: owned hulls + per-ship persistent loadouts; the active
       // ship's slots mirror the live ForgeEquipment rack (_syncActiveShipSlots)
-      ships: [{ id: 1, hullKey: "vulture", name: CONFIG.hulls.vulture.name, slots: new Array(CONFIG.equipSlots).fill(null) }],
+      ships: [{ id: 1, hullKey: "vulture", name: CONFIG.hulls.vulture.name,
+        slots: new Array((CONFIG.hulls.vulture.equipSlots != null
+          ? CONFIG.hulls.vulture.equipSlots : CONFIG.equipSlots)).fill(null) }],
       activeShipId: 1,
       derived: null, towsCap: CONFIG.hulls.vulture.baseTows,
       cam: { x: homePos.x, y: homePos.y, zoom: CONFIG.zoom0, tz: CONFIG.zoom0 },
@@ -149,13 +155,11 @@ Object.assign(GAME, {
     this.initNpcTraders(this.state);
     this.initPolitics(this.state);   // faction politics: named regions + border skirmish clock
     this.initObjectives(this.state);   // Phase 6: per-territory passive objectives (game/objectives.js)
-    // default starter loadout (5 of 6 slots)
+    // default starter loadout — fills the Vulture's 3 racks (gun, shield, tractor)
     const _sr = (n) => ForgeItemSystem.seedRng(n);
     const starters = [
       ForgeItemSystem.generateItem("laser", "normal", { ilvl: 1, rng: _sr(100) }),
       ForgeItemSystem.generateItem("shield_regen_module", "normal", { ilvl: 1, rng: _sr(101) }),
-      ForgeItemSystem.generateItem("armor_repair_module", "normal", { ilvl: 1, rng: _sr(102) }),
-      ForgeItemSystem.generateItem("fuel_cell_module", "normal", { ilvl: 1, rng: _sr(103) }),
       ForgeItemSystem.generateItem("tractor_range", "normal", { ilvl: 1, rng: _sr(104) }),
     ];
     for (let si = 0; si < starters.length; si++) ForgeEquipment.equip(si, starters[si]);
@@ -1436,11 +1440,21 @@ Object.assign(GAME, {
     input.mapToggle = true; step();
     if (s.galaxyMapOpen) throw new Error("mapToggle did not close the map");
 
-    // ===== 17g) PHASE 5 FLEET: buildDrone · full cap · formation · combat AI ·
+    // ===== 17g) PHASE 5 FLEET: buildDrone · wing cap · formation · combat AI ·
     // repair/retreat · remove · permanent death =====
+    // Starter Vulture is 1-drone; multi-escort AI tests use a 3-wing hull.
     this.init(); s = this.state;
     if (!Array.isArray(s.playerFleet) || s.playerFleet.length) throw new Error("playerFleet not empty on init");
-    s.dockStationId = 0; s.aliens = [];
+    s.dockStationId = 0; s.aliens = []; s.docked = true;
+    // Free mid-tier 3-wing hull for escort AI tests (Warbarge: escortSlots 3)
+    const wingHull = CONFIG.hulls.krag_warbarge;
+    const wingShip = {
+      id: 99, hullKey: "krag_warbarge", name: wingHull.name,
+      slots: new Array(wingHull.equipSlots || 4).fill(null),
+    };
+    s.ships.push(wingShip);
+    if (!this.switchActiveShip(99).ok) throw new Error("switch to warbarge for fleet test failed");
+    if (this.escortCap() !== 3) throw new Error("warbarge escortCap must be 3, got " + this.escortCap());
     const mkCompanion = (tier) => {
       s.credits += 500;
       for (const m of DRONES.tiers[tier].materials) s.refinedBars[m.type] = (s.refinedBars[m.type] || 0) + m.n;
@@ -1457,8 +1471,8 @@ Object.assign(GAME, {
     if (s.playerFleet.length !== 3) throw new Error("fleet should hold 3: " + s.playerFleet.length);
     if (this.escorts(s).some((d, k) => d.formationIdx !== k)) throw new Error("formation indices not 0–2");
     // builds beyond the 3-slot escort wing overflow into the hangar until ownedMax, then block
-    const four = this.buildDrone(0);   // (mkCompanion asserts ok — pay manually here)
-    if (four.ok) throw new Error("4th build must fail unpaid");   // still gated on materials
+    const four = this.buildDrone(0);
+    if (four.ok) throw new Error("4th build must fail unpaid");
     const hangDrones = [];
     for (let k = 3; k < DRONES.ownedMax; k++) hangDrones.push(mkCompanion(0));
     if (hangDrones.some(d => d.role !== "hangar")) throw new Error("overflow drones must wait in hangar");
@@ -1467,12 +1481,10 @@ Object.assign(GAME, {
     s.credits += 500; for (const m of DRONES.tiers[0].materials) s.refinedBars[m.type] = (s.refinedBars[m.type] || 0) + m.n;
     if (this.buildDrone(0).ok) throw new Error("build beyond ownedMax must be blocked");
     if (s.playerFleet.length !== DRONES.ownedMax) throw new Error("blocked build must not grow the owned list");
-    // hangar drones are inert: updateFleet must not move them or tick their AI
     const hang1 = hangDrones[0];
     const hangX = hang1.x, hangY = hang1.y;
     this.updateFleet(0.5, s);
     if (hang1.x !== hangX || hang1.y !== hangY) throw new Error("hangar drone moved");
-    // combat AI: alien within 300u → acquire + attack + one applyDamage volley
     const foeFl = ForgeFaction.generateAlienShip("vex", "normal", { rng: rnd, x: s.x + 200, y: s.y });
     s.aliens = [foeFl];
     fd.x = s.x + 50; fd.y = s.y; fd.wcd = 0;
@@ -1481,7 +1493,6 @@ Object.assign(GAME, {
     if (fd.state !== "attack" || fd.targetAlienId !== foeFl.id) throw new Error("fleet did not acquire: " + fd.state);
     if (!(foeFl.hp.shield + foeFl.hp.armor + foeFl.hp.hull < foeHp0)) throw new Error("fleet weapon applyDamage not applied");
     if (!(fd.wcd > 0)) throw new Error("fleet weapon cooldown not set");
-    // spread: a second drone prefers the un-targeted alien
     const foeFl2 = ForgeFaction.generateAlienShip("krag", "normal", { rng: rnd, x: s.x + 260, y: s.y });
     s.aliens.push(foeFl2);
     const fd2 = s.playerFleet[1];
@@ -1491,7 +1502,6 @@ Object.assign(GAME, {
     s.aliens = s.aliens.filter(a => a !== foeFl);
     this.updateFleet(0.016, s);
     if (fd.targetAlienId === foeFl.id) throw new Error("dead target not cleared");
-    // repair: hp < 30% → repair state, Tier-1 Repair Bot ticks hull, > 80% resumes
     s.aliens = [];
     for (const d of s.playerFleet) { d.targetAlienId = null; d.state = "follow"; }
     fd.hp = fd.maxHp * 0.2; fd.shield = fd.maxShield;
@@ -1502,14 +1512,12 @@ Object.assign(GAME, {
     if (!(fd.hp > hpR0)) throw new Error("repair module did not tick hull");
     fd.hp = fd.maxHp * 0.85; this.updateFleet(0.016, s);
     if (fd.state !== "follow") throw new Error("repaired drone should resume follow: " + fd.state);
-    // retreat: shield 0 + hp < 50% → retreat; hp back over 50% leaves retreat
     fd.shield = 0; fd.hp = fd.maxHp * 0.4;
     this.updateFleet(0.016, s);
     if (fd.state !== "retreat") throw new Error("dry shield + low hull should retreat: " + fd.state);
     fd.hp = fd.maxHp * 0.6; this.updateFleet(0.016, s);
     if (fd.state === "retreat") throw new Error("recovered drone stuck in retreat");
     fd.shield = fd.maxShield; fd.hp = fd.maxHp;
-    // formation following: converge on the heading-rotated slot, speed clamped
     fd.state = "follow"; fd.x = s.x + 600; fd.y = s.y; fd.vx = fd.vy = 0;
     const slotFl = this.fleetSlotPos(fd, s);
     if (Math.abs(slotFl.x - (s.x - 80)) > 1 || Math.abs(slotFl.y - s.y) > 1) throw new Error("slot-0 world pos: " + JSON.stringify(slotFl));
@@ -1519,12 +1527,10 @@ Object.assign(GAME, {
       if (Math.hypot(fd.vx, fd.vy) > FLEET.maxSpeed + 1e-6) throw new Error("fleet speed clamp broken: " + Math.hypot(fd.vx, fd.vy));
     }
     if (!(this.dist(fd.x, fd.y, slotFl.x, slotFl.y) < Math.min(60, dSlot0))) throw new Error("drone did not converge on its slot");
-    // remove: companion dismissed, remaining escort slots re-pack
     if (!this.removeFromFleet(0)) throw new Error("fleet remove failed");
     if (s.playerFleet.length !== DRONES.ownedMax - 1) throw new Error("remove counts wrong: " + s.playerFleet.length);
     if (this.escorts(s).some((d, k) => d.formationIdx !== k)) throw new Error("formation not re-packed after remove");
     if (this.escorts(s).length !== 2) throw new Error("escort count after remove: " + this.escorts(s).length);
-    // roles: escort ⇄ hangar transitions (docked-only), trade dispatch + return
     s.docked = true;
     const hangDr = s.playerFleet.find(d => d.role === "hangar");
     const hangIdx = s.playerFleet.indexOf(hangDr);
@@ -1612,23 +1618,25 @@ Object.assign(GAME, {
     // switch conservation · inactive refits =====
     this.init(); s = this.state;
     if (s.ships.length !== 1 || s.activeShipId !== 1 || s.ships[0].hullKey !== "vulture") throw new Error("ship registry boot state");
-    if (s.ships[0].slots.filter(Boolean).length !== 5) throw new Error("starter loadout not mirrored into the ship record");
+    if (s.ships[0].slots.filter(Boolean).length !== 3) throw new Error("starter loadout not mirrored into the ship record");
+    if ((CONFIG.hulls.vulture.equipSlots || 0) !== 3 || (CONFIG.hulls.vulture.escortSlots || 0) !== 1)
+      throw new Error("vulture must be 3 equip / 1 escort");
+    if (this.escortCap() !== 1) throw new Error("starter escortCap must be 1");
     s.docked = true;
     if (this.buyShip("vulture").ok) throw new Error("starter hull must not be for sale");
     // progression gates: a fresh pilot sees LOCKED regardless of purse
-    // (OR-gate: cumulative outpost captures / lifetime max danger reached)
     s.credits = 500000;
     if (this.shipUnlockStatus("atlas").unlocked) throw new Error("atlas must boot locked");
     if (this.buyShip("atlas").ok) throw new Error("locked hull must not sell");
-    s.maxDangerReached = 4;                       // flew into a danger-4 wedge once
-    if (!this.shipUnlockStatus("atlas").unlocked) throw new Error("danger 4 must unlock the atlas");
+    s.maxDangerReached = 3;                       // atlas unlock: danger 3+
+    if (!this.shipUnlockStatus("atlas").unlocked) throw new Error("danger 3 must unlock the atlas");
     s.credits = 100;
     if (this.buyShip("atlas").ok) throw new Error("broke buyShip must fail");
     s.credits = 60000;
-    // upgrade: fitted modules ride along, the old rack empties, health restores full
+    // upgrade: fitted modules ride along (clipped to new rack if smaller), old rack empties
     const rackIds = ForgeEquipment.getEquipped().slots.filter(Boolean).map(i => i.id).join();
     const invPreSwitch = s.inventory.length;
-    s.hp.shield = 10; s.hp.hull = 100;            // fly in beat up — the new hull leaves dock fresh
+    s.hp.shield = 10; s.hp.hull = 100;
     const shipBuy = this.buyShipUpgrade("atlas");
     if (!shipBuy.ok) throw new Error("atlas upgrade failed: " + shipBuy.reason);
     if (s.credits !== 60000 - CONFIG.hulls.atlas.cost.credits) throw new Error("upgrade credits not deducted");
@@ -1636,27 +1644,26 @@ Object.assign(GAME, {
     if (ForgeEquipment.getEquipped().slots.filter(Boolean).map(i => i.id).join() !== rackIds) throw new Error("modules must transfer to the new ship");
     if (s.ships[0].slots.some(Boolean)) throw new Error("old hull must hand its modules over");
     if (s.inventory.length !== invPreSwitch) throw new Error("upgrade leaked items into cargo");
-    if (s.derived.hullMax !== 1350 || s.derived.fuelMax !== 1500) throw new Error("derived stats must follow the atlas hull");
+    if (s.derived.hullMax !== CONFIG.hulls.atlas.baseShip.hullMax) throw new Error("derived stats must follow the atlas hull");
     if (s.hp.hull !== s.hp.hullMax || s.hp.shield !== s.hp.shieldMax || s.hp.armor !== s.hp.armorMax) throw new Error("upgrade must restore full health");
+    if (this.escortCap() !== 2) throw new Error("atlas escortCap must be 2");
     if (this.buyShip("atlas").ok) throw new Error("duplicate hull must be refused");
-    // aegis gates on the capture-counter path — danger 4 isn't enough
-    if (this.shipUnlockStatus("aegis").unlocked) throw new Error("aegis must still be locked at danger 4");
-    s.capturedOutpostCount = 10;
-    if (!this.shipUnlockStatus("aegis").unlocked) throw new Error("10 captures must unlock the aegis");
-    // item conservation across a plain switch — nothing duped, nothing lost
+    // aegis gates on captures / danger 6
+    if (this.shipUnlockStatus("aegis").unlocked) throw new Error("aegis must still be locked early");
+    s.capturedOutpostCount = 8;
+    if (!this.shipUnlockStatus("aegis").unlocked) throw new Error("8 captures must unlock the aegis");
     ForgeEquipment.activateSkill(1);
     s.docked = false;
     if (this.switchActiveShip(1).ok) throw new Error("undocked switch must be refused");
     s.docked = true;
     if (!this.switchActiveShip(1).ok) throw new Error("switch back to the vulture failed");
     if (!ForgeEquipment.getEquipped().slots.every(x => x === null)) throw new Error("vulture rack should now be empty");
-    if (s.derived.hullMax !== 900) throw new Error("derived not back on the vulture hull");
+    if (s.derived.hullMax !== CONFIG.hulls.vulture.baseShip.hullMax) throw new Error("derived not back on the vulture hull");
     if (ForgeEquipment.getSkillState().some(sk => sk.active)) throw new Error("skills must deactivate on switch");
     if (!this.switchActiveShip(shipBuy.ship.id).ok) throw new Error("switch to atlas failed");
     if (ForgeEquipment.getEquipped().slots.filter(Boolean).map(i => i.id).join() !== rackIds) throw new Error("atlas rack not restored");
-    if (s.hp.hullMax !== 1350 || s.fuel > s.fuelMax + 1e-9) throw new Error("hp/fuel not resynced on switch");
+    if (s.hp.hullMax !== CONFIG.hulls.atlas.baseShip.hullMax || s.fuel > s.fuelMax + 1e-9) throw new Error("hp/fuel not resynced on switch");
     if (s.inventory.length !== invPreSwitch) throw new Error("switch leaked items into cargo");
-    // inactive-ship refits are pure array moves; the live rack never notices
     const vultureShip = s.ships.find(sh => sh.hullKey === "vulture");
     const spareItem = ForgeItemSystem.generateItem("shield_extender", "rare", { ilvl: 3, rng: ForgeItemSystem.seedRng(9) });
     s.inventory.push(spareItem);
@@ -1664,14 +1671,18 @@ Object.assign(GAME, {
     if (!this.loadoutEquip(vultureShip.id, s.inventory.length - 1, null)) throw new Error("inactive-ship equip failed");
     if (vultureShip.slots[0] !== spareItem || s.inventory.includes(spareItem)) throw new Error("inactive equip must move item cargo→slots");
     if (ForgeEquipment.getEquipped().slots.filter(Boolean).map(i => i.id).join() !== rackSnap) throw new Error("inactive refit touched the live rack");
-    // stat delta preview is pure
     const prevSlots = vultureShip.slots.slice();
-    const dl = this._loShipDeltas(vultureShip, new Array(CONFIG.equipSlots).fill(null));
+    const dl = this._loShipDeltas(vultureShip, new Array(this.hullEquipSlots(CONFIG.hulls.vulture)).fill(null));
     if (!dl.some(x => x.label === "Shield" && x.to < x.from)) throw new Error("delta preview should report the shield loss");
     if (vultureShip.slots.join() !== prevSlots.join()) throw new Error("delta preview mutated ship slots");
     if (ForgeEquipment.getEquipped().slots.filter(Boolean).map(i => i.id).join() !== rackSnap) throw new Error("delta preview touched the live rack");
     if (!this.loadoutUnequip(vultureShip.id, 0)) throw new Error("inactive-ship unequip failed");
     if (!s.inventory.includes(spareItem)) throw new Error("inactive unequip must return the item");
+    // endgame wings: top tier ≥4, only Eclipse has 6
+    if ((CONFIG.hulls.aegis.escortSlots || 0) < 4) throw new Error("aegis should field a 4-drone wing");
+    if ((CONFIG.hulls.krag_dreadnought.escortSlots || 0) < 4) throw new Error("dread should field a 4-drone wing");
+    if ((CONFIG.hulls.vex_executor.escortSlots || 0) < 4) throw new Error("executor should field a 4-drone wing");
+    if ((CONFIG.hulls.nox_eclipse.escortSlots || 0) !== 6) throw new Error("eclipse is the only 6-drone crown deck");
 
     // ===== 17i) TRADE CONVOYS: stacked payout · survival scaling · casualties =====
     this.init(); s = this.state;
@@ -2264,7 +2275,7 @@ Object.assign(GAME, {
 
     // ===== 22) reset =====
     this.init(); const gs = this.getState();
-    if (gs.credits !== CONFIG.debugStartCredits || gs.tradeNetworkComplete || gs.hull !== CONFIG.baseShip.hullMax || gs.equipped !== 5 || gs.inventory !== 0) throw new Error("init reset");
+    if (gs.credits !== CONFIG.debugStartCredits || gs.tradeNetworkComplete || gs.hull !== CONFIG.baseShip.hullMax || gs.equipped !== 3 || gs.inventory !== 0) throw new Error("init reset");
     if (gs.ships !== 1 || gs.activeShip !== 1 || gs.escorts !== 0) throw new Error("init reset: ship registry");
     this._selfTesting = false;
     return true;
