@@ -279,7 +279,7 @@ Object.assign(GAME, {
     const C = CONFIG, streamR = C.outpostGuardStreamR;
     for (const t of s.sites) {
       const d = this.dist(s.x, s.y, t.x, t.y);
-      if (!t.discovered && (d < C.fieldDiscoverR || this.isTileExplored(t.x, t.y))) {
+      if (!t.discovered && d < C.fieldDiscoverR) {   // proximity only — a survey gives a contact, not an ID
         t.discovered = true;
         const def = SITE_DEFS[t.type];
         // a fortified site is the exception — say so, the player is about to be shot at

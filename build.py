@@ -33,10 +33,10 @@ MODULES = [
 # (init/update/draw/selfTest/boot) last.
 GAME_FILES = [
     "core/config.js", "content/catalog.js", "content/planet_data.js", "game/sprites.js", "core/camera.js", "core/input.js", "core/physics.js",
-    "world/stars.js", "world/planets.js", "world/ores.js", "world/fields.js", "world/regions.js", "world/junk.js", "world/obstacles.js", "world/rendering.js",
+    "world/stars.js", "world/planets.js", "world/ores.js", "world/fields.js", "world/regions.js", "world/junk.js", "world/obstacles.js", "world/rendering.js", "world/fog.js",
     "game/audio.js", "game/player.js", "game/economy.js", "game/item_icons.js", "game/ui.js", "game/encounters.js", "game/enemy_bases.js", "game/outposts.js",
-    "game/regions.js", "game/sites.js", "game/lineage.js", "game/politics.js", "game/victory.js", "game/tutorial.js",
-    "game/drones.js", "game/ships.js", "game/contracts.js", "game/quests.js", "game/fleet.js", "game/npc_traders.js", "game/trade_routes.js", "game/galaxy_map.js", "game/objectives.js",
+    "game/regions.js", "game/sites.js", "game/scan.js", "game/lineage.js", "game/politics.js", "game/victory.js", "game/tutorial.js",
+    "game/drones.js", "game/ships.js", "game/contracts.js", "game/quests.js", "game/radio.js", "game/fleet.js", "game/npc_traders.js", "game/trade_routes.js", "game/galaxy_map.js", "game/objectives.js",
     "game/save.js",
     "game/title.js",
     "game/visual_novel.js",
@@ -50,6 +50,7 @@ GAME_FILES = [
     "game/merc_quests.js",
     "game/station_merc.js",
     "game/skills.js",
+    "game/clay_world_engine.js",   # locked procedural clay diorama engine (before planet_surface)
     "game/planet_surface.js",
     "game/phase7.js",
     "main.js",
@@ -59,7 +60,11 @@ HEAD = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<!-- viewport-fit=cover is REQUIRED for env(safe-area-inset-*) to report real
+     values on notched iPhones. Without it the webview still draws edge-to-edge
+     (Capacitor contentInset:never) but every env() reads 0 — the worst pairing:
+     content under the Dynamic Island with nothing able to measure the inset. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Space Hauler v4</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128640;</text></svg>">
 <!--
@@ -109,6 +114,33 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   #stage{width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
   /* canvas fills the viewport in any orientation (aspect set live in main.js boot) */
   canvas#game{background:#05070d;display:block;touch-action:none}
+
+  /* ---- iPhone safe area ----------------------------------------------------
+     env() is CSS-only, so this hidden probe is how main.js fit() reads the notch
+     / home-indicator insets in JS (getComputedStyle → padding). The canvas keeps
+     a full-bleed backing buffer but its logical draw rect is inset to these, so
+     every canvas-drawn element — HUD, galaxy map, planet UI — lands in the safe
+     area from one place instead of ~20 duplicated y-anchors. Page background
+     matches the game's own fill (#05070d), so the inset reads as bezel. */
+  /* Measured GEOMETRICALLY (getBoundingClientRect), not by parsing computed
+     padding — WKWebView reported padding:env(...) as 0px on a zero-size probe
+     even while the same env() correctly offset #vnSkip. Sizing a real box and
+     measuring it is unambiguous. */
+  #safeT{position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top,0px);
+    visibility:hidden;pointer-events:none}
+  #safeB{position:fixed;bottom:0;left:0;width:1px;height:env(safe-area-inset-bottom,0px);
+    visibility:hidden;pointer-events:none}
+  #safeL{position:fixed;top:0;left:0;height:1px;width:env(safe-area-inset-left,0px);
+    visibility:hidden;pointer-events:none}
+  #safeR{position:fixed;top:0;right:0;height:1px;width:env(safe-area-inset-right,0px);
+    visibility:hidden;pointer-events:none}
+  /* DOM overlays stay full-bleed (their art should reach the bezel) but their
+     CONTENT is padded clear of the notch and the home indicator. */
+  #loadoutPanel,#dronePanel,#contractsPanel,#fleetPanel,#storePanel,#warpPanel,
+  #shipsPanel,#skillsPanel,#titlePanel{
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+    box-sizing:border-box}
 
   /* ---- STATION BAY · loadout tab (DOM overlay; shown only while docked on LOADOUT) ---- */
   #loadoutPanel{position:fixed;inset:0;display:none;flex-direction:column;z-index:20;touch-action:none;
@@ -632,7 +664,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   #vnChar.pos-left{left:6%}
   #vnChar.pos-right{right:6%}
   #vnChar.pos-center{left:50%;transform:translateX(-50%)}
-  #vnBox{position:absolute;left:50%;transform:translateX(-50%);bottom:2.4vh;width:min(92vw,880px);
+  #vnBox{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(2.4vh + env(safe-area-inset-bottom,0px));width:min(92vw,880px);
     min-height:19vh;background:rgba(6,10,18,.9);border:1px solid #1c3a52;border-radius:14px;
     padding:14px 18px 26px;box-shadow:0 0 44px rgba(0,0,0,.6);cursor:pointer}
   #vnSpeaker{font-size:12px;font-weight:700;letter-spacing:2.5px;color:#8fd0ff;margin-bottom:8px;min-height:14px}
@@ -645,7 +677,11 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   .vnChoice:hover{background:#1e2b3e;border-color:#57d1c9}
   #vnHint{position:absolute;right:16px;bottom:8px;color:#57d1c9;font-size:11px;animation:vnBlink 1.1s ease infinite}
   @keyframes vnBlink{0%,100%{opacity:.15}50%{opacity:.9}}
-  #vnSkip{position:absolute;top:12px;right:12px;padding:8px 13px;border-radius:9px;border:1px solid #2a3a52;
+  /* top offset includes the notch inset — an absolutely positioned child is laid
+     out from the container's PADDING BOX, so the overlay's safe-area padding does
+     not move it. Without this the SKIP button sits under the status bar and is
+     physically untappable on a notched iPhone. */
+  #vnSkip{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:12px;padding:8px 13px;border-radius:9px;border:1px solid #2a3a52;
     background:rgba(22,32,47,.85);color:#7f8ea6;font-family:inherit;font-size:11px;font-weight:700;
     cursor:pointer;letter-spacing:1px}
   #vnSkip:hover{color:#e8edf4;border-color:#57d1c9}
@@ -766,6 +802,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
 </style>
 </head>
 <body>
+<div id="safeT"></div><div id="safeB"></div><div id="safeL"></div><div id="safeR"></div>
 <div id="stage"><canvas id="game"></canvas></div>
 
 <!-- ===== STATION BAY · LOADOUT tab (DOM overlay; populated by GAME.renderLoadoutPanel) ===== -->
@@ -1221,6 +1258,14 @@ def check():
     const stok = Array.isArray(stf) && stf.length === 0;
     console.log((stok ? 'GREEN  ' : 'FAIL   ') + 'GAME.sitesSelfTest' + (stok ? '' : ' ' + JSON.stringify(stf)));
     if (!stok) bad++;
+    const fgf = globalThis.GAME.fogSelfTest ? globalThis.GAME.fogSelfTest() : ['fogSelfTest missing'];
+    const fgok = Array.isArray(fgf) && fgf.length === 0;
+    console.log((fgok ? 'GREEN  ' : 'FAIL   ') + 'GAME.fogSelfTest' + (fgok ? '' : ' ' + JSON.stringify(fgf)));
+    if (!fgok) bad++;
+    const rsf = globalThis.GAME.scanSelfTest ? globalThis.GAME.scanSelfTest() : ['scanSelfTest missing'];
+    const rsok = Array.isArray(rsf) && rsf.length === 0;
+    console.log((rsok ? 'GREEN  ' : 'FAIL   ') + 'GAME.scanSelfTest' + (rsok ? '' : ' ' + JSON.stringify(rsf)));
+    if (!rsok) bad++;
     const qsf = globalThis.GAME.questsSelfTest ? globalThis.GAME.questsSelfTest() : ['questsSelfTest missing'];
     const qsok = Array.isArray(qsf) && qsf.length === 0;
     console.log((qsok ? 'GREEN  ' : 'FAIL   ') + 'GAME.questsSelfTest' + (qsok ? '' : ' ' + JSON.stringify(qsf)));
@@ -1229,6 +1274,18 @@ def check():
     const look = Array.isArray(lof) && lof.length === 0;
     console.log((look ? 'GREEN  ' : 'FAIL   ') + 'GAME.loungeSelfTest' + (look ? '' : ' ' + JSON.stringify(lof)));
     if (!look) bad++;
+    const mq = globalThis.GAME.mercQuestsSelfTest ? globalThis.GAME.mercQuestsSelfTest() : ['mercQuestsSelfTest missing'];
+    const mqok = Array.isArray(mq) && mq.length === 0;
+    console.log((mqok ? 'GREEN  ' : 'FAIL   ') + 'GAME.mercQuestsSelfTest' + (mqok ? '' : ' ' + JSON.stringify(mq)));
+    if (!mqok) bad++;
+    const sm = globalThis.GAME.stationMercSelfTest ? globalThis.GAME.stationMercSelfTest() : ['stationMercSelfTest missing'];
+    const smok = Array.isArray(sm) && sm.length === 0;
+    console.log((smok ? 'GREEN  ' : 'FAIL   ') + 'GAME.stationMercSelfTest' + (smok ? '' : ' ' + JSON.stringify(sm)));
+    if (!smok) bad++;
+    const sc = globalThis.GAME.storyCampaignSelfTest ? globalThis.GAME.storyCampaignSelfTest() : ['storyCampaignSelfTest missing'];
+    const scok = Array.isArray(sc) && sc.length === 0;
+    console.log((scok ? 'GREEN  ' : 'FAIL   ') + 'GAME.storyCampaignSelfTest' + (scok ? '' : ' ' + JSON.stringify(sc)));
+    if (!scok) bad++;
     const obf = globalThis.GAME.objectivesSelfTest ? globalThis.GAME.objectivesSelfTest() : ['objectivesSelfTest missing'];
     const obok = Array.isArray(obf) && obf.length === 0;
     console.log((obok ? 'GREEN  ' : 'FAIL   ') + 'GAME.objectivesSelfTest' + (obok ? '' : ' ' + JSON.stringify(obf)));
@@ -1245,6 +1302,14 @@ def check():
     const onbok = Array.isArray(onbf) && onbf.length === 0;
     console.log((onbok ? 'GREEN  ' : 'FAIL   ') + 'GAME.onboardingSelfTest' + (onbok ? '' : ' ' + JSON.stringify(onbf)));
     if (!onbok) bad++;
+    const rdf = globalThis.GAME.radioSelfTest ? globalThis.GAME.radioSelfTest() : ['radioSelfTest missing'];
+    const rdok = Array.isArray(rdf) && rdf.length === 0;
+    console.log((rdok ? 'GREEN  ' : 'FAIL   ') + 'GAME.radioSelfTest' + (rdok ? '' : ' ' + JSON.stringify(rdf)));
+    if (!rdok) bad++;
+    const plf = (globalThis.PLANET && globalThis.PLANET.selfTest) ? globalThis.PLANET.selfTest() : ['PLANET.selfTest missing'];
+    const plok = Array.isArray(plf) && plf.length === 0;
+    console.log((plok ? 'GREEN  ' : 'FAIL   ') + 'PLANET.selfTest' + (plok ? '' : ' ' + JSON.stringify(plf)));
+    if (!plok) bad++;
     console.log(bad ? ('SELFTEST FAILED (' + bad + ')') : 'ALL GREEN');
     process.exit(bad ? 1 : 0);
     """

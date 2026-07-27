@@ -901,6 +901,18 @@ Object.assign(GAME, {
     s.docked = false; s.dockStationId = null;
 
     toast("✖ SHIP LOST — you fly for yourself now", "#9fd36a");
+    // Breadcrumb: empty log after wipe — steer into free work so Act 1 can fire
+    if (typeof toast === "function") {
+      setTimeout(() => {
+        if (typeof toast === "function")
+          toast("Dock any berth · Work lounge — take a job. Your story is not done.", "#57e6ff", 4);
+      }, 900);
+    }
+    // Ensure merc board can open (tutorial complete flag)
+    try {
+      const vn = this._vnSave();
+      if (vn && vn.seen) vn.seen.onb_done = true;
+    } catch (e) { /* soft */ }
     this.saveGame();
     return true;
   },
@@ -1056,7 +1068,7 @@ Object.assign(GAME, {
           check(q.have === 0, fac + " " + key + ": " + other + " must not advance the " + ore + " rung");
 
           // ...then the real thing. Retyping the slot is safe: depositTows reads
-          // .type before depositRespawnRock tombstones it (world/ores.js).
+          // .type before consumeRock tombstones it (world/ores.js).
           s.tows = [];
           for (let k = 0; k < q.need && k < s.rocks.length; k++) {
             s.rocks[k].type = ore;

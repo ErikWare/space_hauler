@@ -302,10 +302,14 @@ const CONFIG = {
   collCell: 128,    // grid cell; must exceed the largest rock's diameter (~67)
   // ---- camera (pitch = foreshortened world-y) ----
   pitch: 0.82, zoom0: 1.0, zoomMin: 0.08, zoomMax: 3.0, zoomStep: 1.18, zoomLerp: 0.12,
-  // ---- ORE rings (centered on home station at Mira; ore sells directly) ----
-  // n = legacy home-ring spawn count (n:0 = never seeded at home). Only the
-  // first five (junk→platinum) ring the home station; every other ore is a
-  // map-only find distributed by CONFIG.oreBands (distance-weighted variety).
+  // ---- ORE rings (ore sells directly, separate from Forge salvage items) ----
+  // n = per-station spawn count for the starting flavor patch. Only rings[0]
+  // ("junk") has n>0 — main.js seeds it in a ring around EVERY station so the
+  // local ForgeNPC miners have something nearby to start on. It no longer
+  // refills: NOTHING in the world does, so a picked-over home system stays
+  // picked over and its miners eventually idle.
+  // Every other ore (n:0) is a map-only find distributed by CONFIG.oreBands
+  // (distance-weighted variety) — mine it out and it's gone until you expand.
   //   INDUSTRIAL (refine→bars, drone economy): copper/silver/gold/platinum
   //   PRECIOUS   (raw-sell variety, indices 9-12): hematite/titanium/malachite/cobalt
   //   EXOTIC     (raw-sell, veins + rare map sprinkle, indices 5-8): iridium…voidium
@@ -313,10 +317,10 @@ const CONFIG = {
   // position) — APPEND new ores, never reorder the first five.
   rings: [
     { r: 400,  n: 8, type: "junk",     value: 8,     mass: 1.0, col: "#8a8f98", rarity: "normal" },
-    { r: 1000, n: 7, type: "copper",   value: 30,    mass: 1.4, col: "#c9784a", rarity: "normal" },
-    { r: 2200, n: 6, type: "silver",   value: 90,    mass: 1.8, col: "#c8d4e0", rarity: "rare" },
-    { r: 4000, n: 5, type: "gold",     value: 240,   mass: 2.4, col: "#ffd24a", rarity: "unique" },
-    { r: 7000, n: 4, type: "platinum", value: 600,   mass: 3.2, col: "#7ff0e8", rarity: "elite" },
+    { r: 1000, n: 0, type: "copper",   value: 30,    mass: 1.4, col: "#c9784a", rarity: "normal" },
+    { r: 2200, n: 0, type: "silver",   value: 90,    mass: 1.8, col: "#c8d4e0", rarity: "rare" },
+    { r: 4000, n: 0, type: "gold",     value: 240,   mass: 2.4, col: "#ffd24a", rarity: "unique" },
+    { r: 7000, n: 0, type: "platinum", value: 600,   mass: 3.2, col: "#7ff0e8", rarity: "elite" },
     { r: 0,    n: 0, type: "iridium",  value: 1500,  mass: 3.6, col: "#b78aff", rarity: "exotic" },
     { r: 0,    n: 0, type: "cryonite", value: 3200,  mass: 4.0, col: "#4a86ff", rarity: "exotic" },
     { r: 0,    n: 0, type: "solarite", value: 7000,  mass: 4.4, col: "#ff5a4a", rarity: "exotic" },
@@ -339,13 +343,19 @@ const CONFIG = {
     { maxDist: 45000, w: { copper: 8, hematite: 10, titanium: 18, silver: 24, malachite: 20, gold: 10, cobalt: 12 } },
     { maxDist: 1e9,   w: { titanium: 8, silver: 14, malachite: 20, gold: 15, cobalt: 26, platinum: 17 } },
   ],
-  debugStartCredits: 10000,        // DEBUG: starting purse — drop back to 0 before ship
+  startCredits: 1000,              // opening purse — enough for a first module, not a free deck
   ringSpread: 60,
   rarityCol: { normal: "#b8c0cc", rare: "#5fa8ff", unique: "#c77dff", elite: "#ffb020" },
   // ---- solar system layout ----
   WORLD_RADIUS: 85000,
   STAR_RADIUS: 1800,
-  FOG_TILE: 2000,
+  // Fog lattice + reveal bubble (world/fog.js). The tile is deliberately much
+  // finer than a region so the cleared area reads as a bubble around the ship
+  // rather than a chunk of the map; fogRevealR is what you actually uncover as
+  // you fly, and it wants to stay well inside the on-screen world so there is
+  // always fog at the edges to push into.
+  FOG_TILE: 400,
+  fogRevealR: 650,
   solarPlanets: [
     // r +25% (2026-07-17 look/feel pass): planets read too small next to the
     // clay globes' presence. Stations sit at r*2.8 (main.js) and rings/gravity
@@ -354,7 +364,13 @@ const CONFIG = {
     { name: "Cinder",    orbit: 14000, r: 1250, type: "lava",       moons: 1, rings: false, stationIdx: 2, faction: "vex" },
     { name: "Arix",      orbit: 22000, r: 2250, type: "tan_gas",    moons: 2, rings: true,  stationIdx: 3, faction: "vex" },
     { name: "Dusk",      orbit: 32000, r: 1500, type: "ice",        moons: 1, rings: false, stationIdx: 4, faction: "krag" },
-    { name: "Mira",      orbit: 44000, r: 1750, type: "life",       moons: 2, rings: false, stationIdx: 0, faction: "krag" },
+    { name: "Mira",      orbit: 44000, r: 1750, type: "life",       moons: 2, rings: false, stationIdx: 0, faction: "krag",
+      // Named landable moons → PLANET_DEFS landKey (Selene = moon base world)
+      moonNames: [
+        { name: "Selene", landKey: "selene" },
+        { name: "Mira Minor", landKey: null },
+      ],
+    },
     { name: "Sorn",      orbit: 58000, r: 1375, type: "desert",     moons: 1, rings: false, stationIdx: 5, faction: "krag" },
     { name: "Halveth",   orbit: 72000, r: 2500, type: "purple_gas", moons: 3, rings: true,  stationIdx: 6, faction: "nox" },
     { name: "Nox Prime", orbit: 80000, r: 2000, type: "dark",       moons: 1, rings: false, stationIdx: 7, faction: "nox" },
@@ -395,7 +411,8 @@ const CONFIG = {
   // ---- inert junk floaters (→ Forge salvage items when hauled in) ----
   // World Density Pass: ~850 floaters across five zone types — planet halos,
   // orbital lane scatter, station debris fields, hotspot clusters, whole-map
-  // fill. Every floater drifts 0.1–0.4 u/s and respawns back into its zone.
+  // fill. Every floater drifts 0.1–0.4 u/s. Hauling one off is permanent — none
+  // of these zones respawn (world/junk.js consumeJunk); expand to find more.
   // counts −30% (2026-07-17 look/feel pass — clay sprites made the old density
   // read as clutter)
   junkPlanetHaloMin: 18, junkPlanetHaloMax: 27,
@@ -408,13 +425,12 @@ const CONFIG = {
   stationDebrisMin: 14, stationDebrisMax: 21,
   stationDebrisDistMin: 500, stationDebrisDistMax: 800,
   junkDriftMin: 0.1, junkDriftMax: 0.4,
-  // Depositing a towed rock/junk at a station used to respawn it INSTANTLY back
-  // into its zone — right outside the station you were docked at — which let the
-  // player spam-mine home base for free modules. Non-field deposits now free the
-  // slot and queue a delayed respawn (world/ores.js, world/junk.js, game/economy.js)
-  // so the resource has to regenerate over time. Field rocks are unaffected — they
-  // already stream out and regen via fieldRegenPerSec.
-  depositRespawnDelay: 150,   // seconds before a deposited zone rock/junk re-scatters
+  // THE WORLD IS A FINITE BUDGET. Every rock and floater is consumed for good the
+  // moment anything takes it — player deposit, weapon fire, or an NPC miner
+  // (world/ores.js consumeRock, world/junk.js consumeJunk). Field stock and field
+  // salvage are counted per field and never regrow; both are persisted, so the
+  // depletion survives a reload. Expanding into new territory is the only way to
+  // find more. No exemptions — not the station junk patch, not field salvage.
   junkTypes: [   // keys match ForgeItemSystem drop_map exactly
     // r drives collision + tap radius AND draw scale (rendering.js j.r×5). Bumped
     // ~1.5× (2026-07-16) so salvage reads at the same visual weight as ore rocks
@@ -442,12 +458,16 @@ const CONFIG = {
   // (field.r + fieldActivatePad); then its `stock` rocks instantiate into
   // s.rocks and drain back to the descriptor on exit. Live rock count therefore
   // tracks only the 1–4 active fields, not total world capacity (~7k rocks).
-  // Mining a field rock depletes stock; stock refills at fieldRegenPerSec while
-  // the field is dormant (slow-regen renewable resource).
+  // Mining a field rock depletes its stock permanently — there is no regen. A
+  // dormant field used to refill toward cap, which made the world infinite: fly
+  // away, come back, full field. Fields now only ever shrink.
   fieldActivatePad: 2200,     // activate margin beyond field radius (off-screen)
   fieldDeactivatePad: 4200,   // deactivate margin — hysteresis vs activate
-  fieldRegenPerSec: 0.4,      // stock refilled/sec while dormant
-  fieldDiscoverR: 4200,       // ship within this of a field → icon revealed for good
+  // ship within this of a field/site/outpost → identified for good. Cut from
+  // 4200 when fog became the exploration feel: overflying no longer auto-reveals
+  // (the || isTileExplored disjunct is gone), so you must nearly touch a thing
+  // to learn what it is. A region survey only ever gives you a vague contact.
+  fieldDiscoverR: 1800,
   // field radii exceed the 2000 half-sector so neighboring regions' drops
   // overlap at the edges — a continuous resource fabric, not island clusters.
   // makeFieldRock biases toward the center (fieldSpreadPow) but reaches the rim.
@@ -568,6 +588,10 @@ const CONFIG = {
   // The Region Event Manager (updateRegions) tracks the ship's region + scales
   // content by quest progress. Regions and the map are STATIC (seed-deterministic).
   sectorSize: 4000,           // cell side; region "radius" = sectorSize/2
+  // how far out the HUD dial carries rim-clamped markers (outposts / stations /
+  // sites / survey contacts). ~5×5 regions — the dial answers "what's around
+  // here", not "what have I ever found" (world/rendering.js buildMinimap).
+  minimapLocalR: 10000,
   regionRich2Chance: 0.16,    // P(a plain region rolls a 2nd field)
   regionRich3Chance: 0.05,    // P(a plain region rolls a 3rd field) — very rich
   regionFieldJitter: 900,     // field center offset from region center
@@ -675,7 +699,7 @@ function sfx(name) {
 // ---- input schema (see core/input.js + main.js boot for the DOM wiring) ----
 const input = {
   ax: 0, ay: 0,                    // held thrust direction (screen-aligned, up = -y)
-  tractorEdge: false, restart: false, zoomEdge: 0,
+  tractorEdge: false, zoomEdge: 0,
   returnToBase: false, toggleMode: false,
   pickX: null, pickY: null,        // world tap → lock alien (in scan) or tow rock/junk
   dock: false, refuel: false, closeMenu: false,
@@ -684,6 +708,9 @@ const input = {
   dockTab: null,                   // "loadout" | "store" | "warp" | "ships" | "drones" | "fleet" | "contracts" request
   warpToggle: false,
   mapToggle: false,                // M key / MAP button → galaxy map overlay
+  radioToggle: false,              // T key → cockpit radio on/off (game/radio.js)
+  radioCycle: false,               // Y key → cycle radio channel
+  deepScan: false,                 // K key / SURVEY button → region sensor sweep (game/scan.js)
   landEdge: false,                 // L key near a planet → land; also used as launch key in space
 };
 

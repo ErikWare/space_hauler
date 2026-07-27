@@ -150,44 +150,16 @@ Object.assign(GAME, {
     }
     s._stationDebris = n;
   },
-  respawnJunk(i) {   // re-scatter a hauled-off debris slot back into its zone
-    const j = this.state.junk[i];
-    if (j.fieldId) {   // field junk: respawn in-field while active, else free the slot
-      const f = this.fieldById(j.fieldId);
-      if (f && f.active) { const nj = this.makeFieldJunk(f); this.state.junk[i] = nj; }
-      else this._freeJunkSlot(i);
-      return;
-    }
-    const nj = this.makeJunkZone(j.zone || "fill");
-    Object.assign(j, nj);
-  },
-  // Deposit path (game/economy.js): junk hauled to a station is consumed. Field
-  // junk frees its slot (respawnJunk). Non-field zone junk — including the debris
-  // ring right around each station — used to re-scatter INSTANTLY into its zone,
-  // feeding a spam-salvage loop at home base. Free the slot now and queue a
-  // delayed respawn instead so the debris field regenerates over time.
-  depositRespawnJunk(i) {
+  // Salvage is consumed exactly like ore — nothing re-scatters. Field junk used
+  // to respawn in-field the instant you deposited it (and again on every field
+  // activation), so a single debris patch was an infinite credit faucet.
+  consumeJunk(i) {
     const s = this.state, j = s.junk[i];
-    if (j.fieldId) { this.respawnJunk(i); return; }   // field junk: free slot, despawns with the field
-    const zone = j.zone || "fill";
+    if (!j || !j.active) return;
+    if (j.fieldId) {
+      const f = this.fieldById(j.fieldId);
+      if (f && !f.active) f.junkStock = Math.max(0, f.junkStock - 1);
+    } else if (j.sIdx != null) s.consumedZone.add("j" + j.sIdx);   // persist the loss
     this._freeJunkSlot(i);
-    s.respawnQueue.push({ arr: "junk", t: CONFIG.depositRespawnDelay, zone });
-  },
-  // Count down queued deposit respawns; re-scatter each into its zone when ready.
-  tickRespawns(dt) {
-    const s = this.state, q = s.respawnQueue;
-    if (!q || !q.length) return;
-    for (let k = q.length - 1; k >= 0; k--) {
-      const e = q[k];
-      e.t -= dt;
-      if (e.t > 0) continue;
-      if (e.arr === "rocks") {
-        this._spawnRock(e.zone ? this.makeZoneRock(e.zone)
-          : this.makeRock(CONFIG.rings.find(g => g.type === e.type) || CONFIG.rings[0], e.center));
-      } else {
-        this._spawnJunk(this.makeJunkZone(e.zone || "fill"));
-      }
-      q.splice(k, 1);
-    }
   },
 });

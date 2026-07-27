@@ -476,7 +476,7 @@ Object.assign(GAME, {
       const d = this.dist(s.x, s.y, o.x, o.y);
       // safety net: any damage path that zeroes the hull flips the platform
       if (o.hull <= 0 && o.owner !== "player") this._captureOutpostByForce(o);
-      if (!o.discovered && (d < C.fieldDiscoverR || this.isTileExplored(o.x, o.y))) {
+      if (!o.discovered && d < C.fieldDiscoverR) {   // proximity only — a survey gives a contact, not an ID
         o.discovered = true;
         toast("◆ outpost sighted — " + this.regionLabel(this.regionGet(o.regionId)), this.outpostFactionCol(o));
       }

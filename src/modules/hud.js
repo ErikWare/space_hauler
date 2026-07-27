@@ -348,6 +348,39 @@
       ctx.closePath(); ctx.fill();
       if (o.owned) { ctx.strokeStyle = "#e8fdf9"; ctx.lineWidth = 1 * k; ctx.stroke(); }
     });
+    // Identified heavy-body sites: hollow hexes, rim-clamped like the outposts.
+    (mm.sites || []).forEach(function (t) {
+      var dx = t.x - ship.x, dy = t.y - ship.y, d = Math.sqrt(dx * dx + dy * dy);
+      var px, py;
+      if (d * kMap <= R - 6 * k) { px = cx + dx * kMap; py = cy + dy * kMap; }
+      else { var a = Math.atan2(dy, dx); px = cx + Math.cos(a) * (R - 6 * k); py = cy + Math.sin(a) * (R - 6 * k); }
+      var r0 = 3.2 * k;
+      ctx.strokeStyle = t.fortified ? "#ff9a3c" : (t.color || COL.dim);
+      ctx.lineWidth = 1.2 * k;
+      ctx.beginPath();
+      for (var hi = 0; hi < 6; hi++) {
+        var ha = hi * Math.PI / 3;
+        if (hi === 0) ctx.moveTo(px + Math.cos(ha) * r0, py + Math.sin(ha) * r0);
+        else ctx.lineTo(px + Math.cos(ha) * r0, py + Math.sin(ha) * r0);
+      }
+      ctx.closePath(); ctx.stroke();
+      ctx.lineWidth = 1;
+    });
+    // Survey contacts: dim, unlabelled returns. You know something is there and
+    // roughly what kind — never what it is. Identifying one is a trip, not a tap.
+    (mm.contacts || []).forEach(function (c) {
+      var dx = c.x - ship.x, dy = c.y - ship.y, d = Math.sqrt(dx * dx + dy * dy);
+      var px, py;
+      if (d * kMap <= R - 6 * k) { px = cx + dx * kMap; py = cy + dy * kMap; }
+      else { var a = Math.atan2(dy, dx); px = cx + Math.cos(a) * (R - 6 * k); py = cy + Math.sin(a) * (R - 6 * k); }
+      ctx.globalAlpha = 0.42 + 0.14 * Math.sin((s.t || 0) * 2.2 + px);
+      ctx.fillStyle = c.cls === "hostile" ? "#ff8a8a" : c.cls === "signal" ? "#7fdfff" : "#9fb4c8";
+      ctx.font = "bold " + Math.max(7, 8 * k) + "px monospace";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(c.cls === "hostile" ? "△" : c.cls === "signal" ? "⌁" : "◌", px, py);
+      ctx.globalAlpha = 1;
+      ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    });
     ctx.restore();
 
     // Station dot; clamped to the rim with an outward chevron when off-range (§3.2).

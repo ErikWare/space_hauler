@@ -51,10 +51,24 @@ Object.assign(GAME, {
       stations: stations.map(st => ({ id: st.id, discovered: !!st.discovered, warpActive: !!st.warpActive })),
       markedStations: (s.markedStations || []).slice(),   // galaxy-map waypoints for uncharted stations
       navWaypoint: s.navWaypoint && typeof s.navWaypoint.x === "number" ? { x: s.navWaypoint.x, y: s.navWaypoint.y } : null,   // user-placed nav target
+      savePoint: s.savePoint && typeof s.savePoint.x === "number"   // reload spawn + death respawn (game/save.js saveAtDock)
+        ? { x: s.savePoint.x, y: s.savePoint.y, kind: s.savePoint.kind, id: s.savePoint.id, name: s.savePoint.name } : null,
       exploredTiles: [...s.exploredTiles],
+      scannedRegions: [...(s.scannedRegions || [])],   // surveyed sectors (game/scan.js)
+      // ---- resource depletion (one-way; nothing in the world respawns) ----
+      // Per-field remaining ore + salvage, positional by field index. World gen
+      // is seed-deterministic so index alignment holds; the length guard on
+      // restore covers a future gen change rather than trusting it blindly.
+      // WITHOUT this the whole depletion model is a no-op — every reload
+      // rebuilt s.fields at full cap.
+      fieldStock: (s.fields || []).map(f => Math.round(f.stock)),
+      fieldJunk: (s.fields || []).map(f => Math.round(f.junkStock || 0)),
+      consumedZone: [...(s.consumedZone || [])],
       homeStationId: s.homeStationId, refineBonus: s.refineBonus,
       tradeNetworkComplete: s.tradeNetworkComplete, won: s.won,
       audioMuted: !!s.audioMuted,   // HUD speaker toggle (game/audio.js)
+      radioOn: s.radioOn !== false,
+      radioChannel: s.radioChannel | 0,
       tutorialDone: !!s.tutorialDone,   // first-run coach marks dismissed (game/tutorial.js)
       vn: s.vn || { flags: {}, seen: {} },   // visual-novel story flags + seen chains (game/visual_novel.js)
       // ---- planet surfaces (game/planet_surface.js) ----
@@ -197,12 +211,46 @@ Object.assign(GAME, {
       s.markedStations = data.markedStations.filter(id => stations.some(st => st.id === id && !st.discovered));
     if (data.navWaypoint && typeof data.navWaypoint.x === "number" && typeof data.navWaypoint.y === "number")
       s.navWaypoint = { x: data.navWaypoint.x, y: data.navWaypoint.y };
-    if (Array.isArray(data.exploredTiles)) { s.exploredTiles = new Set(data.exploredTiles); this._exploreTilesAround(s.x, s.y); }
     if (data.homeStationId != null && stations.some(st => st.id === data.homeStationId)) s.homeStationId = data.homeStationId;
+    // spawn where the player last pressed SAVE (home berth if this save predates
+    // save points). Set before exploredTiles so its reveal is centred correctly.
+    if (data.savePoint && typeof data.savePoint.x === "number" && typeof data.savePoint.y === "number")
+      s.savePoint = { x: data.savePoint.x, y: data.savePoint.y,
+        kind: data.savePoint.kind || "station", id: data.savePoint.id, name: data.savePoint.name || "berth" };
+    this.spawnAtSavePoint();
+    if (Array.isArray(data.exploredTiles)) { s.exploredTiles = new Set(data.exploredTiles); this._exploreTilesAround(s.x, s.y); }
+    // surveyed sectors, and the visited flag they imply — region.visited has
+    // never been persisted, so the map's visited outlines used to reset on load
+    if (Array.isArray(data.scannedRegions)) {
+      s.scannedRegions = new Set(data.scannedRegions);
+      for (const rid of s.scannedRegions) { const r = this.regionGet(rid); if (r) r.visited = true; }
+    }
+    // ---- resource depletion ----
+    // spawnAtSavePoint() above already ran tickFields, so the berth's fields are
+    // live at FULL cap. Drain them back to descriptors first: writing stock into
+    // an active field does nothing (its live rocks are its stock) and the next
+    // deactivation would recount the survivors straight back over the restore.
+    if (Array.isArray(data.fieldStock) || Array.isArray(data.fieldJunk))
+      for (const f of s.fields) if (f.active) this.deactivateField(f);
+    if (Array.isArray(data.fieldStock) && data.fieldStock.length === s.fields.length)
+      for (let i = 0; i < s.fields.length; i++) s.fields[i].stock = Math.min(s.fields[i].cap, data.fieldStock[i] | 0);
+    if (Array.isArray(data.fieldJunk) && data.fieldJunk.length === s.fields.length)
+      for (let i = 0; i < s.fields.length; i++) s.fields[i].junkStock = Math.max(0, data.fieldJunk[i] | 0);
+    if (Array.isArray(data.consumedZone)) {
+      s.consumedZone = new Set(data.consumedZone);
+      for (let i = 0; i < s.rocks.length; i++)
+        if (s.rocks[i].active && s.rocks[i].sIdx != null && s.consumedZone.has("r" + s.rocks[i].sIdx)) this._freeRockSlot(i);
+      for (let i = 0; i < s.junk.length; i++)
+        if (s.junk[i].active && s.junk[i].sIdx != null && s.consumedZone.has("j" + s.junk[i].sIdx)) this._freeJunkSlot(i);
+    }
+    this.tickFields(0);   // re-stream the berth's fields, now at their restored stock
     if (typeof data.refineBonus === "number") s.refineBonus = data.refineBonus;
     s.tradeNetworkComplete = !!data.tradeNetworkComplete;
     s.won = !!data.won;
     s.audioMuted = !!data.audioMuted;   // pre-audio saves default to sound on
+    s.radioOn = data.radioOn !== false;
+    s.radioChannel = (typeof data.radioChannel === "number") ? data.radioChannel | 0 : 0;
+    if (this.initRadio) this.initRadio(s);
     s.tutorialDone = data.tutorialDone !== false;   // any save = a seen run (pre-tutorial saves too); false only if saved mid-tutorial
     s.vn = (data.vn && typeof data.vn === "object")   // story flags/seen (pre-story saves → nothing seen; prologue only fires on NEW GAME)
       ? { flags: data.vn.flags || {}, seen: data.vn.seen || {} }
@@ -298,23 +346,75 @@ Object.assign(GAME, {
       return true;
     } catch (e) { console.warn("legacy save migration failed:", e); return false; }
   },
+  // Where the player may press SAVE: berthed at a station or an owned outpost,
+  // or standing on a planet surface. Returns the save-point descriptor, or null
+  // if the player is out in open space (the whole point — you have to find a
+  // berth to bank a run).
+  saveBerth() {
+    const s = this.state;
+    if (!s) return null;
+    if (s.onPlanet) {
+      const key = s.currentPlanetName || "surface";   // land key is lowercase
+      return { x: s.x, y: s.y, kind: "planet", id: key,
+        name: key.charAt(0).toUpperCase() + key.slice(1) };
+    }
+    if (!s.docked) return null;
+    if (s.dockKind === "outpost") {
+      const o = this.dockedOutpost();
+      if (!o) return null;
+      return { x: o.x, y: o.y, kind: "outpost", id: o.id,
+        name: "Outpost " + this.regionLabel(this.regionGet(o.regionId)) };
+    }
+    const st = ForgeWorld.getStations().find(x => x.id === s.dockStationId);
+    if (!st) return null;
+    return { x: st.pos.x, y: st.pos.y + 40, kind: "station", id: st.id, name: st.name };
+  },
+  // Put the ship on its last save point. A planet save re-spawns in orbit above
+  // the body rather than back on the surface — the surface engine owns its own
+  // entry path, and dropping the player straight into it on boot would skip it.
+  spawnAtSavePoint() {
+    const s = this.state, sp = s.savePoint;
+    if (!sp) {
+      const homeSt = ForgeWorld.getStations().find(st => st.id === s.homeStationId);
+      if (homeSt) this._spawnAtStation(homeSt);
+      return;
+    }
+    s.x = sp.x; s.y = sp.y; s.vx = s.vy = 0;
+    s.cam.x = sp.x; s.cam.y = sp.y;
+    s.onPlanet = false; s.docked = false;
+    if (sp.kind === "station" && sp.id != null) s.dockStationId = sp.id;
+    this._exploreTilesAround(s.x, s.y);
+    this.updateRegions();
+    this.tickFields(0);   // stream the fields around the berth immediately
+  },
   saveGame() {
     if (HEADLESS || this._selfTesting) return false;   // the test harness must never clobber a real save
     if (this.state && this.state.titleOpen) return false;   // no run to save while the title screen is up
+    // Manual save points: banking a run requires a berth. Every ambient
+    // autosave in the codebase funnels through here, so this one gate is what
+    // makes exploration risky — fly out far and you fly back to bank it.
+    const berth = this.saveBerth();
+    if (!berth) return false;
     if (!this._saveStore()) { console.warn("save skipped: no localStorage"); return false; }
+    this.state.savePoint = berth;
     return this.writeSlot(this._activeSlot || 1, this.serializeGame());
+  },
+  // The SAVE button action (dock header + planet HUD chip): bank the run at the
+  // current berth and tell the player where their respawn now is.
+  saveAtBerth() {
+    const berth = this.saveBerth();
+    if (!berth) { toast("can't save out here — dock at a berth", "#ff5060", 2); sfx("warn"); return false; }
+    if (!this.saveGame()) { toast("save unavailable", "#ff5060", 2); return false; }
+    toast("SAVED — " + berth.name, "#7bd88f", 2); sfx("buy");
+    return true;
   },
   loadGame(slot) {
     if (HEADLESS) return false;
     const n = slot || this._activeSlot || 1;
     const data = this.readSlot(n);
     if (!data) return false;
-    if (!this.applySaveData(data)) return false;
+    if (!this.applySaveData(data)) return false;   // spawns at the save point
     this._activeSlot = n;
-    // wake up at the saved home port (position itself isn't persisted; the
-    // default home is Homeport Mira, a faction pick moves it — game/title.js)
-    const homeSt = ForgeWorld.getStations().find(st => st.id === this.state.homeStationId);
-    if (homeSt) this._spawnAtStation(homeSt);
     toast("SAVE LOADED", "#57d1c9", 2);
     return true;
   },
@@ -334,10 +434,10 @@ Object.assign(GAME, {
     if (HEADLESS || typeof document === "undefined") return;
     const save = document.getElementById("loSaveBtn"), fresh = document.getElementById("loNewGame");
     if (save) save.addEventListener("click", () => {
-      if (this.saveGame()) {
+      if (this.saveAtBerth()) {
         save.textContent = "Saved!";
         setTimeout(() => { save.textContent = "SAVE"; }, 1000);
-      } else toast("save unavailable", "#ff5060", 1);
+      }
     });
     if (fresh) fresh.addEventListener("click", () => {
       if (!confirm("Return to the title screen? Unsaved progress will be lost.")) return;

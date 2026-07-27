@@ -264,7 +264,7 @@ Object.assign(GAME, {
       s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
       if (res.hit) { rock.hp = Math.max(0, wrapper.hp.hull); rock.hitFlash = 0.3; }
       if (rock.hp <= 0) {                              // destroyed → no ore, just gone
-        if (idx >= 0) { burst(rock.x, rock.y, rock.col, 12); sfx("crunch"); this.respawnRock(idx); }
+        if (idx >= 0) { burst(rock.x, rock.y, rock.col, 12); sfx("crunch"); this.consumeRock(idx); }
         ForgeCombat.clearLock();
       }
     } else if (res.reason === "insufficient fuel") { toast("no fuel to fire"); }
@@ -468,12 +468,17 @@ Object.assign(GAME, {
   },
   onShipDestroyed() {
     const s = this.state, home = this.homeStationObj();
-    ForgeCombat.onPlayerDeath(s, { x: home.pos.x, y: home.pos.y });
+    // recover at the last SAVE point, not the home berth — saving is the only
+    // thing that moves your respawn, so an unsaved deep run is a real gamble
+    const sp = s.savePoint;
+    const at = sp ? { x: sp.x, y: sp.y, name: sp.name } : { x: home.pos.x, y: home.pos.y, name: home.name };
+    ForgeCombat.onPlayerDeath(s, { x: at.x, y: at.y });
+    s.onPlanet = false;
     s.cam.x = s.x; s.cam.y = s.y;
     s.fuel = Math.max(s.fuel, s.fuelMax * 0.5); s.invuln = CONFIG.invulnT * 4;
     if (s.tows.length) this.dropAllTows();
     for (const al of s.aliens) { al.aggro = false; if (al.state !== "DEAD") al.state = "IDLE"; }
-    sfx("boom"); toast("SHIP DESTROYED — recovered at " + home.name + " (−" + CONFIG.defeatPenalty + "cr)");
+    sfx("boom"); toast("SHIP DESTROYED — recovered at " + at.name + " (−" + CONFIG.defeatPenalty + "cr)");
     this.onPlayerDeathContracts();   // Phase 4: defender down → defense contract fails
   },
 

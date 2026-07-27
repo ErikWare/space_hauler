@@ -49,7 +49,11 @@ Object.assign(GAME, {
   makeField(cx, cy, r, kind, cap, regionId) {
     const s = this.state, tier = this.fieldTier(kind, Math.hypot(cx, cy));
     return { id: "fld" + (s.nextFieldId++), x: cx, y: cy, r, kind, cap,
-      stock: cap, active: false, discovered: false, col: tier.col, oreType: tier.type,
+      // BOTH stocks are finite and one-way. Junk used to be "infinite flavor"
+      // that respawned in-field on every activation; it is now a counted resource
+      // exactly like ore, so a worked-out field really is worked out.
+      stock: cap, junkStock: Math.round(cap * CONFIG.fieldJunkFrac),
+      active: false, discovered: false, col: tier.col, oreType: tier.type,
       regionId: regionId != null ? regionId : null,
       // landmarks are the sparse "fly-to targets" shown at galaxy-overview zoom;
       // ordinary bg/ring fields are ambient and only surface as you zoom in.
@@ -119,9 +123,10 @@ Object.assign(GAME, {
     if (f.active) return;
     const n = Math.floor(f.stock);
     for (let k = 0; k < n; k++) this._spawnRock(this.makeFieldRock(f));
-    // regions drop a MIX: ore rocks + salvage junk (junk is infinite flavor —
-    // it respawns in-field while active and just despawns with the field)
-    const nj = Math.round(n * CONFIG.fieldJunkFrac);
+    // regions drop a MIX: ore rocks + salvage junk. Spawned from the field's OWN
+    // junkStock — deriving it from the rock count each activation is what made
+    // junk infinite (haul it all off, fly away, come back to a full field).
+    const nj = Math.floor(f.junkStock);
     for (let k = 0; k < nj; k++) this._spawnJunk(this.makeFieldJunk(f));
     f.active = true;
   },
@@ -139,13 +144,15 @@ Object.assign(GAME, {
       if (r.towedBy || this.isTowed("rocks", i)) continue;
       this._freeRockSlot(i);
     }
+    let aliveJunk = 0;
     for (let i = 0; i < s.junk.length; i++) {
       const j = s.junk[i];
       if (!j.active || j.fieldId !== f.id) continue;
+      aliveJunk++;
       if (this.isTowed("junk", i)) continue;   // keep towed junk live for the tow
       this._freeJunkSlot(i);
     }
-    f.stock = alive; f.active = false;
+    f.stock = alive; f.junkStock = aliveJunk; f.active = false;
   },
 
   // per-frame: activate/deactivate by ship distance (hysteresis), regen dormant.
@@ -157,9 +164,12 @@ Object.assign(GAME, {
       const actR = f.r + CONFIG.fieldActivatePad, deR = f.r + CONFIG.fieldDeactivatePad;
       if (!f.active && d2 < actR * actR) this.activateField(f);
       else if (f.active && d2 > deR * deR) this.deactivateField(f);
-      if (!f.active && f.stock < f.cap) f.stock = Math.min(f.cap, f.stock + CONFIG.fieldRegenPerSec * dt);
+      // NO REGEN. Fields used to refill toward cap while dormant, which meant no
+      // amount of mining could ever exhaust the world — fly away, come back,
+      // full field. Ore and salvage are now strictly one-way: the map depletes,
+      // and the answer to a worked-out region is to push into a new one.
       // reveal a field's map icon once the ship is near it OR its tile is explored
-      if (!f.discovered && (d2 < disc2 || this.isTileExplored(f.x, f.y))) f.discovered = true;
+      if (!f.discovered && d2 < disc2) f.discovered = true;   // proximity only — a survey gives a contact, not an ID
     }
   },
 
@@ -174,7 +184,10 @@ Object.assign(GAME, {
       if (overview && !f.notable) continue;   // deep zoom-out: only landmark targets
       const sp = this.S(f.x, f.y), haze = Math.max(16, f.r * z);
       if (sp.x < -haze - 60 || sp.x > CONFIG.W + haze + 60 || sp.y < -haze - 60 || sp.y > CONFIG.H + haze + 60) continue;
-      if (overview) { this._drawFieldIcon(g, f, sp); continue; }   // clean single target icon
+      // ghosted: a worked-out field stays on the chart but owes you nothing
+      const fade = this.fieldSpent(f) ? 0.3 : 1;
+      g.globalAlpha = fade;
+      if (overview) { this._drawFieldIcon(g, f, sp); g.globalAlpha = 1; continue; }   // clean single target icon
       // near view: soft haze + a scatter of dots that reads as a real ore field
       const grd = g.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, haze);
       grd.addColorStop(0, hexA(f.col, 0.34)); grd.addColorStop(0.6, hexA(f.col, 0.12)); grd.addColorStop(1, "rgba(0,0,0,0)");
@@ -182,7 +195,7 @@ Object.assign(GAME, {
       let seed = 0; for (let i = 0; i < f.id.length; i++) seed = (seed * 31 + f.id.charCodeAt(i)) | 0;
       const rr = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
       const dots = Math.min(12, 4 + (f.cap / 22 | 0)), ds = Math.max(1.4, 2.4 * z), spread = Math.max(haze * 0.82, f.r * 0.82 * z);
-      g.fillStyle = f.col; g.globalAlpha = 0.85;
+      g.fillStyle = f.col; g.globalAlpha = 0.85 * fade;
       for (let i = 0; i < dots; i++) { const a = rr() * TAU, d = Math.sqrt(rr()) * spread;
         const dx = sp.x + Math.cos(a) * d, dy = sp.y + Math.sin(a) * d * P;
         g.fillRect(dx - ds / 2, dy - ds / 2, ds, ds); }
@@ -193,7 +206,11 @@ Object.assign(GAME, {
         g.fillStyle = hexA(f.col, 0.95); g.fillText(this._fieldLabel(f), sp.x, sp.y - haze * P - 5); g.textAlign = "left"; }
     }
   },
+  // nothing left to take — worth saying plainly, since the icon would otherwise
+  // keep advertising a field the player has already stripped
+  fieldSpent(f) { return f.stock < 1 && (f.junkStock || 0) < 1; },
   _fieldLabel(f) {
+    if (this.fieldSpent(f)) return "× WORKED OUT";
     return f.kind === "belt" ? "◆ ASTEROID BELT" : f.kind === "nebula" ? "◆ NEBULA ORE"
       : f.kind === "exotic" ? "◆ " + (CONFIG.oreNames[f.oreType] || "EXOTIC").toUpperCase() + " VEIN"
       : "◇ " + (CONFIG.oreNames[f.oreType] || "ore field");

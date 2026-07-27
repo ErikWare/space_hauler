@@ -77,19 +77,13 @@ Object.assign(GAME, {
     const npcStations = stations.map(st => ({ id: st.id, x: st.pos.x, y: st.pos.y }));
     ForgeNPC.initNPC(npcStations);
 
-    // DEV: warp to every station unlocked from the start (no need to fly out and
-    // discover each one first) — drop this before ship, it also suppresses the
-    // trade-network-complete win check below so it isn't awarded for free.
-    const debugAllWarpUnlocked = !this._selfTesting;
-    if (debugAllWarpUnlocked) stations.forEach(st => { st.discovered = true; st.warpActive = true; });
-
     this.state = {
       x: homePos.x, y: homePos.y + 40, vx: 0, vy: 0, heading: -1.5708, t: 0,
       charge: 0, aimX: 1, aimY: 0, thrusting: false, holdT: 0, flare: 0, mode: prevMode,
       fuel: CONFIG.baseShip.fuelMax, fuelMax: CONFIG.baseShip.fuelMax,
       hp: this.freshHp(),
       invuln: 0, flash: 0, shieldFlash: 0, dead: false, fuelOut: false, warned: false, rationsGiven: false,
-      credits: CONFIG.debugStartCredits, inventory: [], inventoryMax: 60, ore: {},
+      credits: CONFIG.startCredits, inventory: [], inventoryMax: 60, ore: {},
       homeStationId: stations[0].id, refineBonus: 0,
       playerFaction: null,   // chosen at the title screen's faction pick (persisted; game/title.js)
       playerPortraitId: null, // face from title picker (game/player_portraits.js)
@@ -98,7 +92,7 @@ Object.assign(GAME, {
       mercenary: false,      // set once, by the Q10 catastrophe (game/onboarding.js): employed → free agent
 
       titleOpen: false,      // world idles under the title screen (session-only; set by showTitleScreen)
-      tows: [], rocks: [], rockFree: [], junk: [], junkFree: [], respawnQueue: [], planets: planets, loot: [], miners: [], aliens: [],
+      tows: [], rocks: [], rockFree: [], junk: [], junkFree: [], planets: planets, loot: [], miners: [], aliens: [],
       fields: [], nextFieldId: 1,
       onPlanet: false, nearPlanetName: null, currentPlanetName: null, planetProgress: {},
       regions: [], regionById: null, regionGrid: null, currentRegionId: null,
@@ -111,17 +105,28 @@ Object.assign(GAME, {
       nextRockId: 1, weaponCd: 0,
       atStation: false, docked: false, dockStationId: stations[0].id, dockTab: "loadout", warpOverlay: false,
       markedStations: [],   // station ids flagged from the warp screen → waypoints on the galaxy map (persisted)
-      won: false, tradeNetworkComplete: false, _debugAllWarpUnlocked: debugAllWarpUnlocked,
+      won: false, tradeNetworkComplete: false,
       capturedOutpostCount: 0, maxDangerReached: 1,   // lifetime unlock stats (persisted by the save system)
-      timePlayed: 0, creditsEarned: 0, _lastCredits: CONFIG.debugStartCredits,   // lifetime clock + summed positive purse deltas (persisted)
+      timePlayed: 0, creditsEarned: 0, _lastCredits: CONFIG.startCredits,   // lifetime clock + summed positive purse deltas (persisted)
       xp: 0, level: 1, skillPoints: 0, skills: {},   // global XP / leveling + allocated skill-tree ranks (persisted; game/skills.js)
       tradeRouteEarnings: 0, tradeRaid: null, _tradeRaidT: null,   // outpost trade lanes (earnings persisted; game/trade_routes.js)
       empireRegions: 0, empireWon: false, victoryOpen: false,   // endgame: live player-region count · won flag · pause overlay
       factionsDefeated: { vex: false, krag: false, nox: false },   // one-time collapse-narrative flags (persisted)
       exploredTiles: new Set(),
+      // region ids the player has run a sensor survey on (persisted). Fog =
+      // "have I been here"; this = "do I know what's here" (game/scan.js).
+      scannedRegions: new Set(), scanCh: null, _scanRings: [],
+      // seed ids ("r12" / "j305") of zone rocks + debris consumed for good.
+      // Field stock is tracked on the field itself; this covers everything
+      // seeded outside a field (world/ores.js consumeRock, world/junk.js consumeJunk).
+      consumedZone: new Set(),
       npcTraders: [], pirateTargetId: null, galaxyMapOpen: false,
       mapZoom: 1, mapFocusX: 0, mapFocusY: 0,   // galaxy-map view: zoom + panned focus (session-only, reset on open)
       navWaypoint: null, mapSetWaypointMode: false,   // user-placed nav target ({x,y}, persisted) + the map's "arm to place" flag (session-only)
+      // where the player last pressed SAVE ({x, y, kind, id, name}). Saving is
+      // only allowed docked at a station/outpost or on a planet, and this is
+      // both the reload spawn and the death respawn. null = never saved → home.
+      savePoint: null,
       thrustPower: 0.75,
       tutorialDone: false, tutorialActive: false, tutorialStep: 0,   // first-run coach marks (done flag persisted; armed by initTutorial after loadGame)
       audioMuted: false,   // HUD speaker toggle (persisted by the save system)
@@ -140,7 +145,10 @@ Object.assign(GAME, {
     for (const p of planets) for (const m of p.moons) this.state._moonList.push({ x: m.x, y: m.y });
 
     const rocks = this.state.rocks;
-    for (const ring of CONFIG.rings) for (let i = 0; i < ring.n; i++) rocks.push(this.makeRock(ring, homePos));
+    // every station keeps a small always-on "junk" patch nearby for its local
+    // mining NPCs (CONFIG.rings[0] — the one ore type that keeps respawning)
+    const junkRing = CONFIG.rings[0];
+    for (const st of stations) for (let i = 0; i < junkRing.n; i++) rocks.push(this.makeRock(junkRing, { x: st.pos.x, y: st.pos.y }));
     const tutRock = rocks[0];
     tutRock.x = homePos.x; tutRock.y = homePos.y - 260; tutRock.vx = 0; tutRock.vy = 0;
     for (let i = 0; i < planets.length; i++) for (let k = 0; k < CONFIG.pRingRocks; k++) rocks.push(this.makeZoneRock("planet_" + i));
@@ -150,6 +158,8 @@ Object.assign(GAME, {
     this.initEncounters(this.state);
     this.initDrones(this.state);
     this.initFleet(this.state);
+    if (this.initRadio) this.initRadio(this.state);
+    this.initScan(this.state);   // region survey channel + scanned-region set (game/scan.js)
     this.initContracts(this.state);
     this.initQuests(this.state);   // Phase 5: station region quests (game/quests.js)
     this.initNpcTraders(this.state);
@@ -180,11 +190,19 @@ Object.assign(GAME, {
     const t = CONFIG.FOG_TILE;
     return ((wx / t) | 0) + "," + ((wy / t) | 0);
   },
+  // Reveal a BUBBLE, not a block. The old 3×3-of-2000u box cleared 6000u a step
+  // — wider than the screen at any zoom you actually fly at, so the frontier was
+  // never on screen and nothing ever felt uncharted. Now the lattice is fine and
+  // only tiles whose centre falls inside CONFIG.fogRevealR light up.
   _exploreTilesAround(wx, wy) {
-    const s = this.state, t = CONFIG.FOG_TILE;
+    const s = this.state, t = CONFIG.FOG_TILE, R = CONFIG.fogRevealR, R2 = R * R;
+    const span = Math.ceil(R / t);
     const tx = Math.floor(wx / t), ty = Math.floor(wy / t);
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++)
-      s.exploredTiles.add((tx + dx) + "," + (ty + dy));
+    for (let dx = -span; dx <= span; dx++) for (let dy = -span; dy <= span; dy++) {
+      const cxw = (tx + dx) * t + t / 2 - wx, cyw = (ty + dy) * t + t / 2 - wy;
+      if (cxw * cxw + cyw * cyw <= R2) s.exploredTiles.add((tx + dx) + "," + (ty + dy));
+    }
+    s.exploredTiles.add(tx + "," + ty);   // never leave the ship standing on fog
   },
   isTileExplored(wx, wy) {
     return this.state.exploredTiles.has(this._tileKey(wx, wy));
@@ -222,6 +240,13 @@ Object.assign(GAME, {
     this.seedSites();           // region landmark sites (after outposts → exclusion, before obstacles → clearance)
     this.seedObstacles();       // large non-minable terrain bodies (after outposts → clearance)
     this.seedExtraNebulas();    // after alien seeding so extras don't multiply squads
+    // Stamp every SEEDED (non-field) rock and junk piece with its seed index.
+    // World gen is deterministic, so this index is a stable identity across
+    // reloads — which is how the save records that a specific zone rock or
+    // debris floater is gone for good. Must run before any field activates,
+    // since field entities reuse these slots and must NOT be stamped.
+    for (let i = 0; i < s.rocks.length; i++) if (s.rocks[i].active) s.rocks[i].sIdx = i;
+    for (let i = 0; i < s.junk.length; i++) if (s.junk[i].active) s.junk[i].sIdx = i;
     this.updateRegions();       // set the ship's starting region
     this.tickFields(0);         // activate whatever fields already surround the ship's start
   },
@@ -256,9 +281,11 @@ Object.assign(GAME, {
     const s = this.state;
     if (s.titleOpen) return;     // boot menu up — the sim (and its clocks) wait for NEW GAME / LOAD GAME
     if (s.victoryOpen) return;   // EMPIRE ESTABLISHED — world frozen under the victory overlay
-    if (input.restart) { input.restart = false; this.init(); this.loadGame(); this.initTutorial(this.state); return; }   // R matches page reload: back to the save (fresh world without one)
     if (input.warpToggle) { input.warpToggle = false; if (!s.warpOverlay) this.openWarpOverlay(); else this._closeWarpOverlay(); }
     if (input.mapToggle && !s.onPlanet) { input.mapToggle = false; this.toggleGalaxyMap(); }   // Phase 6 (on a planet, M is "launch" — handled in PLANET.tick)
+    if (input.radioToggle) { input.radioToggle = false; if (this.toggleRadio) this.toggleRadio(); }
+    if (input.radioCycle) { input.radioCycle = false; if (this.cycleRadioChannel) this.cycleRadioChannel(1); }
+    if (input.deepScan) { input.deepScan = false; this.startRegionScan(); }   // K / SURVEY → region sensor sweep
     s.timePlayed += dt;   // lifetime clock — ticks docked/warping too, frozen only by the victory pause
     if (s.credits > s._lastCredits) { s.creditsEarned += s.credits - s._lastCredits;   // lifetime earnings = summed positive purse deltas (spends ignored)
       AUDIO.play("credits"); }   // any purse gain chimes (sell, salvage, trade run, spoils)
@@ -277,12 +304,35 @@ Object.assign(GAME, {
     // at full speed — the "time dilation" effect is that the rest of the space game
     // (flight, aliens, enemy bases, rocks) is frozen while the player is on-surface.
     if (s.onPlanet) { PLANET.tick(dt, s); stepToasts(dt); return; }
-    // ── planet proximity detection (space side) ────────────────────────────────
+    // ── planet / moon proximity detection (space side) ─────────────────────────
+    // Landable bodies: full planets with PLANET_DEFS, OR named moons with landKey
+    // (e.g. Mira's moon "Selene" → moon base surface).
     s.nearPlanetName = null;
+    s.nearLandKey = null;
+    s.nearBodyLabel = null;
     for (const p of s.planets) {
-      if (Math.hypot(s.x - p.x, s.y - p.y) < p.r * 2.5) { s.nearPlanetName = p.name; break; }
+      if (Math.hypot(s.x - p.x, s.y - p.y) < p.r * 2.5) {
+        s.nearPlanetName = p.name;
+        s.nearLandKey = p.name;           // planet name is also the land key
+        s.nearBodyLabel = p.name;
+        break;
+      }
+      for (const m of (p.moons || [])) {
+        if (!m.landKey) continue;
+        if (Math.hypot(s.x - m.x, s.y - m.y) < Math.max(m.r * 3.5, 220)) {
+          s.nearPlanetName = m.name;      // HUD "Near Selene"
+          s.nearLandKey = m.landKey;      // PLANET.land("selene")
+          s.nearBodyLabel = m.name + " (" + p.name + " moon)";
+          break;
+        }
+      }
+      if (s.nearLandKey) break;
     }
-    if (s.nearPlanetName && input.landEdge) { input.landEdge = false; PLANET.land(s, s.nearPlanetName); return; }
+    if (s.nearLandKey && input.landEdge) {
+      input.landEdge = false;
+      PLANET.land(s, s.nearLandKey);
+      return;
+    }
     input.landEdge = false;
 
     if (s.warpOverlay) {
@@ -347,7 +397,6 @@ Object.assign(GAME, {
 
     this.updateRegions();  // track the ship's current region (Region Event Manager)
     this.tickFields(dt);   // stream mining fields in/out around the ship
-    this.tickRespawns(dt); // re-scatter deposited zone rocks/junk after their delay
     for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i]; if (!r.active) continue;
       r.rot += r.spinV * dt; r.x += r.vx * dt; r.y += r.vy * dt;
       if (r.hitFlash > 0) r.hitFlash = Math.max(0, r.hitFlash - dt); }
@@ -398,9 +447,15 @@ Object.assign(GAME, {
     this.updateEncounters(dt, s);
     this.updateContracts(dt);   // Phase 4: escort convoys + defense raid waves
     this.updateQuests(dt);      // Phase 5: quest objectives + active-quest waypoint/boost
+    if (this.updateRadio) this.updateRadio(dt);   // cockpit radio channels (game/radio.js)
+    this.updateRegionScan(dt);  // region sensor survey + echo rings (game/scan.js)
     this.updateObjectives(dt);  // Phase 6: territory objectives — battle windows + milestone sweep
     for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i]; if (!r.active || !r.mined) continue;
-      r.mined = false; r.towedBy = null; this.respawnRock(i); }
+      r.mined = false; r.towedBy = null;
+      // An NPC miner's haul depletes the world exactly like the player's. The
+      // per-station "junk" patch used to refill here to keep local miners fed —
+      // it no longer does, so a picked-over home system stays picked over.
+      this.consumeRock(i); }
 
     const discEvents = ForgeWorld.updateDiscovery({ x: s.x, y: s.y });
     for (const ev of discEvents) if (ev.type === "discover" && ev.station) {
@@ -480,6 +535,7 @@ Object.assign(GAME, {
     this.drawEncounterMarkers(g);
     this.drawContractWorld(g);    // Phase 4: escort freighter + bounty flagship dressing
     this.drawQuestWorld(g);       // Phase 5: pulsing reticles on the active quest's objectives
+    this.drawScanWorld(g);        // region survey echo rings (game/scan.js)
     ForgeHUD.drawHUD(this.buildHudState());
     this.drawXpBar(g);            // ambient global-XP hairline atop the HUD (game/skills.js)
     this.drawEncounterIcons(g);   // overlays ForgeHUD's minimap
@@ -492,11 +548,13 @@ Object.assign(GAME, {
     this.drawTradeMarkers(g);     // Phase 7: on-screen ring / edge arrow + ETA for trade runs
     this.drawWaypointHUD(g);      // light edge arrow toward the user's nav waypoint (galaxy_map.js)
     this.drawControls(g);
+    this.drawScanHUD(g);          // survey progress arc on the minimap rim (game/scan.js)
     this.drawSecBadge(g);         // SEC danger level near minimap
     this.drawShipBadge(g);        // current hull name under the top-strip bars
     this.drawMercBadge(g);        // "MERCENARY — NO AFFILIATION" after the Q10 wipe (game/onboarding.js)
     this.drawContractHUD(g);      // Phase 4: active-contract box, top-right
     this.drawQuestHUD(g);         // Phase 5: active-quest tracker, under the contract box
+    if (this.drawRadioHUD) this.drawRadioHUD(g);  // cockpit radio log (game/radio.js)
     this.drawTraderAlert(g);      // Phase 6: blinking "trader under attack" edge note
     this.drawTradeRouteAlert(g);  // blinking "trade route under attack" edge note (trade_routes.js)
     this.drawEmpAlert(g);         // emplacement "LOCKED ON" klaxon + torpedo-inbound count (game/sites.js)
@@ -509,13 +567,14 @@ Object.assign(GAME, {
       g.font = "11px monospace"; g.fillStyle = "#e8edf4"; g.fillText(`${s.credits}cr banked · game continues`, CONFIG.W / 2, CONFIG.H / 2 + 4); g.textAlign = "left";
     }
     if (s.galaxyMapOpen) this.drawGalaxyMap(g);   // Phase 6: topmost overlay
-    // ── planet landing prompt ──────────────────────────────────────────────────
-    if (s.nearPlanetName) {
+    // ── planet / moon landing prompt ───────────────────────────────────────────
+    if (s.nearPlanetName || s.nearLandKey) {
       const W = CONFIG.W, H = CONFIG.H;
       g.fillStyle = "rgba(5,7,13,0.78)";
       g.fillRect(0, H - 40, W, 40);
       g.fillStyle = "#57d1c9"; g.font = "bold 11px monospace"; g.textAlign = "center";
-      g.fillText("Near " + s.nearPlanetName, W / 2, H - 14);
+      const label = s.nearBodyLabel || s.nearPlanetName || s.nearLandKey;
+      g.fillText("Near " + label + "   [L] Land", W / 2, H - 14);
       g.textAlign = "left";
     }
   },
@@ -646,7 +705,7 @@ Object.assign(GAME, {
     }
     // depletion: mining a field rock frees its slot (does NOT respawn)
     const beforeLive = liveNow(), victim = s.rocks.indexOf(bfRocks[0]);
-    this.respawnRock(victim);
+    this.consumeRock(victim);
     if (s.rocks[victim].active) throw new Error("mined field rock not freed");
     if (s.rockFree.indexOf(victim) < 0) throw new Error("freed slot not pooled for reuse");
     if (liveNow() !== beforeLive - 1) throw new Error("depletion did not drop live count");
@@ -654,15 +713,26 @@ Object.assign(GAME, {
     this.deactivateField(bf);
     if (bf.active) throw new Error("field still active after deactivate");
     if (bf.stock >= bf.cap) throw new Error("stock not reduced by mining: " + bf.stock + "/" + bf.cap);
-    // slow regen refills a dormant field toward its cap
-    const stockPre = bf.stock;
+    // depletion is ONE-WAY: a dormant field must never regrow its stock
+    const stockPre = bf.stock, junkPre = bf.junkStock;
     this.tickFields(30);   // 30 dormant seconds (ship is at home, far from the belt)
-    if (bf.stock <= stockPre) throw new Error("dormant field did not regen");
-    if (bf.stock > bf.cap) throw new Error("regen overshot cap");
-    // legacy home-ring rock still respawns in place (index-stable, non-field)
-    if (s.rocks[3].fieldId) throw new Error("expected a legacy ring rock at index 3");
-    this.respawnRock(3);
-    if (!s.rocks[3].active || s.rocks[3].fieldId) throw new Error("legacy respawn must stay a live non-field rock");
+    if (bf.stock !== stockPre) throw new Error("dormant field regrew ore: " + stockPre + " → " + bf.stock);
+    if (bf.junkStock !== junkPre) throw new Error("dormant field regrew salvage: " + junkPre + " → " + bf.junkStock);
+    // …and a re-activated field only yields what is left, never a fresh cap
+    this.activateField(bf);
+    const reRocks = s.rocks.filter(r => r.active && r.fieldId === bf.id).length;
+    if (reRocks !== Math.floor(bf.stock)) throw new Error("re-activated field spawned " + reRocks + " for stock " + bf.stock);
+    if (reRocks >= Math.floor(bf.cap)) throw new Error("re-activation refilled the field to cap");
+    this.deactivateField(bf);
+    // a consumed ZONE rock is gone for good — it used to re-scatter into its zone,
+    // which made shooting rocks and NPC mining a free infinite supply
+    const zi = s.rocks.findIndex(r => r.active && r.zone && !r.fieldId);
+    if (zi < 0) throw new Error("expected a live zone rock to consume");
+    const zSeed = s.rocks[zi].sIdx;
+    if (zSeed == null) throw new Error("seeded zone rock missing its stable sIdx");
+    this.consumeRock(zi);
+    if (s.rocks[zi].active) throw new Error("consumed zone rock must not re-scatter");
+    if (!s.consumedZone.has("r" + zSeed)) throw new Error("zone rock loss not recorded for the save");
     // exotic ore veins: rare homogeneous pockets that never share a sector with
     // a station or an outpost (the premium-find layer over the ambient ore mix)
     const EXOTICS = ["iridium", "cryonite", "solarite", "voidium"];
@@ -701,7 +771,7 @@ Object.assign(GAME, {
     if (s.rocks[towIdx] !== towRock || !towRock.active) throw new Error("player-towed rock freed by field deactivation");
     if (s.rocks.some((r, i) => r.active && r.fieldId === ev.id && i !== towIdx)) throw new Error("non-towed vein rocks should stream out");
     s.tows = [];
-    this.respawnRock(towIdx);   // consume the orphan: dormant-field path frees the slot + decrements stock
+    this.consumeRock(towIdx);   // consume the orphan: dormant-field path frees the slot + decrements stock
 
     // ore variety pass: 4 precious ores widen the general map; distance-band mix
     // (CONFIG.oreBands) drives it, and each band names only valid non-exotic ores
@@ -815,11 +885,26 @@ Object.assign(GAME, {
       } }
     for (const cl of s.junkClusters) for (const st of sts0)
       if (this.dist(cl.x, cl.y, st.pos.x, st.pos.y) < CONFIG.junkClusterStationGap) throw new Error("junk cluster overlaps station");
-    // hauled junk respawns into its own zone
+    // hauled zone junk is GONE — it used to re-scatter back into its own zone
     { const hi = s.junk.indexOf(jz("halo_3")[0]);
-      this.respawnJunk(hi);
-      if (s.junk[hi].zone !== "halo_3" || this.dist(s.junk[hi].x, s.junk[hi].y, s.planets[3].x, s.planets[3].y) > CONFIG.junkHaloDistMax + 1)
-        throw new Error("junk zone respawn"); }
+      const hSeed = s.junk[hi].sIdx;
+      if (hSeed == null) throw new Error("seeded zone junk missing its stable sIdx");
+      this.consumeJunk(hi);
+      if (s.junk[hi].active) throw new Error("consumed zone junk must not re-scatter");
+      if (!s.consumedZone.has("j" + hSeed)) throw new Error("zone junk loss not recorded for the save"); }
+    // field junk is finite too: hauling it off must not refill on re-activation
+    { const af2 = s.fields.find(f => f.active && f.junkStock > 1);
+      if (af2) {
+        const ji = s.junk.findIndex(j => j.active && j.fieldId === af2.id);
+        const jPre = af2.junkStock;
+        this.consumeJunk(ji);
+        this.deactivateField(af2);
+        if (af2.junkStock >= jPre) throw new Error("field salvage not depleted: " + jPre + " → " + af2.junkStock);
+        this.activateField(af2);
+        const liveJ = s.junk.filter(j => j.active && j.fieldId === af2.id).length;
+        if (liveJ !== Math.floor(af2.junkStock)) throw new Error("re-activated field junk " + liveJ + " vs stock " + af2.junkStock);
+        this.deactivateField(af2);
+      } }
     // nebulas: 6 ForgeWorld + 8–12 game-side extras; belt clouds large + dense
     const nebAll = ForgeWorld.getNebulas(), nebExtra = nebAll.filter(n => n.extra);
     if (nebAll.length < 14 || nebAll.length > 18) throw new Error("nebula count: " + nebAll.length);
@@ -1076,26 +1161,47 @@ Object.assign(GAME, {
     if (!this.grabTow("rocks", 0)) throw new Error("open-space grab should work");
     this.dropAllTows();
 
-    // ===== 15c) depositing at a station QUEUES a delayed respawn, never instant =====
-    // (anti "spam-mine the home base" loop: a towed zone rock/junk banked at a
-    // station frees its slot now and re-scatters only after depositRespawnDelay.)
-    this.init(); s = this.state; s.aliens = []; s.encounters = []; s.respawnQueue.length = 0;
-    const depRockI = s.rocks.findIndex(r => r.active && !r.fieldId);
+    // ===== 15c) depositing a zone rock/junk is gone for good; the per-station
+    // junk patch is the one exception (anti "spam-mine forever" — expanding
+    // territory is now the only way to find more) =====
+    this.init(); s = this.state; s.aliens = []; s.encounters = [];
+    const depRockI = s.rocks.findIndex(r => r.active && !r.fieldId && r.zone);
     const depJunkI = s.junk.findIndex(j => j.active && !j.fieldId);
-    if (depRockI < 0 || depJunkI < 0) throw new Error("no non-field rock/junk to test deposit respawn");
+    if (depRockI < 0 || depJunkI < 0) throw new Error("no zone rock/junk to test deposit respawn");
     s.tows = [{ arr: "rocks", i: depRockI, dangerLevel: 1 }, { arr: "junk", i: depJunkI, dangerLevel: 1 }];
     this.depositTows();
-    if (s.rocks[depRockI].active) throw new Error("deposited rock slot must free, not instantly respawn");
-    if (s.junk[depJunkI].active) throw new Error("deposited junk slot must free, not instantly respawn");
-    if (s.respawnQueue.length !== 2) throw new Error("deposit should queue 2 delayed respawns: " + s.respawnQueue.length);
-    if (s.respawnQueue.some(e => e.t !== CONFIG.depositRespawnDelay)) throw new Error("queued respawn delay wrong");
-    const rockN0 = s.rocks.filter(r => r.active).length, junkN0 = s.junk.filter(j => j.active).length;
-    this.tickRespawns(CONFIG.depositRespawnDelay - 1);
-    if (s.respawnQueue.length !== 2) throw new Error("deposit respawns fired too early");
-    this.tickRespawns(2);
-    if (s.respawnQueue.length !== 0) throw new Error("respawn queue did not drain past the delay");
-    if (s.rocks.filter(r => r.active).length !== rockN0 + 1) throw new Error("rock did not re-scatter after delay");
-    if (s.junk.filter(j => j.active).length !== junkN0 + 1) throw new Error("junk did not re-scatter after delay");
+    if (s.rocks[depRockI].active) throw new Error("deposited zone rock must free its slot, not respawn");
+    if (s.junk[depJunkI].active) throw new Error("deposited zone junk must free its slot, not respawn");
+    this.tickFields(9999);   // even far in the future, nothing brings a freed zone rock/junk back
+    if (s.rocks[depRockI].active) throw new Error("zone rock must never respawn");
+    if (s.junk[depJunkI].active) throw new Error("zone junk must never respawn");
+    // the per-station junk patch used to be exempt (it refilled instantly to keep
+    // local mining NPCs fed). Nothing is exempt now — the home system depletes too.
+    const junkPatchI = s.rocks.findIndex(r => r.active && !r.fieldId && !r.zone && r.type === "junk");
+    if (junkPatchI < 0) throw new Error("no station junk-patch rock to test");
+    s.tows = [{ arr: "rocks", i: junkPatchI, dangerLevel: 1 }];
+    this.depositTows();
+    if (s.rocks[junkPatchI].active) throw new Error("station junk patch must deplete like everything else");
+    this.tickFields(9999);
+    if (s.rocks[junkPatchI].active) throw new Error("station junk patch must never come back");
+    // depletion survives a save/load round trip — without this the whole model is
+    // a no-op, since s.fields is rebuilt at full cap by seedRegions on every load
+    const wornField = s.fields.find(f => !f.active && f.cap > 4);
+    wornField.stock = 2; wornField.junkStock = 1;
+    const depBlob = this.serializeGame();
+    const zoneGone = [...s.consumedZone];
+    if (!zoneGone.length) throw new Error("expected consumed zone entities to record");
+    const wornIdx = s.fields.indexOf(wornField);
+    this.init(); s = this.state;
+    this.applySaveData(depBlob);
+    if (this.state.fields[wornIdx].stock !== 2) throw new Error("field ore depletion not restored: " + this.state.fields[wornIdx].stock);
+    if (this.state.fields[wornIdx].junkStock !== 1) throw new Error("field salvage depletion not restored");
+    for (const k of zoneGone) if (!this.state.consumedZone.has(k)) throw new Error("consumed zone entity not restored: " + k);
+    for (const r of this.state.rocks) if (r.active && r.sIdx != null && this.state.consumedZone.has("r" + r.sIdx))
+      throw new Error("a consumed zone rock came back after load");
+    for (const j of this.state.junk) if (j.active && j.sIdx != null && this.state.consumedZone.has("j" + j.sIdx))
+      throw new Error("a consumed zone junk piece came back after load");
+    s = this.state;
 
     // ===== 16) SELL ore + TRADE NETWORK WIN =====
     this.init(); s = this.state;
@@ -1111,15 +1217,58 @@ Object.assign(GAME, {
     if (!s.tradeNetworkComplete) throw new Error("trade network should be complete");
     if (s.credits !== purse + sale + CONFIG.tradeNetworkBonus) throw new Error("trade network bonus not awarded");
 
-    // ===== 17) DEFEAT → respawn at home (no permadeath), −100cr =====
-    this.init(); s = this.state; s.aliens = []; s.credits = 250;
+    // ===== 17) DEFEAT → respawn at the last SAVE point (no permadeath), −100cr =====
+    // With no save yet, that falls back to the home berth.
+    this.init(); s = this.state; s.aliens = []; s.credits = 250; s.savePoint = null;
     s.x = 5000; s.y = 5000; s.hp.shield = 0; s.hp.armor = 0; s.hp.hull = 3; s.invuln = 0;
     this.onShipDestroyed();
     const home2 = this.homeStationObj();
     if (s.dead) throw new Error("defeat should not be permadeath");
-    if (Math.hypot(s.x - home2.pos.x, s.y - home2.pos.y) > 250) throw new Error("did not respawn home");
+    if (Math.hypot(s.x - home2.pos.x, s.y - home2.pos.y) > 250) throw new Error("unsaved defeat must fall back to home");
     if (s.hp.hull !== s.hp.hullMax) throw new Error("hull not restored on respawn");
     if (s.credits !== 150) throw new Error("defeat penalty wrong: " + s.credits);
+
+    // ===== 17a) SAVE POINTS: berth-gated saving; save point drives respawn =====
+    // Saving is only legal at a station/outpost berth or on a planet — that is
+    // what forces the player to fly a haul home instead of banking it anywhere.
+    this.init(); s = this.state; s.aliens = []; s.savePoint = null;
+    const spSt = ForgeWorld.getStations()[5];
+    s.x = spSt.pos.x + 40000; s.y = spSt.pos.y + 40000; s.docked = false; s.onPlanet = false;
+    if (this.saveBerth() !== null) throw new Error("open space must not be a save berth");
+    // ...and every ambient autosave in the codebase funnels through this gate
+    if (this.saveGame() !== false) throw new Error("saveGame must refuse outside a berth");
+    // station berth
+    s.x = spSt.pos.x; s.y = spSt.pos.y; s.vx = s.vy = 0; this.update(1 / 60);
+    this.openDock(spSt.id);
+    const spBerth = this.saveBerth();
+    if (!spBerth || spBerth.kind !== "station" || spBerth.name !== spSt.name)
+      throw new Error("station berth wrong: " + JSON.stringify(spBerth));
+    s.savePoint = spBerth;   // saveGame() itself is HEADLESS-blocked, so stamp directly
+    this.closeDock();
+    // death now recovers at the save point, NOT the home berth
+    s.x = 0; s.y = 0; s.hp.shield = 0; s.hp.armor = 0; s.hp.hull = 1; s.invuln = 0;
+    this.onShipDestroyed();
+    if (Math.hypot(s.x - spBerth.x, s.y - spBerth.y) > 250) throw new Error("defeat must recover at the save point");
+    if (Math.hypot(s.x - home2.pos.x, s.y - home2.pos.y) < 250) throw new Error("defeat must not snap to home once saved");
+    // a save point round-trips and drives the reload spawn
+    const spBlob = JSON.parse(JSON.stringify(this.serializeGame()));
+    if (!spBlob.savePoint || spBlob.savePoint.name !== spSt.name) throw new Error("save point not serialized");
+    this.init(); s = this.state;
+    if (!this.applySaveData(spBlob)) throw new Error("applySave savePoint");
+    if (Math.hypot(s.x - spBerth.x, s.y - spBerth.y) > 250) throw new Error("reload must spawn at the save point");
+    // a save with no save point (pre-save-point saves) still spawns at home
+    delete spBlob.savePoint;
+    this.init(); s = this.state;
+    if (!this.applySaveData(spBlob)) throw new Error("applySave without savePoint");
+    if (s.savePoint) throw new Error("missing savePoint must stay null");
+    const homeSp = this.homeStationObj();
+    if (Math.hypot(s.x - homeSp.pos.x, s.y - homeSp.pos.y) > 250) throw new Error("save-point-less reload must spawn home");
+    // planet surfaces are berths too
+    this.init(); s = this.state;
+    s.onPlanet = true; s.currentPlanetName = "mira";
+    const spPl = this.saveBerth();
+    if (!spPl || spPl.kind !== "planet" || spPl.name !== "Mira") throw new Error("planet berth wrong: " + JSON.stringify(spPl));
+    s.onPlanet = false;
 
     // ===== 17b) ENCOUNTERS: init empty · spawn ring + cap · every type triggers =====
     this.init(); s = this.state;
@@ -2275,7 +2424,7 @@ Object.assign(GAME, {
 
     // ===== 22) reset =====
     this.init(); const gs = this.getState();
-    if (gs.credits !== CONFIG.debugStartCredits || gs.tradeNetworkComplete || gs.hull !== CONFIG.baseShip.hullMax || gs.equipped !== 3 || gs.inventory !== 0) throw new Error("init reset");
+    if (gs.credits !== CONFIG.startCredits || gs.tradeNetworkComplete || gs.hull !== CONFIG.baseShip.hullMax || gs.equipped !== 3 || gs.inventory !== 0) throw new Error("init reset");
     if (gs.ships !== 1 || gs.activeShip !== 1 || gs.escorts !== 0) throw new Error("init reset: ship registry");
     this._selfTesting = false;
     return true;
@@ -2302,9 +2451,37 @@ if (HEADLESS) {
   // the long axis grow. CONFIG.W/H are read live by the camera projection and
   // every corner-anchored HUD element, so they reflow automatically; the HUD's
   // cached scale is refreshed via ForgeHUD.resizeHUD.
-  const VIEW_BASE = 390;
-  // Logical→device pixel scale for the per-frame base transform (set by fit()).
-  let renderScaleX = 1, renderScaleY = 1;
+  // Phones stay at 390 logical units on the short axis. On anything bigger the
+  // base grows with the window, so a desktop browser shows MORE WORLD instead of
+  // a magnified phone UI. Note k*scale is invariant under VIEW_BASE (see the
+  // HUD's k = min(W/390, H/700)), so HUD elements keep their physical size —
+  // this only buys visible world, it doesn't shrink the controls to nothing.
+  const VIEW_BASE_MIN = 390, VIEW_BASE_MAX = 760;
+  const viewBase = short => Math.max(VIEW_BASE_MIN, Math.min(VIEW_BASE_MAX, Math.round(short * 0.78)));
+  // Logical→device pixel scale + origin for the per-frame base transform (set by
+  // fit()). The origin is non-zero on notched phones — see the safe-area note below.
+  let renderScaleX = 1, renderScaleY = 1, renderOffX = 0, renderOffY = 0;
+  // Read the iPhone safe-area insets (CSS px) off the #safeProbe element. env()
+  // is not reachable from JS directly, so the probe's padding carries the values.
+  // Returns zeros on desktop/Android-without-cutout, which makes this a no-op there.
+  // Cached — getComputedStyle forces layout, and toLog() runs on every
+  // pointermove. Insets only change on resize / orientation, so fit() refreshes it.
+  let safeIns = { t: 0, b: 0, l: 0, r: 0 }, safePoll = 0;
+  const safeInsets = () => safeIns;
+  // Measure the four probe boxes rather than parsing computed padding: WKWebView
+  // reported `padding:env(safe-area-inset-*)` as 0px on a zero-size element even
+  // while the identical env() correctly offset the VN skip button. A laid-out box
+  // measured with getBoundingClientRect cannot lie about its own height.
+  const probeSize = (id, axis) => {
+    const el = document.getElementById(id);
+    if (!el || !el.getBoundingClientRect) return 0;
+    const r = el.getBoundingClientRect();
+    return Math.max(0, axis === "h" ? r.height : r.width);
+  };
+  const readSafeInsets = () => ({
+    t: probeSize("safeT", "h"), b: probeSize("safeB", "h"),
+    l: probeSize("safeL", "w"), r: probeSize("safeR", "w"),
+  });
   const fit = () => {
     // Cap the backing-buffer density at 2×. On dpr-3 phones the town's neon fills
     // and shadow-blurs are pixel-bound on the mobile GPU; rasterizing 3× the pixels
@@ -2313,9 +2490,18 @@ if (HEADLESS) {
     // cost ~2.25× vs 3×. Purely a resolution cap — all layout stays in logical units.
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const vw = Math.max(1, innerWidth), vh = Math.max(1, innerHeight);
-    const scale = Math.min(vw, vh) / VIEW_BASE;          // css px per logical unit
-    CONFIG.W = Math.max(320, Math.round(vw / scale));
-    CONFIG.H = Math.max(320, Math.round(vh / scale));
+    // Safe-area inset (iPhone notch / Dynamic Island / home indicator). The
+    // logical draw rect shrinks to the safe box while the backing buffer stays
+    // full-bleed, so EVERY canvas-drawn element lands clear of the hardware from
+    // this one place — the alternative was offsetting ~20 duplicated top-anchored
+    // y-anchors across hud.js / ui.js / galaxy_map.js / planet_surface.js and
+    // keeping them in sync forever. Before this, the VN SKIP button sat under the
+    // status bar and was literally untappable. Zeros on non-notched devices.
+    const ins = safeIns = readSafeInsets();
+    const sw = Math.max(1, vw - ins.l - ins.r), sh = Math.max(1, vh - ins.t - ins.b);
+    const scale = Math.min(sw, sh) / viewBase(Math.min(sw, sh));   // css px per logical unit
+    CONFIG.W = Math.max(320, Math.round(sw / scale));
+    CONFIG.H = Math.max(320, Math.round(sh / scale));
     // Backing buffer at FULL device resolution (css px × dpr) — not the logical
     // CONFIG.W/H, which would render a low-res buffer that CSS then stretches to
     // fill the viewport (blurry, esp. on Retina/dpr=2). All draw code stays in
@@ -2324,8 +2510,9 @@ if (HEADLESS) {
     canvas.width = Math.max(1, Math.round(vw * dpr));
     canvas.height = Math.max(1, Math.round(vh * dpr));
     canvas.style.width = vw + "px"; canvas.style.height = vh + "px";   // fill the viewport (no letterbox)
-    renderScaleX = canvas.width / CONFIG.W;              // logical unit → device px
-    renderScaleY = canvas.height / CONFIG.H;
+    renderScaleX = (sw * dpr) / CONFIG.W;                // logical unit → device px
+    renderScaleY = (sh * dpr) / CONFIG.H;
+    renderOffX = ins.l * dpr; renderOffY = ins.t * dpr;  // logical origin → inside the safe box
     // ForgeHUD lays out from the dims it's handed — feed it LOGICAL, not the
     // physical buffer, so its k/font sizing stays in logical units.
     if (typeof ForgeHUD !== "undefined" && ForgeHUD.resizeHUD) ForgeHUD.resizeHUD({ width: CONFIG.W, height: CONFIG.H });
@@ -2345,7 +2532,68 @@ if (HEADLESS) {
   // Safety timeout: never let a stalled image block boot forever.
   ART.load(() => {});
   setTimeout(() => { ART.ready = true; }, 6000);
-  setInterval(() => GAME.saveGame(), 5 * 60 * 1000);   // belt-and-suspenders auto-save
+
+  // Landing UX QA: open game.html?qa_land=mira (or vesper/cinder/dusk/sorn/selene).
+  // Skips title, forces a fresh surface layout, lands, and marks window.__LANDING_QA_READY
+  // once a few frames have painted (for headless screenshot harnesses).
+  (function wireLandingQA() {
+    try {
+      const q = new URLSearchParams(location.search || "");
+      const planet = (q.get("qa_land") || "").toLowerCase();
+      if (!planet) return;
+      const allowed = { mira:1, vesper:1, cinder:1, dusk:1, sorn:1, selene:1 };
+      if (!allowed[planet]) { console.warn("qa_land: unknown planet", planet); return; }
+      const go = () => {
+        try {
+          const s = GAME.state;
+          if (!s) { window.__LANDING_QA_ERROR = "no GAME.state"; return; }
+          s.titleOpen = false;
+          s.docked = false;
+          s.galaxyMapOpen = false;
+          s.victoryOpen = false;
+          if (typeof GAME._hideTitle === "function") GAME._hideTitle();
+          const tp = document.getElementById("titlePanel");
+          if (tp) { tp.classList.remove("show"); tp.style.display = "none"; }
+          s.planetProgress = s.planetProgress || {};
+          const prog = s.planetProgress[planet] || (s.planetProgress[planet] = {});
+          prog.layoutV = 0;
+          if (typeof PLANET === "undefined" || !PLANET.land) {
+            window.__LANDING_QA_ERROR = "PLANET.land missing"; return;
+          }
+          PLANET.land(s, planet);
+          if (!s.ships || !s.ships.length) {
+            s.ships = [{ id: 1, hullKey: "vulture", name: "Vulture" }];
+            s.activeShipId = 1;
+          }
+          for (let i = 0; i < 10; i++) {
+            try { PLANET.tick(0.05, s); } catch (e) {}
+          }
+          let n = 0;
+          const wait = () => {
+            n++;
+            if (n < 90 && !(typeof ART !== "undefined" && ART.ready)) {
+              requestAnimationFrame(wait); return;
+            }
+            let frames = 0;
+            const paint = () => {
+              frames++;
+              if (frames < 24) { requestAnimationFrame(paint); return; }
+              window.__LANDING_QA_READY = true;
+              window.__LANDING_QA_PLANET = planet;
+              window.__LANDING_QA_ONPLANET = !!s.onPlanet;
+              document.title = "QA land:" + planet + (s.onPlanet ? " OK" : " FAIL");
+            };
+            requestAnimationFrame(paint);
+          };
+          requestAnimationFrame(wait);
+        } catch (err) {
+          console.error("qa_land failed", err);
+          window.__LANDING_QA_ERROR = String(err && err.message || err);
+        }
+      };
+      setTimeout(go, 250);
+    } catch (_) { /* ignore */ }
+  })();
   // Web Audio unlocks only inside a user gesture; left attached so a
   // browser-suspended context (tab switch) resumes on the next input too
   addEventListener("pointerdown", () => AUDIO.unlock());
@@ -2367,24 +2615,33 @@ if (HEADLESS) {
     if (e.key === "f" || e.key === "F") input.refuel = true;
     if (e.key === "b" || e.key === "B") input.returnToBase = true;
     if (e.key === "m" || e.key === "M") input.mapToggle = true;
+    if (e.key === "t" || e.key === "T") input.radioToggle = true;
+    if (e.key === "y" || e.key === "Y") input.radioCycle = true;
+    if (e.key === "k" || e.key === "K") input.deepScan = true;
     if (e.key === "l" || e.key === "L") { input.landEdge = true; input.closeMenu = true; }
     if (e.key === "Escape") input.closeMenu = true;
     if (e.key >= "1" && e.key <= "6") input.skillTap = +e.key - 1;   // toggle skill/weapon in slot 0–5
-    if (e.key === "r" || e.key === "R") input.restart = true;
     if (e.key === "g" || e.key === "G") DEBUG = !DEBUG;
   });
   addEventListener("keyup", e => { const m = keyDir(e.key.toLowerCase()); if (m) { held[m] = false; applyKeys(); } });
   addEventListener("wheel", e => {
     if (GAME.state.galaxyMapOpen) {
-      const r = canvas.getBoundingClientRect();
-      const x = (e.clientX - r.left) / r.width * CONFIG.W, y = (e.clientY - r.top) / r.height * CONFIG.H;
-      GAME.mapZoomBy(e.deltaY < 0 ? 1.18 : 1 / 1.18, x, y); return;
+      const p = toLog(e);
+      GAME.mapZoomBy(e.deltaY < 0 ? 1.18 : 1 / 1.18, p.x, p.y); return;
     }
     input.zoomEdge = e.deltaY < 0 ? 1 : -1;
   }, { passive: true });
 
   // ---- pointer ----
-  const toLog = e => { const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * CONFIG.W, y: (e.clientY - r.top) / r.height * CONFIG.H }; };
+  // Client px → logical units. The canvas is full-bleed but drawing is inset to
+  // the safe area (see fit()), so the same inset MUST come off here or every tap
+  // lands ~59pt above what the player sees on a notched iPhone.
+  const toLog = e => {
+    const r = canvas.getBoundingClientRect(), ins = safeInsets();
+    const sw = Math.max(1, r.width - ins.l - ins.r), sh = Math.max(1, r.height - ins.t - ins.b);
+    return { x: (e.clientX - r.left - ins.l) / sw * CONFIG.W,
+             y: (e.clientY - r.top - ins.t) / sh * CONFIG.H };
+  };
   const ptrs = new Map();
   let aimPtr = null, aimId = null, pinch0 = 0, pending = null, mapPtr = null;
   const MOVE_THRESH = 12, HOLD_MS = 180;
@@ -2475,7 +2732,22 @@ if (HEADLESS) {
     // buffer. Re-applied every frame (canvas.width= in fit() resets the context,
     // and it defends against any sub-draw that might touch the transform). All
     // sub-draws use balanced save/restore, so this persists through the frame.
-    ctx.setTransform(renderScaleX, 0, 0, renderScaleY, 0, 0);
+    // iOS resolves the safe-area insets asynchronously — WKWebView reports 0 for
+    // the first frames and fires no resize event when they land, so a one-shot
+    // read at boot is permanently stale (CSS env() self-updates; a JS snapshot
+    // does not). Re-measure periodically and re-fit when the values move.
+    if ((safePoll = (safePoll + 1) % 30) === 0) {
+      const now = readSafeInsets();
+      if (now.t !== safeIns.t || now.b !== safeIns.b || now.l !== safeIns.l || now.r !== safeIns.r) fit();
+    }
+    // Wipe the FULL backing buffer, not just the logical rect: the safe-area
+    // inset leaves a band outside the drawn area that the game's own background
+    // fill never touches, so stale pixels from a pre-inset frame linger in the
+    // notch strip forever.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#05070d";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(renderScaleX, 0, 0, renderScaleY, renderOffX, renderOffY);
     if (!ART.ready) { drawLoadingScreen(ctx); return; }   // hold the first frames until PNG art settles
     try { if (!overlayActive()) applyAim(); GAME.update(dt); GAME.draw(ctx); }
     catch (e) { if (threw++ < 3) setTimeout(() => { throw e; }, 0); }

@@ -126,7 +126,6 @@ Object.assign(GAME, {
     this._closeAllOverlays();
     s.docked = false; s.dockKind = "station"; s.outpostDockId = null;
     this.syncLoadoutDOM(); sfx("boost"); toast("launching");
-    this.saveGame();   // auto-save on leaving any dock menu (station or outpost)
   },
   setDockTab(tab) {
     const s = this.state; if (!s.docked || s.dockTab === tab) return;
@@ -2049,12 +2048,16 @@ Object.assign(GAME, {
     const tw = 36, tg = 4, ty = H - 36, tx0 = W - (tw * 4 + tg * 3) - 10;
     const k = Math.min(W / 390, H / 700);   // mute tracks the k-scaled SEC badge above it
     return {
-      dock:    { x: 12, y: 70, w: 84, h: 26 },
-      fuel:    { x: 100, y: 70, w: 76, h: 26 },
+      // dropped below the top HUD strip using its own k-scaling, so the fuel bar
+      // can't grow into these on aspect ratios where k > 1 (old fixed y:70 could)
+      dock:    { x: 12, y: 88 * k, w: 84, h: 26 },
+      fuel:    { x: 100, y: 88 * k, w: 76, h: 26 },
       mute:    { x: W - 48 * k, y: 178 * k, w: 36 * k, h: 22 * k },   // speaker toggle under SEC
+      // MAP opens the galaxy map, which carries the live empire region count in
+      // its own header — the old EMPIRE chip was a second button to the same place.
       map:     { x: 12, y: H - 96, w: 64, h: 22 },
-      empire:  { x: 12, y: H - 122, w: 84, h: 22 },   // live region count — opens the galaxy map
-      scan:    { x: 12, y: H - 148, w: 84, h: 22 },   // auto-scan nearest enemy
+      scan:    { x: 12, y: H - 122, w: 84, h: 22 },   // auto-scan nearest enemy
+      survey:  { x: 12, y: H - 148, w: 84, h: 22 },   // region sensor sweep (game/scan.js)
       thrust25:  { x: tx0,                  y: ty, w: tw, h: 22 },
       thrust50:  { x: tx0 + (tw + tg),      y: ty, w: tw, h: 22 },
       thrust75:  { x: tx0 + (tw + tg) * 2,  y: ty, w: tw, h: 22 },
@@ -2070,9 +2073,10 @@ Object.assign(GAME, {
     const s = this.state, gb = this.gameButtons();
     const hit = r => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h;
     if (hit(gb.map)) { input.mapToggle = true; return true; }
-    if (hit(gb.empire)) { input.mapToggle = true; return true; }   // empire chip = same map shortcut
     if (hit(gb.mute)) { this.toggleMute(); return true; }
+    if (this.hitRadioHUD && this.hitRadioHUD(x, y)) return true;
     if (hit(gb.scan)) { this.scanNearestEnemy(); return true; }    // SCAN button — auto-target nearest
+    if (hit(gb.survey)) { input.deepScan = true; return true; }    // SURVEY button — sweep this region
     if (hit(gb.thrust25))  { this.setThrustPower(0.25); return true; }
     if (hit(gb.thrust50))  { this.setThrustPower(0.50); return true; }
     if (hit(gb.thrust75))  { this.setThrustPower(0.75); return true; }
@@ -2182,7 +2186,6 @@ Object.assign(GAME, {
       g.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 3.5); g.textAlign = "left";
     };
     btn(gb.map, "◈ MAP", false, "#8fd0ff");
-    btn(gb.empire, "EMPIRE " + (s.empireRegions || 0) + "/10", false, "#57d1c9");
     // SCAN button — pulses orange when there are hostiles in range, dim when no targets
     const hasTargets = s.aliens && s.aliens.some(al => al.state !== "DEAD" &&
       Math.hypot(al.x - s.x, al.y - s.y) <= (s.derived ? s.derived.scanRange : 900));
@@ -2191,6 +2194,12 @@ Object.assign(GAME, {
     const scanCol = outOfRange ? "#ff5050" : (isLocked ? "#57d1c9" : (hasTargets ? "#ff8a3c" : "#5a6a82"));
     const scanLabel = outOfRange ? "TOO FAR" : (isLocked ? "LOCKED" : (hasTargets ? "⊕ SCAN" : "◎ SCAN"));
     btn(gb.scan, scanLabel, isLocked && !outOfRange, scanCol);
+    // SURVEY — region sensor sweep. Cyan and inviting in an unsurveyed sector,
+    // dim once this region is known, filling while the 5s channel runs.
+    const curReg = this.regionAt(s.x, s.y);
+    const swept = this.regionScanned(curReg);
+    if (s.scanCh) btn(gb.survey, "⊙ " + Math.round(s.scanCh.t / s.scanCh.dur * 100) + "%", true, "#0d1017");
+    else btn(gb.survey, swept ? "⊙ SURVEYED" : "⊙ SURVEY", false, swept ? "#5a6a82" : "#57e6ff");
     // Out-of-range warning blink
     if (outOfRange && ((s.t * 4) | 0) % 2 === 0) {
       g.fillStyle = "rgba(255,80,80,0.12)";

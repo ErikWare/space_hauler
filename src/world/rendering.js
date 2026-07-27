@@ -382,9 +382,15 @@ Object.assign(GAME, {
       SPRITES.draw(g, "moon", sp.x, sp.y, moon.r / 50 * z, 0);
   },
 
+  // The dial is a LOCAL instrument. Rim-clamped markers are filtered to
+  // CONFIG.minimapLocalR (a ~5×5 region window) — previously every discovered
+  // outpost and station in the galaxy clamped to the rim, so late game the dial
+  // was a solid ring of diamonds telling you nothing about where you actually are.
   buildMinimap() {
     const s = this.state, stations = ForgeWorld.getStations();
     const rg = s.derived.scanRange * 1.15, rg2 = rg * rg;   // only rocks on the disc — 1000+ rocks would swamp the HUD pass
+    const lr = CONFIG.minimapLocalR, lr2 = lr * lr;
+    const near = (x, y) => { const dx = x - s.x, dy = y - s.y; return dx * dx + dy * dy <= lr2; };
     return {
       range: s.derived.scanRange,
       ship: { x: s.x, y: s.y },
@@ -392,35 +398,22 @@ Object.assign(GAME, {
         .map(p => ({ x: p.x, y: p.y, r: p.r, mid: CONFIG.planetDefs[p.type].mid })),
       rocks: s.rocks.filter(r => { if (!r.active) return false; const dx = r.x - s.x, dy = r.y - s.y; return dx * dx + dy * dy <= rg2; })
         .map(r => ({ x: r.x, y: r.y, color: r.col })),
-      fields: s.fields.filter(f => f.discovered && !f.active)
-        .map(f => ({ x: f.x, y: f.y, r: f.r, color: f.col })),
-      outposts: (s.outposts || []).filter(o => o.discovered)
+      outposts: (s.outposts || []).filter(o => o.discovered && near(o.x, o.y))
         .map(o => ({ x: o.x, y: o.y, color: this.outpostFactionCol(o),
           owned: o.owner === "player", attacked: !!o.underAttack })),
-      stations: stations.filter(st => st.discovered)
+      sites: (s.sites || []).filter(t => t.discovered && near(t.x, t.y))
+        .map(t => ({ x: t.x, y: t.y, color: (SITE_DEFS[t.type] || {}).mapCol || "#9fb4c8",
+          fortified: !!(t.emplacement && !t.emplacement.destroyed) })),
+      // survey contacts: position only, identity withheld until you fly there
+      contacts: this.scanContactsNear(s.x, s.y, lr),
+      stations: stations.filter(st => st.discovered && near(st.pos.x, st.pos.y))
         .map(st => ({ x: st.pos.x, y: st.pos.y, id: st.id,
           discovered: st.discovered, home: st.id === s.homeStationId, rep: st.reputation })),
     };
   },
 
-  drawFogOverlay(g, z) {
-    if (HEADLESS) return;
-    const s = this.state, t = CONFIG.FOG_TILE, P = CONFIG.pitch;
-    const halfW = CONFIG.W / 2 / z, halfH = CONFIG.H / 2 / z / P;
-    const minTx = Math.floor((s.cam.x - halfW) / t) - 1;
-    const maxTx = Math.ceil((s.cam.x + halfW) / t) + 1;
-    const minTy = Math.floor((s.cam.y - halfH) / t) - 1;
-    const maxTy = Math.ceil((s.cam.y + halfH) / t) + 1;
-    g.fillStyle = "rgba(5,7,13,0.55)";
-    for (let tx = minTx; tx <= maxTx; tx++) {
-      for (let ty = minTy; ty <= maxTy; ty++) {
-        if (s.exploredTiles.has(tx + "," + ty)) continue;
-        const wp = this.S(tx * t, ty * t);
-        const wp2 = this.S((tx + 1) * t, (ty + 1) * t);
-        g.fillRect(wp.x, wp.y, wp2.x - wp.x, wp2.y - wp.y);
-      }
-    }
-  },
+  // drawFogOverlay lives in world/fog.js (inked star-chart) — it loads after this
+  // file so its version wins the Object.assign. Call site is unchanged.
 
   drawWorld(g) {
     if (HEADLESS) return;
@@ -621,7 +614,10 @@ Object.assign(GAME, {
       // seeking/patrolling miners are far out at the ore rings and still render.
       const hs = (s._npcStations || []).find(h => h.id === m.stationId);
       if (hs && (m.x - hs.x) * (m.x - hs.x) + (m.y - hs.y) * (m.y - hs.y) < CONFIG.dockR * CONFIG.dockR) continue;
-      ForgeNPC.drawNPCShip(g, m, cam);
+      // drone hull art (same clay sprite as the player's fleet drones), diamond fallback
+      const mp = this.SF(m.x, m.y);
+      const drewSprite = ART.draw(g, "drone_t0", mp.x, mp.y, 9 * z * 2.6, m.angle || 0);
+      ForgeNPC.drawNPCShip(g, m, cam, { skipHull: drewSprite });
     }
     const lockId = ForgeCombat.getLock().targetId;
     for (const al of s.aliens) {

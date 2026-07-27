@@ -30,7 +30,10 @@ Object.assign(GAME, {
   },
   toggleGalaxyMap() { if (this.state.galaxyMapOpen) this.closeGalaxyMap(); else this.openGalaxyMap(); },
 
-  GALAXY_ZOOM_MAX: 6,
+  // 24× lets you push past "which wedge" all the way down to reading a single
+  // station's neighbourhood — outposts, sites and fields separate from each
+  // other well before the ceiling. (Was 6×, which bottomed out still zoomed out.)
+  GALAXY_ZOOM_MAX: 24,
   _mapGeom() {
     const s = this.state, zoom = s.mapZoom || 1;
     const scale = Math.min(CONFIG.W, CONFIG.H) * 0.42 * zoom;   // disc radius, magnified by the live zoom
@@ -218,21 +221,8 @@ Object.assign(GAME, {
     }
     if (g.setLineDash) g.setLineDash([]);
 
-    // fog of war overlay on map
-    const fogTile = CONFIG.FOG_TILE;
-    const fogR = Math.ceil(CONFIG.WORLD_RADIUS / fogTile);
-    g.fillStyle = "rgba(5,7,13,0.5)";
-    for (let tx = -fogR; tx <= fogR; tx++) {
-      for (let ty = -fogR; ty <= fogR; ty++) {
-        if (s.exploredTiles.has(tx + "," + ty)) continue;
-        const wx = tx * fogTile, wy = ty * fogTile;
-        const d = Math.sqrt(wx * wx + wy * wy);
-        if (d > CONFIG.WORLD_RADIUS * 1.2) continue;
-        const p1 = this.mapPoint(wx, wy);
-        const p2 = this.mapPoint(wx + fogTile, wy + fogTile);
-        g.fillRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
-      }
-    }
+    // fog of war: inked star-chart overlay, one blit from a cached bake (world/fog.js)
+    this.drawMapFog(g, m);
 
     // planets
     g.font = "8px monospace";
@@ -297,6 +287,24 @@ Object.assign(GAME, {
       const p = this.mapPoint(t.x, t.y), def = SITE_DEFS[t.type];
       g.fillStyle = def.mapCol;
       g.fillText(def.glyph, p.x, p.y + 3);
+    }
+
+    // survey contacts: whatever the sweeps picked up but you haven't flown to.
+    // Deliberately vague and dim — a heading to chase, not an answer.
+    if (s.scannedRegions && s.scannedRegions.size) {
+      const seen = new Set();
+      for (const rid of s.scannedRegions) {
+        const reg = this.regionGet(rid); if (!reg) continue;
+        for (const c of this.regionContacts(reg)) {
+          const key = (c.x | 0) + "," + (c.y | 0); if (seen.has(key)) continue; seen.add(key);
+          const p = this.mapPoint(c.x, c.y);
+          if (p.x < -8 || p.x > CONFIG.W + 8 || p.y < -8 || p.y > CONFIG.H + 8) continue;
+          g.globalAlpha = 0.5;
+          g.fillStyle = c.cls === "hostile" ? "#ff8a8a" : c.cls === "signal" ? "#7fdfff" : "#9fb4c8";
+          g.fillText(c.cls === "hostile" ? "△" : c.cls === "signal" ? "⌁" : "◌", p.x, p.y + 3);
+          g.globalAlpha = 1;
+        }
+      }
     }
     g.textAlign = "left";
 

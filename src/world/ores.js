@@ -156,34 +156,20 @@ Object.assign(GAME, {
     if (zone === "belt") { rock.size *= 1.2; rock.outer = d; }   // belt glow halo
     return rock;
   },
-  // when a rock is consumed (mined by player/weapon/NPC):
-  //   field rock  → DEPLETE: free the slot; the field's stock (captured on
-  //                 deactivation + slow regen) accounts for the loss. A rock
-  //                 towed away from an already-dormant field decrements its
-  //                 stock directly, since deactivation already counted it.
-  //   legacy rock → respawn an equivalent back into its home zone/ring.
-  respawnRock(i) {
+  // A consumed rock is GONE — mined, shot, towed home, whatever took it. Nothing
+  // in the world re-scatters ore any more; the map is a finite budget you spend.
+  //   field rock → free the slot. While the field is active its live rock count
+  //                IS its stock (deactivation recounts survivors); once dormant,
+  //                deactivation has already counted it, so decrement directly.
+  //   zone rock  → free the slot. This used to re-scatter an equivalent rock back
+  //                into the same zone, which made shooting and NPC mining free.
+  consumeRock(i) {
     const s = this.state, r = s.rocks[i];
+    if (!r || !r.active) return;
     if (r.fieldId) {
       const f = this.fieldById(r.fieldId);
       if (f && !f.active) f.stock = Math.max(0, f.stock - 1);
-      this._freeRockSlot(i);
-      return;
-    }
-    s.rocks[i] = r.zone ? this.makeZoneRock(r.zone)
-               : this.makeRock(CONFIG.rings.find(g => g.type === r.type) || CONFIG.rings[0], r._center);
-  },
-
-  // Deposit path (game/economy.js): a rock towed to a station is consumed. Field
-  // rocks free their slot and let the field regen (respawnRock). Non-field zone/
-  // legacy rocks used to respawn INSTANTLY right back into their zone — outside
-  // the station — which let the player spam-mine home base. Instead we free the
-  // slot now and queue a delayed respawn so the resource regenerates over time.
-  depositRespawnRock(i) {
-    const s = this.state, r = s.rocks[i];
-    if (r.fieldId) { this.respawnRock(i); return; }   // field: stream-out + fieldRegenPerSec handles it
-    const spec = r.zone ? { zone: r.zone } : { type: r.type, center: r._center };
+    } else if (r.sIdx != null) s.consumedZone.add("r" + r.sIdx);   // persist the loss
     this._freeRockSlot(i);
-    s.respawnQueue.push(Object.assign({ arr: "rocks", t: CONFIG.depositRespawnDelay }, spec));
   },
 });
