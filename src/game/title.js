@@ -181,6 +181,7 @@ Object.assign(GAME, {
       const fac = TITLE_FACTIONS.find(f => m && f.key === m.faction);
       const isMerc = !!(m && m.mercenary);
       html += '<div class="titleCard" data-slot="' + n + '">' +
+        '<button type="button" class="tsTrash" data-del-slot="' + n + '" title="Delete save" aria-label="Delete slot ' + n + '">🗑</button>' +
         '<div class="tsSlotLbl">SLOT ' + n + '</div>' +
         (fac ? '<img src="' + fac.icon + '" alt="">' : "") +
         '<div class="tcName" style="color:' + (isMerc ? "#9fd36a" : (fac ? fac.color : "#c7d2e0")) + '">' +
@@ -197,6 +198,19 @@ Object.assign(GAME, {
       html += '</div>';
     }
     row.innerHTML = html;
+    for (const trash of row.querySelectorAll("[data-del-slot]")) {
+      trash.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        const n = +trash.getAttribute("data-del-slot");
+        if (!confirm("Delete slot " + n + "? This cannot be undone.")) return;
+        if (this.clearSaveSlot(n)) {
+          toast("slot " + n + " cleared", "#ff8a8a", 2);
+          this.renderTitleSlots(mode);
+          this.renderTitleHome();
+        }
+      });
+    }
     for (const card of row.querySelectorAll("[data-slot]")) {
       const n = +card.getAttribute("data-slot"), used = this.slotUsed(n);
       if (mode === "load") {

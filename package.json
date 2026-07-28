@@ -1,0 +1,16 @@
+{
+  "name": "space-hauler",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Space Hauler — haul, fight, conquer the pie",
+  "scripts": {
+    "bundle": "python3 build.py && python3 scripts/build_mobile.py",
+    "sync": "npm run bundle && npx cap sync ios",
+    "ios": "npm run sync && npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/cli": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
+    "@capacitor/ios": "^8.4.2"
+  }
+}

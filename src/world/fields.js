@@ -69,6 +69,8 @@ Object.assign(GAME, {
     let ring, bonus = false;
     // exotic veins are homogeneous: every rock is the field's stamped ore
     if (f.kind === "exotic") { ring = CONFIG.rings.find(r => r.type === f.oreType) || this.exoticRingFor(dd); bonus = true; }
+    // onboarding graded-ore vein: same homogeneous stamp, common industrial ores only
+    else if (f.kind === "tutor") { ring = CONFIG.rings.find(r => r.type === f.oreType) || CONFIG.rings[1]; bonus = true; }
     // belt + nebula are guaranteed gold/platinum paydays (their disc can spill
     // past the strict annulus, so pick the tier directly rather than by distance)
     else if (f.kind === "nebula" || f.kind === "belt") { ring = CONFIG.rings[rnd() < 0.7 ? 3 : 4]; bonus = true; }   // gold 70 / platinum 30
@@ -213,6 +215,7 @@ Object.assign(GAME, {
     if (this.fieldSpent(f)) return "× WORKED OUT";
     return f.kind === "belt" ? "◆ ASTEROID BELT" : f.kind === "nebula" ? "◆ NEBULA ORE"
       : f.kind === "exotic" ? "◆ " + (CONFIG.oreNames[f.oreType] || "EXOTIC").toUpperCase() + " VEIN"
+      : f.kind === "tutor" ? "◆ " + (CONFIG.oreNames[f.oreType] || "ORE").toUpperCase() + " MARK"
       : "◇ " + (CONFIG.oreNames[f.oreType] || "ore field");
   },
   // Compact overview marker: one diamond + halo + label. Sparse, legible targets.
@@ -238,6 +241,7 @@ Object.assign(GAME, {
       case "base":   return { r: C.fieldBaseR,   cap: irnd(C.fieldBaseCapMin, C.fieldBaseCapMax) };
       case "nebula": return { r: C.fieldNebulaR, cap: irnd(C.fieldNebulaCapMin, C.fieldNebulaCapMax) };
       case "exotic": return { r: C.exoticFieldR, cap: irnd(C.exoticCapMin, C.exoticCapMax) };   // tight rare vein
+      case "tutor":  return { r: 400, cap: 6 };   // guided onboarding pocket: enough for the 3-rock quota + spare
       default:       // "bg" / "rich" — wide discs that overlap neighbor regions
         return { r: C.fieldBgRMin + rnd() * (C.fieldBgRMax - C.fieldBgRMin), cap: irnd(C.fieldBgCapMin, C.fieldBgCapMax) };
     }
@@ -249,5 +253,164 @@ Object.assign(GAME, {
     let cx = region.cx, cy = region.cy;
     if (jitter) { const a = rnd() * TAU, d = rnd() * CONFIG.regionFieldJitter; cx += Math.cos(a) * d; cy += Math.sin(a) * d; }
     return this.makeField(cx, cy, spec.r, kind, spec.cap, region.id);
+  },
+
+  // ---- onboarding graded-ore veins (copper/silver/gold/platinum rungs) ----
+  // While a haul_<ore> tutor quest is active, place a small homogeneous pocket
+  // near the issuing station. Distance escalates with grade (copper near home →
+  // platinum at the edge of a neighbor sector) so the contact's "further out"
+  // copy matches the map. NEVER past home + Chebyshev-neighbor regions.
+  // Session-only (fields rebuild on load) — re-called from ensureTutorOreField.
+  tutorOreForAction(action) {
+    if (!action || action.indexOf("haul_") !== 0) return null;
+    const ore = action.slice(5);
+    if (ore === "copper" || ore === "silver" || ore === "gold" || ore === "platinum") return ore;
+    return null;
+  },
+  // Hop band + world-distance band from the dock. Hops are Chebyshev steps on
+  // the sector grid (0 = home region, 1 = any of the 8 neighbors). Distances
+  // stack so copper < silver < gold < platinum while staying ≤ ~1 sector out.
+  tutorOrePlacement(oreType) {
+    // sectorSize is 4000; neighbor centers sit ~4000 (ortho) / ~5600 (diag) out.
+    const S = (CONFIG && CONFIG.sectorSize) || 4000;
+    const table = {
+      copper:   { minHop: 0, maxHop: 0, minD: S * 0.22, maxD: S * 0.38 }, // ~900–1500, home cell
+      silver:   { minHop: 0, maxHop: 1, minD: S * 0.42, maxD: S * 0.62 }, // ~1700–2500
+      gold:     { minHop: 1, maxHop: 1, minD: S * 0.62, maxD: S * 0.85 }, // ~2500–3400, neighbor
+      platinum: { minHop: 1, maxHop: 1, minD: S * 0.85, maxD: S * 1.12 }, // ~3400–4500, outer neighbor
+    };
+    return table[oreType] || table.copper;
+  },
+  // Home sector + the 8 neighbors (Chebyshev ≤ 1). Empty if the grid is missing.
+  _tutorNeighborRegions(station) {
+    const home = this.regionAt(station.pos.x, station.pos.y);
+    if (!home || typeof this.regionByColRow !== "function") return [];
+    const out = [];
+    for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) {
+      const r = this.regionByColRow(home.col + dc, home.row + dr);
+      if (!r) continue;
+      const hop = Math.max(Math.abs(dc), Math.abs(dr));
+      out.push({ reg: r, hop,
+        dist: Math.hypot(r.cx - station.pos.x, r.cy - station.pos.y) });
+    }
+    return out;
+  },
+  clearTutorOreFields() {
+    const s = this.state; if (!s || !s.fields) return;
+    for (let i = s.fields.length - 1; i >= 0; i--) {
+      const f = s.fields[i];
+      if (!f || f.kind !== "tutor") continue;
+      if (f.active) this.deactivateField(f);
+      s.fields.splice(i, 1);
+    }
+  },
+  spawnTutorOreField(oreType, station) {
+    this.clearTutorOreFields();
+    if (!station || !station.pos || !oreType) return null;
+    const ring = CONFIG.rings.find(r => r.type === oreType);
+    if (!ring) return null;
+    const s = this.state;
+    const place = this.tutorOrePlacement(oreType);
+    const neighbors = this._tutorNeighborRegions(station);
+    const allowed = neighbors.filter(n => n.hop >= place.minHop && n.hop <= place.maxHop);
+    const pool = allowed.length ? allowed : neighbors; // soft fallback: any local cell
+
+    let cx = null, cy = null, regionId = null;
+    const half = ((CONFIG && CONFIG.sectorSize) || 4000) * 0.45;
+    // Prefer a random point in a hop-matching cell whose distance from the
+    // station falls in the ore's distance band (escalating grades fly further).
+    for (let attempt = 0; attempt < 48; attempt++) {
+      const pick = pool.length ? pool[(rnd() * pool.length) | 0] : null;
+      let x, y, reg = null;
+      if (pick) {
+        reg = pick.reg;
+        // Jitter inside the cell; bias slightly away from the station so higher
+        // grades land on the far side of a neighbor sector.
+        const jx = (rnd() - 0.5) * 2 * half, jy = (rnd() - 0.5) * 2 * half;
+        x = reg.cx + jx; y = reg.cy + jy;
+        // Nudge outward along the station→cell vector for gold/platinum.
+        if (place.minHop >= 1) {
+          const dx = reg.cx - station.pos.x, dy = reg.cy - station.pos.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const push = (place.minD + place.maxD) * 0.5 * 0.15;
+          x += (dx / len) * push; y += (dy / len) * push;
+        }
+      } else {
+        const a = rnd() * TAU;
+        const d = place.minD + rnd() * (place.maxD - place.minD);
+        x = station.pos.x + Math.cos(a) * d;
+        y = station.pos.y + Math.sin(a) * d;
+        reg = this.regionAt(x, y);
+      }
+      const d = Math.hypot(x - station.pos.x, y - station.pos.y);
+      if (d < place.minD * 0.85 || d > place.maxD * 1.15) continue;
+      // Must stay in home or a neighbor — never two hops out.
+      if (reg && neighbors.length) {
+        const ok = neighbors.some(n => n.reg.id === reg.id);
+        if (!ok) continue;
+        if (allowed.length && !allowed.some(n => n.reg.id === reg.id)) continue;
+      }
+      cx = x; cy = y; regionId = reg ? reg.id : null;
+      break;
+    }
+    // Deterministic fallback: best-matching cell center by hop, then by dist band.
+    if (cx == null) {
+      const list = (allowed.length ? allowed : neighbors).slice()
+        .sort((a, b) => {
+          const ta = Math.abs(a.dist - (place.minD + place.maxD) * 0.5);
+          const tb = Math.abs(b.dist - (place.minD + place.maxD) * 0.5);
+          return ta - tb;
+        });
+      if (list.length) {
+        const best = list[0];
+        const dx = best.reg.cx - station.pos.x, dy = best.reg.cy - station.pos.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const target = (place.minD + place.maxD) * 0.5;
+        // Place along the ray toward the cell, clamped to the distance band.
+        const d = Math.max(place.minD, Math.min(place.maxD, target));
+        cx = station.pos.x + (dx / len) * d;
+        cy = station.pos.y + (dy / len) * d;
+        // Snap region to whatever cell the point landed in (still local).
+        const reg = this.regionAt(cx, cy) || best.reg;
+        regionId = reg.id;
+      } else {
+        const a = rnd() * TAU, d = (place.minD + place.maxD) * 0.5;
+        cx = station.pos.x + Math.cos(a) * d;
+        cy = station.pos.y + Math.sin(a) * d;
+        const reg = this.regionAt(cx, cy);
+        regionId = reg ? reg.id : null;
+      }
+    }
+
+    const spec = this.fieldSpec("tutor");
+    const f = this.makeField(cx, cy, spec.r, "tutor", spec.cap, regionId);
+    f.oreType = oreType;
+    f.col = ring.col;
+    f.notable = true;
+    f.discovered = true;   // charted the moment the job is issued
+    f.junkStock = 0;       // pure graded cargo — no slag noise
+    s.fields.push(f);
+    this.tickFields(0);    // stream rocks if the ship is already nearby (docked)
+    return f;
+  },
+  // Re-attach a guided vein for the held graded tutor rung (grant + load).
+  ensureTutorOreField() {
+    const s = this.state; if (!s || !s.quests) return null;
+    let q = null;
+    for (const cand of s.quests) {
+      if (cand.kind === "tutor" && this.tutorOreForAction(cand.action)) { q = cand; break; }
+    }
+    if (!q) { this.clearTutorOreFields(); return null; }
+    const ore = this.tutorOreForAction(q.action);
+    const existing = s.fields && s.fields.find(f => f.kind === "tutor" && f.oreType === ore);
+    if (existing) {
+      q.tutorFieldId = existing.id;
+      existing.discovered = true;
+      return existing;
+    }
+    const st = (this._questStation && this._questStation(q)) || this.homeStationObj();
+    const f = this.spawnTutorOreField(ore, st);
+    if (f) q.tutorFieldId = f.id;
+    return f;
   },
 });

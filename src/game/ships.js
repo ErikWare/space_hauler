@@ -222,14 +222,7 @@ Object.assign(GAME, {
     });
   },
 
-  // ---- HUD: current hull name under the top-strip bars (flight frames) ----
-  drawShipBadge(g) {
-    if (HEADLESS) return;
-    const sh = this.activeShip(); if (!sh) return;
-    const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
-    g.font = `bold ${Math.max(8, 9 * k) | 0}px monospace`;
-    g.textAlign = "left";
-    g.fillStyle = "#8fd0ff";
-    g.fillText("⬡ " + sh.hullKey.toUpperCase(), 8 * k, 68 * k);
-  },
+  // ---- HUD: hull name is drawn with thrust in drawControls (ship strip) ----
+  // Kept as no-op so call sites (main.js) stay valid; layout lives in gameButtons().
+  drawShipBadge(g) { /* ship name chip is part of drawControls */ },
 });

@@ -10,6 +10,10 @@ let DEBUG = !HEADLESS && typeof location !== "undefined" && location.hash.includ
 const TAU = 6.283185307179586;
 
 const CONFIG = {
+  // Dev: when true (or when DEBUG is toggled on with G / #debug), held quests
+  // can be turned in without completing objectives so you can skip ahead to
+  // the rung you want to play-test. Production: leave false and DEBUG off.
+  debugQuestSkip: false,
   W: 390, H: 700,
   // ---- dual engine (kept from v3) ----
   //   CONSTANT: hold = accelerate toward click, burn fuel/sec
@@ -24,7 +28,11 @@ const CONFIG = {
   leashBase: 48, leashStep: 40, towPull: 0.30, towBodyDrag: 0.86,
   tapPickR: 30, towK: 0.50, baseTows: 3,
   // ---- economy / progression ----
-  fuelPerCredit: 2.5, rationFuel: 30, dockR: 160, defeatPenalty: 100,
+  fuelPerCredit: 2.5, rationFuel: 30, dockR: 160,
+  // Station action row (DOCK / FUEL / WARP) appears together at this range.
+  // Actual berth latch still uses dockR; UI is unified so warp is not early.
+  stationActionR: 200,
+  defeatPenalty: 100,
   equipSlots: 6,                     // MAX rack size (ForgeEquipment); per-hull equipSlots may be smaller
   // ---- HULL registry (multi-ship) ------------------------------------------
   // Each hull is a full base stat block (ForgeEquipment.getActiveStats input;
@@ -724,8 +732,19 @@ function stepParticles(dt) {
   for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i];
     p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.t >= p.life) particles.splice(i, 1); }
 }
-const toasts = [];   // { text, age } — shape ForgeHUD.drawToasts expects
-function toast(text, col, life) { toasts.push({ text: text, age: 0, col, life }); if (toasts.length > 4) toasts.shift(); }
+const toasts = [];   // kept for self-tests + rare on-screen criticals
+// Gameplay chatter (tractor full, DPS, pickups, etc.) streams to the cockpit
+// radio so it does not paint over ship vitals. Pass { hud: true } only for rare
+// full-screen-critical moments. Quest status stays on the quest HUD / wing chat.
+function toast(text, col, life, opts) {
+  const o = (opts && typeof opts === "object") ? opts : null;
+  const forceHud = !!(o && o.hud) || opts === true;
+  toasts.push({ text: text, age: 0, col, life, forceHud });
+  if (toasts.length > 8) toasts.shift();
+  // Mirror into radio (traffic channel) — brighter cockpit feed
+  if (!forceHud && typeof GAME !== "undefined" && GAME.radioFeed)
+    try { GAME.radioFeed(text, col); } catch (e) { /* soft */ }
+}
 function stepToasts(dt) { for (let i = toasts.length - 1; i >= 0; i--) { toasts[i].age += dt; if (toasts[i].age > (toasts[i].life || 3)) toasts.splice(i, 1); } }
 
 /*=== HARNESS:ASSETS =========================================================

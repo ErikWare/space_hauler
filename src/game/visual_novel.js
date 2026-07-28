@@ -30,6 +30,8 @@ const VN_ASSETS = {
   bg_space_contested:  { src: "sprites/opening_scene.png" },
   bg_vex_convoy:       { src: "sprites/victory_scene.png" },
   bg_krag_dock:        { src: "sprites/station_krag.png", pos: "center 30%" },
+  // Dockmaster office — plants / odd pet on the desk (relationship beats after Q6)
+  bg_krag_office:      { src: "sprites/intro/bg_krag_office.png", fallback: "bg_krag_dock", pos: "center 40%" },
   bg_vex_tribunal:     { src: "sprites/station_vex.png",  pos: "center 30%" },
   bg_vex_hangar:       { src: "sprites/station_vex.png",  pos: "center 65%" },
   bg_nox_cryo:         { src: "sprites/nebula_blue.png" },

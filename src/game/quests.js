@@ -127,6 +127,49 @@ const QUEST_TUTOR = {
       const n = (o.stationedDrones || []).length;
       return `${Math.min(1, n)}/1 drone stationed (tap the outpost to assign)`;
     } },
+  // Special A (after Q6 office): multi-waypoint survey with wingman. Scripted
+  // no-win ambush after the last mark — complete by docking home OR dying.
+  // Does NOT mercenary-wipe; hands to Q7 after a close-call beat.
+  special_scout: { need: 1, reward: 400, unit: "survey", title: "WING SURVEY",
+    desc: "Meet your wing lead at the start mark outside the dock, then survey each body — approach, SCAN, log.",
+    poll: (G, s, q) => (q && q.survived ? 1 : 0),
+    text: (G, s, q) => {
+      if (!q) return "survey pending";
+      if (q.phase === "rendezvous") {
+        const n = (G._tutorWingName && G._tutorWingName()) || "WING";
+        return "Meet " + n + " at QUEST START (outside dock)";
+      }
+      if (q.phase === "flee") return "RUN — dock at home berth";
+      if (q.phase === "ambush") return "contacts everywhere — break for home";
+      if (q.phase === "done") return "report to the dock";
+      const n = (q.waypoints && q.waypoints.length) || 3;
+      const i = q.wpIndex | 0;
+      const wp = q.waypoints && q.waypoints[i];
+      const hold = q.scanHold || 3;
+      const pct = Math.round(Math.min(1, (q.scanT || 0) / hold) * 100);
+      if (q.scanning) return `SCANNING ${wp && wp.label ? wp.label : "mark"} ${pct}%`;
+      if (q.nearObj) return "IN RANGE — press SCAN";
+      return `mark ${Math.min(i + 1, n)}/${n}` + (wp && wp.kindLabel ? " · " + wp.kindLabel : " · follow wing");
+    } },
+  // Special B (after Q10): second wing job that ends in the full catastrophe.
+  special_end: { need: 1, reward: 0, unit: "mission", title: "RELAY PICKUP",
+    desc: "Meet wing at QUEST START outside the dock, then SCAN each relay body.",
+    poll: (G, s, q) => (q && q.trapSprung ? 1 : 0),
+    text: (G, s, q) => {
+      if (!q) return "mission pending";
+      if (q.phase === "rendezvous") {
+        const n = (G._tutorWingName && G._tutorWingName()) || "WING";
+        return "Meet " + n + " at QUEST START";
+      }
+      if (q.phase === "ambush" || q.phase === "flee") return "contacts lighting scopes — survive if you can";
+      if (q.phase === "sprung") return "signal lost";
+      const n = (q.waypoints && q.waypoints.length) || 2;
+      const i = q.wpIndex | 0;
+      const wp = q.waypoints && q.waypoints[i];
+      if (q.scanning) return "SCANNING " + Math.round(Math.min(1, (q.scanT || 0) / (q.scanHold || 3)) * 100) + "%";
+      if (q.nearObj) return "IN RANGE — press SCAN";
+      return `relay mark ${Math.min(i + 1, n)}/${n}` + (wp && wp.kindLabel ? " · " + wp.kindLabel : "");
+    } },
 };
 const QUEST_RMULT = {   // reward multipliers — riskier shapes pay more
   extract: 1.15, escort: 1.2, salvage: 1.15, blackbox: 1.35, rescue: 1.35,
@@ -294,7 +337,7 @@ Object.assign(GAME, {
     const spec = QUEST_TUTOR[key]; if (!spec || !station) return null;
     const s = this.state;
     const terr = politicalRegionAt(station.pos.x, station.pos.y);
-    return { id: s.nextQuestId++, kind: "tutor", action: key,
+    const q = { id: s.nextQuestId++, kind: "tutor", action: key,
       stationId: station.id, territory: terr ? terr.name : "",
       title: spec.title, description: spec.desc, difficulty: 1, reward: spec.reward,
       regionId: null, siteId: null, outpostId: null, tiers: null, nodes: null,
@@ -305,6 +348,469 @@ Object.assign(GAME, {
       // rung was issued against survives a reload.
       base: spec.base ? spec.base(this, s) | 0 : 0,
       boosts: {}, status: "offer" };
+    if ((key === "special_scout" || key === "special_end") && this._prepareSpecialMission)
+      this._prepareSpecialMission(q, station, key);
+    return q;
+  },
+  // Wing lead name by faction (radio + world label).
+  _tutorWingName() {
+    const fac = (this.state && this.state.playerFaction) || "krag";
+    return ({ krag: "REVA", vex: "CADE", nox: "LIRA" })[fac] || "WING";
+  },
+  // ART key for the wing hull (Reva ships for Krag; others fall back until art ships).
+  _tutorWingSpriteKey() {
+    const fac = (this.state && this.state.playerFaction) || "krag";
+    return ({ krag: "ship_reva", vex: "ship_reva", nox: "ship_reva" })[fac] || "ship_reva";
+  },
+  // Survey body archetypes at each mark (sprite + Reva-style chatter keys).
+  _tutorMarkKinds() {
+    return [
+      { kind: "rock", art: "asteroid_b", kindLabel: "ORE MASS", r: 95,
+        label: "ORE MASS" },
+      { kind: "wreck", art: "wreck_hull", kindLabel: "DERELICT HULL", r: 110,
+        label: "DERELICT" },
+      { kind: "artifact", art: "alien_body", kindLabel: "ALIEN RELIC", r: 85,
+        label: "ALIEN RELIC" },
+    ];
+  },
+  // Build 2–3 survey marks near home, spawn solid world bodies + wing lead.
+  _prepareSpecialMission(q, station, key) {
+    const s = this.state;
+    const isEnd = key === "special_end";
+    const nMarks = isEnd ? 2 : 3;
+    const hold = (typeof QUESTS !== "undefined" ? QUESTS.scanHold : 3) + 1.2;
+    const home = this.regionAt(station.pos.x, station.pos.y);
+    const secs = (CONFIG && CONFIG.sectorSize) || 4000;
+    const kinds = this._tutorMarkKinds();
+    const wps = [];
+    const cands = [];
+    if (home && this.regionByColRow) {
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) {
+        if (dc === 0 && dr === 0) continue;
+        const r = this.regionByColRow(home.col + dc, home.row + dr);
+        if (r) cands.push(r);
+      }
+    }
+    cands.sort((a, b) => {
+      const da = Math.hypot(a.cx - station.pos.x, a.cy - station.pos.y);
+      const db = Math.hypot(b.cx - station.pos.x, b.cy - station.pos.y);
+      return da - db;
+    });
+    for (let i = 0; i < nMarks; i++) {
+      const mk = kinds[i % kinds.length];
+      let x, y;
+      if (cands[i]) {
+        const r = cands[i];
+        x = r.cx + (rnd() - 0.5) * secs * 0.25;
+        y = r.cy + (rnd() - 0.5) * secs * 0.25;
+      } else {
+        const a = (i / nMarks) * Math.PI * 2 + 0.4;
+        const d = secs * (0.55 + i * 0.35);
+        x = station.pos.x + Math.cos(a) * d;
+        y = station.pos.y + Math.sin(a) * d;
+      }
+      wps.push({
+        x, y, done: false,
+        label: mk.label,
+        kind: mk.kind,
+        kindLabel: mk.kindLabel,
+        art: mk.art,
+        r: mk.r,
+        rot: rnd() * Math.PI * 2,
+      });
+    }
+    // Rendezvous pin just outside the dock — wing parks here until player forms up.
+    const ra = rnd() * Math.PI * 2;
+    const rd = 700 + rnd() * 200;
+    q.rendezvous = {
+      x: station.pos.x + Math.cos(ra) * rd,
+      y: station.pos.y + Math.sin(ra) * rd,
+      r: 200,
+      label: "QUEST START",
+    };
+    q.phase = "rendezvous";
+    q.waypoints = wps;
+    q.wpIndex = 0;
+    q.scanT = 0;
+    q.scanHold = hold;
+    q.scanning = false;
+    q.scanArmed = false;   // true after player presses SCAN while in range
+    q.nearObj = false;
+    q.survived = false;
+    q.trapSprung = false;
+    q.ambushSpawned = false;
+    q.homeX = station.pos.x;
+    q.homeY = station.pos.y;
+    q.need = 1; q.have = 0;
+    if (isEnd) q.reward = 0;
+    const wing = this._tutorWingName();
+    q.description = isEnd
+      ? `Meet ${wing} at QUEST START outside the dock, then SCAN each relay body.`
+      : `Meet ${wing} at QUEST START outside the dock. Then survey each body — SCAN to log.`;
+    this._spawnTutorWing(q, station); // parks on rendezvous
+    this._spawnTutorObjectives(q);
+    this.wingChat("rendezvous",
+      "I am parked on the QUEST START pin outside the berth. Form up on me and we roll.");
+  },
+  _spawnTutorObjectives(q) {
+    const s = this.state;
+    s.tutorObjectives = (q.waypoints || []).map((wp, i) => ({
+      id: "tobj_" + q.id + "_" + i,
+      questId: q.id,
+      wpIndex: i,
+      x: wp.x, y: wp.y,
+      r: wp.r || 90,
+      kind: wp.kind,
+      art: wp.art || "asteroid_b",
+      rot: wp.rot || 0,
+      done: !!wp.done,
+      label: wp.label || ("MARK " + (i + 1)),
+    }));
+  },
+  // Skyrim-style wing banter: always on HUD; also mirrors to companion radio when on.
+  // kind is freeform for cooldown keys.
+  wingChat(kind, text, col) {
+    const s = this.state;
+    if (!s || !text) return;
+    const name = this._tutorWingName();
+    const line = String(text);
+    const c = col || "#ffd27a";
+    s._wingChat = { name, text: line, col: c, age: 0, life: 7.5 };
+    // Radio mirror (companion band) — full text; no truncate in drawRadioHUD
+    if (this.radioSay) this.radioSay("companion", name + " — " + line.replace(/^[A-Z]+ — /, ""), c);
+  },
+  wingChatCd(kind, text, col, cd) {
+    const s = this.state;
+    if (!s) return false;
+    s._wingChatCd = s._wingChatCd || {};
+    if ((s._wingChatCd[kind] || 0) > 0) return false;
+    this.wingChat(kind, text, col);
+    s._wingChatCd[kind] = cd != null ? cd : 12;
+    return true;
+  },
+  updateWingChat(dt) {
+    const s = this.state;
+    if (!s) return;
+    if (s._wingChat) {
+      s._wingChat.age = (s._wingChat.age || 0) + dt;
+      if (s._wingChat.age > (s._wingChat.life || 7)) s._wingChat = null;
+    }
+    if (s._wingChatCd) {
+      for (const k of Object.keys(s._wingChatCd)) {
+        s._wingChatCd[k] -= dt;
+        if (s._wingChatCd[k] <= 0) delete s._wingChatCd[k];
+      }
+    }
+  },
+  drawWingChatHUD(g) {
+    if (HEADLESS) return;
+    const s = this.state, ch = s && s._wingChat;
+    if (!ch || s.docked || s.onPlanet) return;
+    const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
+    // Sit just above the lower-left quest box so banter stays with the job.
+    const gb = this.gameButtons && this.gameButtons();
+    const qbox = (gb && gb.quest) || { x: 10, y: CONFIG.H - 52, w: 168, h: 40 };
+    const maxW = Math.min(Math.max(qbox.w + 40, 220), CONFIG.W - 20);
+    const x = qbox.x;
+    g.font = `${Math.max(8, 9 * k) | 0}px monospace`;
+    const words = (ch.name + ": " + ch.text).split(/\s+/);
+    const lines = [];
+    let cur = "";
+    for (const w of words) {
+      const t = cur ? cur + " " + w : w;
+      if (g.measureText(t).width > maxW - 14 && cur) { lines.push(cur); cur = w; }
+      else cur = t;
+    }
+    if (cur) lines.push(cur);
+    const lineH = 12 * k;
+    const boxH = 10 * k + lines.length * lineH;
+    const y = qbox.y - boxH - 6;
+    const fade = Math.max(0.35, 1 - (ch.age || 0) / (ch.life || 7));
+    g.globalAlpha = fade;
+    g.fillStyle = "rgba(8,12,20,0.9)";
+    g.strokeStyle = ch.col || "#ffd27a";
+    g.lineWidth = 1.2;
+    g.beginPath(); g.roundRect(x, y, maxW, boxH, 6); g.fill(); g.stroke();
+    g.fillStyle = ch.col || "#ffd27a";
+    g.textAlign = "left"; g.textBaseline = "top";
+    for (let i = 0; i < lines.length; i++)
+      g.fillText(lines[i], x + 7, y + 5 + i * lineH);
+    g.globalAlpha = 1;
+    g.textBaseline = "alphabetic";
+  },
+  drawTutorObjectives(g) {
+    if (HEADLESS) return;
+    const s = this.state, z = s.cam.zoom;
+    const q = this.activeQuest && this.activeQuest();
+    // QUEST START rendezvous buoy (before survey marks)
+    if (q && (q.action === "special_scout" || q.action === "special_end")
+        && q.phase === "rendezvous" && q.rendezvous) {
+      const rv = q.rendezvous, p = this.SF(rv.x, rv.y);
+      const pw = 0.5 + 0.5 * Math.sin((s.t || 0) * 3.2);
+      const R = Math.max(16, 28 * z);
+      g.strokeStyle = `rgba(87,230,255,${0.55 + 0.4 * pw})`; g.lineWidth = 2.2;
+      g.beginPath(); g.arc(p.x, p.y, R + 6 * pw, 0, TAU); g.stroke();
+      g.fillStyle = "rgba(87,230,255,0.2)";
+      g.beginPath(); g.arc(p.x, p.y, R * 0.45, 0, TAU); g.fill();
+      g.font = `bold ${Math.max(8, 10 * z) | 0}px monospace`;
+      g.textAlign = "center"; g.fillStyle = "#57e6ff";
+      g.fillText("◆ QUEST START", p.x, p.y - R - 10);
+      g.font = `${Math.max(7, 8 * z) | 0}px monospace`;
+      g.fillStyle = "#ffd27a";
+      g.fillText("Form up on " + ((s.tutorWing && s.tutorWing.name) || "WING"), p.x, p.y + R + 12);
+      g.textAlign = "left";
+    }
+    const list = s.tutorObjectives;
+    if (!list || !list.length) return;
+    for (const o of list) {
+      if (o.done) continue;
+      // Hide survey bodies until the wing job is actually rolling
+      if (q && q.phase === "rendezvous") continue;
+      const p = this.SF(o.x, o.y);
+      const W = Math.max(28, (o.r || 90) * 1.15 * z);
+      let drew = false;
+      if (typeof ART !== "undefined" && ART.draw)
+        drew = ART.draw(g, o.art, p.x, p.y, W, o.rot || 0);
+      if (!drew) {
+        g.fillStyle = o.kind === "artifact" ? "#b78aff" : (o.kind === "wreck" ? "#8a8f98" : "#c9784a");
+        g.beginPath(); g.ellipse(p.x, p.y, W * 0.45, W * 0.32, o.rot || 0, 0, TAU); g.fill();
+      }
+      if (q && (q.action === "special_scout" || q.action === "special_end")
+          && q.phase === "escort" && (q.wpIndex | 0) === o.wpIndex) {
+        const pw = 0.5 + 0.5 * Math.sin((s.t || 0) * 3);
+        g.strokeStyle = `rgba(255,210,74,${0.4 + 0.45 * pw})`;
+        g.lineWidth = 2;
+        g.beginPath(); g.arc(p.x, p.y, W * 0.62 + 4 * pw, 0, TAU); g.stroke();
+        g.font = `bold ${Math.max(8, 9 * z) | 0}px monospace`;
+        g.textAlign = "center"; g.fillStyle = "#ffd27a";
+        g.fillText(o.label || "SCAN", p.x, p.y - W * 0.55 - 8);
+        g.textAlign = "left";
+      }
+    }
+  },
+  // SCAN button hook — start a sensor lock on the active survey body if in range.
+  tryTutorObjectiveScan() {
+    const s = this.state;
+    const q = this.activeQuest();
+    if (!q || q.kind !== "tutor") return false;
+    if (q.action !== "special_scout" && q.action !== "special_end") return false;
+    if (q.phase !== "escort" || q.survived || q.trapSprung) return false;
+    const wp = q.waypoints && q.waypoints[q.wpIndex];
+    if (!wp || wp.done) return false;
+    const reach = (wp.r || 90) + 380;
+    if (this.dist(s.x, s.y, wp.x, wp.y) > reach) {
+      this.wingChatCd("scan_far", "Get closer to the " + (wp.kindLabel || "mark") + " before you hit SCAN.", "#ffb45e", 4);
+      return false;
+    }
+    if (q.scanning) {
+      this.wingChatCd("scan_busy", "Already sweeping — hold still.", "#ffb45e", 3);
+      return true;
+    }
+    q.scanArmed = true;
+    q.scanning = true;
+    q.scanT = 0;
+    if (typeof sfx === "function") sfx("grab");
+    if (typeof toast === "function") toast("⊙ SCAN — locking " + (wp.label || "target") + "…", "#57e6ff", 1.8);
+    this.wingChat("scan_start_" + (wp.kind || "x"), this._tutorScanStartLine(wp));
+    return true;
+  },
+  _tutorScanStartLine(wp) {
+    const k = (wp && wp.kind) || "rock";
+    if (k === "artifact")
+      return "Sensor window open. That is not Combine steel. Hold the lock — I want a clean read.";
+    if (k === "wreck")
+      return "Hull fragment on the scope. No beacon, no flag. Sweep it slow.";
+    return "Mass signature is solid. Press and hold the window — ore bodies lie.";
+  },
+  _tutorScanDoneLine(wp) {
+    const k = (wp && wp.kind) || "rock";
+    // Lore/gossip — Skyrim companion style, keyed to what we just scanned
+    if (k === "artifact")
+      return "Ohh. This is what Voss wanted. Alien work — scrap to us, but the Ember Creed pays top dollar for the right glyph. He is collecting. File does not say for whom.";
+    if (k === "wreck")
+      return "Derelict is older than the dock paint. No Combine serial, no Dominion stamp. Either smugglers or something that never filed. Voss will want the flight deck number either way.";
+    return "Ore mass logged. Grade is middling — not why we are out here. The survey is cover. Keep your eyes open for the next mark.";
+  },
+  _tutorApproachLine(wp) {
+    const k = (wp && wp.kind) || "rock";
+    if (k === "artifact") return "There — purple on the scope. Get in close and hit SCAN.";
+    if (k === "wreck") return "Dead hull ahead. Match my vector. When you are on it, SCAN.";
+    return "Rock field mark. Belly up to it and press SCAN — do not just fly past.";
+  },
+  _spawnTutorWing(q, station) {
+    const s = this.state;
+    // Park on the QUEST START pin (rendezvous), not on the dock ring.
+    const rv = q.rendezvous;
+    let x, y, ang;
+    if (rv) {
+      x = rv.x; y = rv.y;
+      ang = Math.atan2(rv.y - station.pos.y, rv.x - station.pos.x);
+    } else {
+      const a = rnd() * Math.PI * 2, dist = 700;
+      x = station.pos.x + Math.cos(a) * dist;
+      y = station.pos.y + Math.sin(a) * dist;
+      ang = a;
+    }
+    s.tutorWing = {
+      x, y, vx: 0, vy: 0,
+      angle: ang,
+      speed: 95,           // slower than a motivated player — followable
+      r: 14,
+      name: this._tutorWingName(),
+      spriteKey: this._tutorWingSpriteKey(),
+      questId: q.id,
+      col: "#ffd27a",
+      alive: true,
+      parked: true,        // stays put until rendezvous completes
+    };
+    if (this.radioSay)
+      this.radioSay("local", s.tutorWing.name + " holding at QUEST START — form up outside the berth.", "#ffd27a");
+  },
+  _clearTutorWing() {
+    const s = this.state;
+    if (s) { s.tutorWing = null; s.tutorObjectives = null; s._wingChat = null; }
+  },
+  // Move wing lead toward current waypoint; park during rendezvous.
+  _tickTutorWing(q, dt) {
+    const s = this.state, w = s.tutorWing;
+    if (!w || !w.alive || !q) return;
+    // Hold still on QUEST START until the player forms up.
+    if (q.phase === "rendezvous" || w.parked) {
+      if (q.rendezvous) { w.x = q.rendezvous.x; w.y = q.rendezvous.y; }
+      w.vx = w.vy = 0;
+      return;
+    }
+    let tx = q.homeX, ty = q.homeY;
+    if (q.phase === "escort" && q.waypoints && q.waypoints[q.wpIndex]) {
+      const wp = q.waypoints[q.wpIndex];
+      tx = wp.x; ty = wp.y;
+    } else if (q.phase === "flee" || q.phase === "ambush") {
+      tx = q.homeX; ty = q.homeY;
+      w.speed = 140;   // book it home
+    }
+    const dx = tx - w.x, dy = ty - w.y, d = Math.hypot(dx, dy) || 1;
+    if (d > 40) {
+      w.vx = (dx / d) * w.speed;
+      w.vy = (dy / d) * w.speed;
+      w.angle = Math.atan2(dy, dx);
+      w.x += w.vx * dt; w.y += w.vy * dt;
+    } else { w.vx = w.vy = 0; }
+  },
+  drawTutorWing(g) {
+    if (HEADLESS) return;
+    const s = this.state, w = s.tutorWing;
+    if (!w || !w.alive) return;
+    const z = s.cam.zoom, p = this.SF(w.x, w.y);
+    const ang = w.angle != null ? w.angle : 0;
+    const size = CONFIG.shipR * 4.6 * z;   // slightly smaller than player vulture
+    const key = w.spriteKey || this._tutorWingSpriteKey();
+    let drew = false;
+    if (typeof ART !== "undefined" && ART.draw)
+      drew = ART.draw(g, key, p.x, p.y, size, ang);
+    if (!drew) {
+      // Procedural fallback (headless / pre-load)
+      g.save();
+      g.translate(p.x, p.y);
+      g.rotate(ang);
+      g.fillStyle = w.col || "#c9784a";
+      g.beginPath();
+      g.moveTo(12 * z, 0); g.lineTo(-10 * z, 7 * z); g.lineTo(-6 * z, 0); g.lineTo(-10 * z, -7 * z);
+      g.closePath(); g.fill();
+      g.strokeStyle = "rgba(255,210,74,0.85)"; g.lineWidth = 1.2;
+      g.stroke();
+      g.restore();
+    }
+    // Soft ally ring + nameplate
+    g.strokeStyle = "rgba(255,210,74,0.55)"; g.lineWidth = 1.2;
+    g.beginPath(); g.arc(p.x, p.y, Math.max(10, 14 * z), 0, TAU); g.stroke();
+    g.font = `bold ${Math.max(8, 9 * z) | 0}px monospace`; g.textAlign = "center";
+    g.fillStyle = "#ffd27a";
+    g.fillText("◆ " + (w.name || "WING"), p.x, p.y - Math.max(16, 18 * z));
+    g.textAlign = "left";
+  },
+  // Scripted no-win fleet — high tier, many hulls, tagged so we can cull them.
+  _spawnNoWinAmbush(q) {
+    const s = this.state;
+    if (!q || q.ambushSpawned) return;
+    q.ambushSpawned = true;
+    q.phase = "ambush";
+    const fac = s.playerFaction === "vex" ? "krag" : (s.playerFaction === "krag" ? "vex" : "krag");
+    const n = 10;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rnd() * 0.2;
+      const d = 700 + rnd() * 500;
+      const x = s.x + Math.cos(a) * d, y = s.y + Math.sin(a) * d;
+      try {
+        const ship = ForgeFaction.generateAlienShip(fac, i < 2 ? "elite" : "normal",
+          { rng: rnd, x, y, groupId: "tutor_ambush_" + q.id, orbitRadius: 280 });
+        ship._tutorAmbush = true;
+        ship._questId = q.id;
+        ship.aggro = true;
+        if (ship.state !== "DEAD") ship.state = "ATTACK";
+        s.aliens.push(ship);
+      } catch (e) { /* soft — headless / missing faction kit */ }
+    }
+    const wing = this._tutorWingName();
+    if (typeof toast === "function")
+      toast("AMBUSH — too many contacts. Break for home!", "#ff6b6b", 3.5);
+    if (this.radioSay) {
+      this.radioSay("dispatch", wing + " — Scopes full. We are not winning this. HOME. NOW.", "#ff6b6b");
+      const who = ({ krag: "VOSS", vex: "DREN", nox: "SIVE" })[s.playerFaction] || "CONTACT";
+      this.radioSay("dispatch", who + " — Abort the survey. Bring the hull home.", "#ffd27a");
+    }
+    s._questWpKey = null;
+  },
+  _cullTutorAmbush(q) {
+    const s = this.state;
+    if (!s.aliens) return;
+    s.aliens = s.aliens.filter(a => !(a._tutorAmbush && (!q || a._questId === q.id)));
+  },
+  // special_scout complete without merc wipe → close-call beat → Q7.
+  _completeSpecialScout(q, how) {
+    const s = this.state;
+    if (!q || q.survived) return;
+    q.survived = true;
+    q.phase = "done";
+    q.have = 1;
+    this._cullTutorAmbush(q);
+    this._clearTutorWing();
+    if (s.quests) s.quests = s.quests.filter(x => x.id !== q.id);
+    if (s.activeQuestId === q.id) s.activeQuestId = null;
+    s._questWp = null; s._questWpKey = null;
+    if (typeof toast === "function")
+      toast(how === "death" ? "Recovered — report to your contact" : "Berth. Alive. That counts.", "#7bd88f", 3);
+    // Advance ladder: grant refine_drone (next after special_scout).
+    if (this.onboardQuestTurnedIn) this.onboardQuestTurnedIn(q);
+    this.saveGame && this.saveGame();
+  },
+  // special_end → full catastrophe / merc restart.
+  _completeSpecialEnd(q) {
+    if (!q || q.trapSprung) return;
+    q.trapSprung = true;
+    q.phase = "sprung";
+    this._cullTutorAmbush(q);
+    this._clearTutorWing();
+    if (this._onboardSeamTrap) this._onboardSeamTrap(q);
+    else if (this._onboardCatastrophe) this._onboardCatastrophe();
+  },
+  // Death during special missions: scout = survive path; end = catastrophe.
+  onTutorSpecialDeath() {
+    const s = this.state;
+    if (!s.quests) return false;
+    for (const q of s.quests) {
+      if (q.kind !== "tutor") continue;
+      if (q.action === "special_scout" && (q.phase === "ambush" || q.phase === "flee" || q.phase === "escort")) {
+        // Dying mid-escort before ambush still counts as the no-win lesson.
+        if (q.phase === "escort" && !q.ambushSpawned) this._spawnNoWinAmbush(q);
+        this._completeSpecialScout(q, "death");
+        return true;
+      }
+      if (q.action === "special_end") {
+        this._completeSpecialEnd(q);
+        return true;
+      }
+    }
+    return false;
   },
   // Total refined bars on hand, across every bar type (drones.js DRONES.barTypes
   // is the authority on which ores refine) — Q7's "you have used the refinery" test.
@@ -341,8 +847,22 @@ Object.assign(GAME, {
       const spec = QUEST_TUTOR[q.action]; if (!spec || !spec.count) continue;
       const n = spec.count(hauled) | 0;
       if (n <= 0) continue;
-      q.have = Math.min(q.need, (q.have || 0) + n);
+      const prev = q.have || 0;
+      q.have = Math.min(q.need, prev + n);
       toast(`⊚ ${q.have}/${q.need} ${spec.unit}`, "#57e6ff");
+      // Milestone radio from the faction contact (haul stretch engagement)
+      const fac = s.playerFaction || "krag";
+      const who = ({ krag: "VOSS", vex: "DREN", nox: "SIVE" })[fac] || "CONTACT";
+      if (prev === 0 && q.have > 0) {
+        toast(who + " — First units counted. Keep the beam steady.", "#ffd27a", 2.2);
+        if (this.radioSay) this.radioSay("dispatch", who + " — First units counted.", "#ffd27a");
+      } else if (prev < (q.need / 2) && q.have >= (q.need / 2) && q.have < q.need) {
+        toast(who + " — Halfway. Bring the rest before the ledger cools.", "#ffd27a", 2.2);
+        if (this.radioSay) this.radioSay("dispatch", who + " — Halfway on the quota.", "#ffd27a");
+      } else if (q.have >= q.need) {
+        toast(who + " — Quota met. Dock when you are ready to settle.", "#7bd88f", 2.5);
+        if (this.radioSay) this.radioSay("dispatch", who + " — Quota met. Come settle the ledger.", "#7bd88f");
+      }
     }
   },
 
@@ -426,8 +946,22 @@ Object.assign(GAME, {
       : recs.filter(r => r.alive).length;
     return n;
   },
+  // Dev skip: CONFIG.debugQuestSkip or global DEBUG (G key / #debug hash).
+  questSkipEnabled() {
+    return !!(CONFIG && CONFIG.debugQuestSkip)
+      || (typeof DEBUG !== "undefined" && !!DEBUG);
+  },
+  // Ready for turn-in UI / gate — real completion OR dev skip.
+  questCanTurnIn(q) {
+    if (!q) return false;
+    if (this.questObjectiveDone(q)) return true;
+    return this.questSkipEnabled();
+  },
   questObjectiveDone(q) {
     if (q.kind === "tutor") {
+      // Special missions complete in flight (dock/death/trap), not via have/need.
+      if (q.action === "special_scout") return !!q.survived;
+      if (q.action === "special_end") return false;
       const sp = QUEST_TUTOR[q.action];
       if (sp && sp.poll) return this._questTutorPoll(q) >= q.need;
       return (q.have || 0) >= q.need;
@@ -471,7 +1005,45 @@ Object.assign(GAME, {
   // where the nav waypoint should aim: the next objective, or home when ready
   _questObjectivePoint(q) {
     const s = this.state;
-    if (q.kind === "tutor" || this.questObjectiveDone(q)) {
+    if (this.questObjectiveDone(q)) {
+      const st = this._questStation(q);
+      return st ? { x: st.pos.x, y: st.pos.y } : null;
+    }
+    // Tutor field rungs: point at real work, not the dock, until ready to turn in
+    if (q.kind === "tutor") {
+      // Special wing jobs: rendezvous → current mark → home while fleeing
+      if (q.action === "special_scout" || q.action === "special_end") {
+        if (q.phase === "rendezvous" && q.rendezvous)
+          return { x: q.rendezvous.x, y: q.rendezvous.y };
+        if (q.phase === "flee" || q.phase === "ambush")
+          return { x: q.homeX, y: q.homeY };
+        if (q.waypoints && q.waypoints[q.wpIndex])
+          return { x: q.waypoints[q.wpIndex].x, y: q.waypoints[q.wpIndex].y };
+      }
+      // Graded haul: aim the nav pin at the guided ore mark near the home dock
+      if (this.tutorOreForAction && this.tutorOreForAction(q.action)) {
+        const fid = q.tutorFieldId;
+        let f = fid && s.fields ? s.fields.find(x => x.id === fid) : null;
+        if (!f && s.fields) f = s.fields.find(x => x.kind === "tutor");
+        if (f) return { x: f.x, y: f.y };
+      }
+      if (q.action === "take_outpost") {
+        let best = null, bd = Infinity;
+        for (const o of (s.outposts || [])) {
+          if (!o || o.owner === "player") continue;
+          const d = this.dist(s.x, s.y, o.x, o.y);
+          if (d < bd) { bd = d; best = { x: o.x, y: o.y }; }
+        }
+        if (best) return best;
+      }
+      if (q.action === "garrison_outpost") {
+        for (const o of (s.outposts || [])) {
+          if (o.owner === "player" && !(o.stationedDrones && o.stationedDrones.length))
+            return { x: o.x, y: o.y };
+        }
+        const held = (s.outposts || []).find(o => o.owner === "player");
+        if (held) return { x: held.x, y: held.y };
+      }
       const st = this._questStation(q);
       return st ? { x: st.pos.x, y: st.pos.y } : null;
     }
@@ -576,11 +1148,36 @@ Object.assign(GAME, {
   turnInQuest(q) {
     const s = this.state;
     if (!q || !s.quests.includes(q)) return false;
-    if (!this.questObjectiveDone(q)) { toast("quest objectives not complete"); sfx("warn"); return false; }
-    if (!s.docked || s.dockStationId !== q.stationId) {
-      const st = this._questStation(q);
-      toast("turn in at " + (st ? st.name : "the issuing station")); sfx("warn"); return false;
+    const skip = this.questSkipEnabled();
+    // Special missions: normal play completes in flight; debug skip forces them.
+    if (q.kind === "tutor" && q.action === "special_scout") {
+      if (!skip && !q.survived) { toast("complete the wing survey in flight"); sfx("warn"); return false; }
+      if (skip && !q.survived) {
+        if (typeof toast === "function") toast("DEBUG: force scout complete", "#ffd24a", 2);
+        this._completeSpecialScout(q, "debug");
+        return true;
+      }
+      // Already survived — fall through to normal turn-in bookkeeping if still held
     }
+    if (q.kind === "tutor" && q.action === "special_end") {
+      if (!skip) { toast("complete the relay job in flight"); sfx("warn"); return false; }
+      if (typeof toast === "function") toast("DEBUG: force end trap", "#ffd24a", 2);
+      this._completeSpecialEnd(q);
+      return true;
+    }
+    if (!this.questObjectiveDone(q) && !skip) {
+      toast("quest objectives not complete"); sfx("warn"); return false;
+    }
+    if (!s.docked || s.dockStationId !== q.stationId) {
+      // Dev skip: still require a dock so the lounge button path stays honest,
+      // but allow turn-in at ANY station (not only the issuer) for speed.
+      if (!(skip && s.docked)) {
+        const st = this._questStation(q);
+        toast("turn in at " + (st ? st.name : "the issuing station")); sfx("warn"); return false;
+      }
+    }
+    if (skip && !this.questObjectiveDone(q) && typeof toast === "function")
+      toast("DEBUG: skip objectives — " + (q.title || q.action || "quest"), "#ffd24a", 1.8);
     this._questDespawnBoost(q);
     s.quests.splice(s.quests.indexOf(q), 1);
     if (s.activeQuestId === q.id) this.setActiveQuest(null);
@@ -605,6 +1202,141 @@ Object.assign(GAME, {
     const active = this.activeQuest();
     this._questBoostTick(active);      // despawn the previous quest's extra defenders now
     this._questWaypointSync(active);
+  },
+
+  // Special wing missions: rendezvous → approach body → SCAN → next mark.
+  _tickSpecialMission(q, dt) {
+    const s = this.state;
+    if (!q || q.survived || q.trapSprung) return;
+    this._tickTutorWing(q, dt);
+    this.updateWingChat(dt);
+    const hold = q.scanHold || QUESTS.scanHold || 3;
+    const wing = (s.tutorWing && s.tutorWing.name) || this._tutorWingName();
+
+    // ---- form up on QUEST START (wing parked near dock) ----
+    if (q.phase === "rendezvous") {
+      const rv = q.rendezvous;
+      if (!rv) { q.phase = "escort"; if (s.tutorWing) s.tutorWing.parked = false; return; }
+      const near = this.dist(s.x, s.y, rv.x, rv.y) < (rv.r || 200);
+      q.nearObj = near;
+      if (near) {
+        q.phase = "escort";
+        q.wpIndex = 0;
+        if (s.tutorWing) s.tutorWing.parked = false;
+        s._questWpKey = null;
+        if (typeof sfx === "function") sfx("grab");
+        this.wingChat("formup",
+          "Good. You made it. Stick on my six — first mark is live. When we arrive, you press SCAN.");
+        if (typeof toast === "function")
+          toast("Wing formed — follow " + wing, "#ffd27a", 2.2);
+      } else {
+        this.wingChatCd("wait_start",
+          "Still holding QUEST START outside the berth. Undock and form up on me.",
+          "#ffd27a", 14);
+      }
+      return;
+    }
+
+    if (q.phase === "escort" && q.waypoints) {
+      const wp = q.waypoints[q.wpIndex];
+      if (!wp) {
+        this._specialAllMarksDone(q);
+        return;
+      }
+      const reach = (wp.r || 90) + 380;
+      const near = this.dist(s.x, s.y, wp.x, wp.y) < reach;
+      q.nearObj = near && !wp.done;
+
+      if (near && !wp.done) {
+        this.wingChatCd("approach_" + q.wpIndex, this._tutorApproachLine(wp), "#ffd27a", 20);
+      }
+
+      // Scan only advances after the player armed it with the SCAN button.
+      if (q.scanArmed && near && !wp.done) {
+        q.scanning = true;
+        q.scanT = Math.min(hold, (q.scanT || 0) + dt);
+        if (q.scanT >= hold) {
+          this._finishTutorMark(q, wp, wing);
+        }
+      } else if (q.scanArmed && !near) {
+        // Left the bubble — drop the lock
+        q.scanArmed = false;
+        q.scanning = false;
+        q.scanT = 0;
+        this.wingChatCd("scan_lost", "Lock broken. Get back on the " + (wp.kindLabel || "mark") + " and SCAN again.", "#ff8a8a", 5);
+      } else if (!q.scanArmed) {
+        q.scanning = false;
+      }
+
+      // Ambient gossip while traveling between marks
+      if (!near && !q.scanning && (q.wpIndex | 0) > 0)
+        this.wingChatCd("travel_" + q.wpIndex,
+          "Lane gossip: Combine dock clerks are taking side chits for Ember Creed crates. Voss pretends not to hear. That is how he stays Dockmaster.",
+          "#ffb45e", 28);
+
+    } else if (q.phase === "flee" || q.phase === "ambush") {
+      if (q.action === "special_scout") {
+        if (s.docked && s.dockStationId === q.stationId) {
+          this._completeSpecialScout(q, "dock");
+          return;
+        }
+        this.wingChatCd("flee_line", "Do not fight the board — RUN. Dock is the only win condition.", "#ff6b6b", 10);
+        const home = this.homeStationObj();
+        const hx = (home && home.pos) ? home.pos.x : q.homeX;
+        const hy = (home && home.pos) ? home.pos.y : q.homeY;
+        if (this.dist(s.x, s.y, hx, hy) < (CONFIG.dockR || 160) * 1.2 && s.atStation && !q._nearHomeToast) {
+          q._nearHomeToast = true;
+          if (typeof toast === "function") toast("Dock — get inside", "#7bd88f", 2);
+          this.wingChat("home", "Berth lights. Get us in.");
+        }
+      } else if (q.action === "special_end") {
+        q._ambushT = (q._ambushT || 0) + dt;
+        const away = this.dist(s.x, s.y, q.homeX, q.homeY);
+        if (q._ambushT > 18 || away > ((CONFIG.sectorSize || 4000) * 1.4))
+          this._completeSpecialEnd(q);
+      }
+    }
+  },
+  _finishTutorMark(q, wp, wing) {
+    const s = this.state;
+    wp.done = true;
+    q.scanT = 0;
+    q.scanning = false;
+    q.scanArmed = false;
+    q.nearObj = false;
+    // Sync objective visual
+    if (s.tutorObjectives) {
+      const o = s.tutorObjectives.find(x => x.wpIndex === (q.wpIndex | 0) && x.questId === q.id);
+      if (o) o.done = true;
+    }
+    if (typeof toast === "function")
+      toast("⊚ " + (wp.label || "mark") + " logged", "#57e6ff", 2.2);
+    if (typeof sfx === "function") sfx("sell");
+    this.wingChat("done_" + (wp.kind || q.wpIndex), this._tutorScanDoneLine(wp));
+    q.wpIndex = (q.wpIndex | 0) + 1;
+    s._questWpKey = null;
+    if (q.wpIndex >= q.waypoints.length) {
+      this._specialAllMarksDone(q);
+    } else {
+      const next = q.waypoints[q.wpIndex];
+      this.wingChatCd("next_" + q.wpIndex,
+        "Mark solid. Next pin — " + (next.kindLabel || next.label || "follow me") + ".",
+        "#ffd27a", 8);
+    }
+  },
+  _specialAllMarksDone(q) {
+    const s = this.state;
+    s._questWpKey = null;
+    if (q.action === "special_scout") {
+      this._spawnNoWinAmbush(q);
+      q.phase = "flee";
+      this.wingChat("ambush", "Scopes full — that is not a survey party. We are the cargo. HOME. NOW.");
+    } else {
+      this._spawnNoWinAmbush(q);
+      q.phase = "ambush";
+      q._ambushT = 0;
+      this.wingChat("end_ambush", "Relay was never empty. Hold what you can — or die trying.");
+    }
   },
 
   // ---- per-frame tick (flight only — main.js update, after contracts) -----
@@ -640,6 +1372,9 @@ Object.assign(GAME, {
             }
           }
         }
+      } else if (q.kind === "tutor" && (q.action === "special_scout" || q.action === "special_end")
+          && !q.survived && !q.trapSprung) {
+        this._tickSpecialMission(q, dt);
       } else if (q.action === "scan" && q.scanT < QUESTS.scanHold) {
         const t = this.siteById(q.siteId);
         if (t && this.dist(s.x, s.y, t.x, t.y) < QUESTS.scanR) {
@@ -675,7 +1410,48 @@ Object.assign(GAME, {
       }
     }
     this._questBoostTick(this.activeQuest());
+    this._questMissionBeats(this.activeQuest());
     this._questWaypointSync(this.activeQuest());
+  },
+
+  // One-shot approach / clear radio for the active field job (engagement pass)
+  _questMissionBeats(q) {
+    if (!q || q.kind === "tutor") return;
+    if (this.questObjectiveDone(q)) return;
+    const s = this.state;
+    q._beats = q._beats || {};
+    const p = this._questObjectivePoint(q);
+    if (!p) return;
+    const d = this.dist(s.x, s.y, p.x, p.y);
+    const approachR = Math.min(CONFIG.outpostGuardStreamR || 5200, 2800);
+    if (!q._beats.approached && d < approachR) {
+      q._beats.approached = true;
+      let line = "On station — objective in range";
+      if (q.kind === "merc" && q.mercStationId != null) {
+        const f = (typeof STATION_FIXERS !== "undefined" && STATION_FIXERS[q.mercStationId]) || null;
+        const nm = f ? f.name : "FIXER";
+        line = nm + " — You're on the mark. Work the site.";
+      } else if (q.kind === "merc" && q.mercNpc) {
+        const npc = (typeof MERC_NPCS !== "undefined" && MERC_NPCS[q.mercNpc]) || null;
+        line = (npc ? npc.name : "FIXER") + " — Site is live. Make it clean.";
+      } else if (q.kind === "story") {
+        const fac = s.playerFaction || "krag";
+        const who = ({ krag: "VOSS", vex: "DREN", nox: "SIVE" })[fac] || "CONTACT";
+        line = who + " — Hold the line. Do not leave the mark unfinished.";
+      } else {
+        line = "DISPATCH — Marker locked. Complete the work.";
+      }
+      if (typeof toast === "function") toast(line, "#57e6ff", 3);
+      if (this.radioQuestApproach) this.radioQuestApproach(q);
+      else if (this.radioSay) this.radioSay("dispatch", line, "#57e6ff");
+    }
+    if (q.needClear && !q._beats.cleared) {
+      if (this._questTargetDefendersLeft(q) === 0) {
+        q._beats.cleared = true;
+        if (typeof toast === "function") toast("Path clear — extract / hold position", "#7bd88f", 2.5);
+        if (this.radioQuestClear) this.radioQuestClear(q);
+      }
+    }
   },
 
   // ---- quest-layer defenders (ACTIVE quest only) --------------------------
@@ -692,8 +1468,8 @@ Object.assign(GAME, {
       if (o && o.owner !== "player") out.push({ regionId: o.regionId, x: o.x, y: o.y,
         groupId: o.id, faction: o.faction, tier: "normal" });
     };
-    if ((q.kind === "godo" || q.kind === "story") && q.siteId) addSite(q.siteId);
-    if ((q.kind === "godo" || q.kind === "story") && q.outpostId) addOutpost(this.outpostById(q.outpostId));
+    if ((q.kind === "godo" || q.kind === "story" || q.kind === "merc") && q.siteId) addSite(q.siteId);
+    if ((q.kind === "godo" || q.kind === "story" || q.kind === "merc") && q.outpostId) addOutpost(this.outpostById(q.outpostId));
     if (q.kind === "multi" && q.siteId && !q.nodes.every(n => n.done)) addSite(q.siteId);
     if (q.kind === "chain") for (const t of q.tiers) {
       if (t.done) continue;
@@ -742,7 +1518,14 @@ Object.assign(GAME, {
         ship._questId = q.id; ship._questRegion = rid; ship._qbIdx = i;
         s.aliens.push(ship); ships.push(ship);
       }
-      if (ships.length) q._bShips[rid] = ships;
+      if (ships.length) {
+        q._bShips[rid] = ships;
+        if (!q._beats) q._beats = {};
+        if (!q._beats.boostToast) {
+          q._beats.boostToast = true;
+          if (typeof toast === "function") toast("Hostiles lighting up the site", "#ff8a8a", 2.5);
+        }
+      }
     }
   },
   _questBoostOut(q, rid) {   // write the fight back into the recs, cull the ships
@@ -824,7 +1607,7 @@ Object.assign(GAME, {
       g.strokeStyle = `rgba(87,230,255,${0.45 + 0.4 * pw})`; g.lineWidth = 2;
       g.beginPath(); g.arc(p.x, p.y, (26 + 6 * pw) * z, 0, TAU); g.stroke();
       g.font = `bold ${Math.max(8, 9 * z) | 0}px monospace`; g.textAlign = "center";
-      g.fillStyle = "#57e6ff"; g.fillText("◇ OBJECTIVE", p.x, p.y - (36 + 6 * pw) * z);
+      g.fillStyle = "#57e6ff"; g.fillText((q._beats && q._beats.cleared) ? "◇ CLEAR" : (q._beats && q._beats.approached) ? "◇ HOLD" : "◇ OBJECTIVE", p.x, p.y - (36 + 6 * pw) * z);
       g.textAlign = "left";
     }
   },
@@ -841,34 +1624,32 @@ Object.assign(GAME, {
     const s = this.state, q = this.activeQuest();
     if (!q || s.docked) return;
     const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
-    const w = 158 * k, h = 34 * k, x = CONFIG.W - 12 * k - w;
-    const y = (s.contracts && s.contracts[0] ? 232 : 192) * k;   // stack under the contract box
-    const ready = this.questObjectiveDone(q);
+    // Lower-left — where WARP used to sit. Mirrors radio on the lower-right.
+    const gb = this.gameButtons && this.gameButtons();
+    const box = (gb && gb.quest) || { x: 10, y: CONFIG.H - 52, w: 168, h: 40 };
+    const x = box.x, y = box.y, w = box.w, h = box.h;
+    const ready = this.questCanTurnIn(q);
+    const skipReady = ready && !this.questObjectiveDone(q);
     const st = this._questStation(q);
-    // Fit to the BOX, not to a character count: station names and progress copy
-    // vary wildly in length, and k shrinks the font on narrow canvases, so a
-    // fixed slice(0,24) overflows the border on exactly the lines that matter
-    // ("turn in at <station>"). Measure and trim instead.
-    const maxW = w - 16 * k;
+    const maxW = w - 14;
     const clip = (t) => {
       if (g.measureText(t).width <= maxW) return t;
       while (t.length > 1 && g.measureText(t + "…").width > maxW) t = t.slice(0, -1);
       return t + "…";
     };
-    g.fillStyle = "rgba(13,16,23,0.85)";
-    g.strokeStyle = ready ? "#7bd88f" : "#57e6ff"; g.lineWidth = 1;
-    g.beginPath(); g.roundRect(x, y, w, h, 6 * k); g.fill(); g.stroke();
+    g.fillStyle = "rgba(13,16,23,0.92)";
+    g.strokeStyle = ready ? (skipReady ? "#ffd24a" : "#7bd88f") : "#57e6ff"; g.lineWidth = 1.2;
+    g.beginPath(); g.roundRect(x, y, w, h, 8); g.fill(); g.stroke();
     g.textAlign = "left"; g.textBaseline = "middle";
     g.font = `bold ${Math.max(8, 9 * k) | 0}px monospace`;
     g.fillStyle = "#e8edf4";
-    g.fillText(clip("◇ " + q.title), x + 8 * k, y + 10 * k);
-    g.font = `${Math.max(8, 9 * k) | 0}px monospace`;
-    g.fillStyle = ready ? "#7bd88f" : "#9aa7b8";
-    // Verb first, destination second: on a squeezed canvas the clip eats the tail,
-    // and "TURN IN" is the part the player must not lose (the waypoint arrow and
-    // the QUEST READY toast both already name the station).
-    g.fillText(clip(ready ? "▸ TURN IN · " + (st ? st.name : "the issuer") : this.questProgressText(q)),
-      x + 8 * k, y + 24 * k);
+    g.fillText(clip("◇ " + q.title), x + 8, y + 13);
+    g.font = `${Math.max(7, 8 * k) | 0}px monospace`;
+    g.fillStyle = ready ? (skipReady ? "#ffd24a" : "#7bd88f") : "#9aa7b8";
+    g.fillText(clip(ready
+      ? (skipReady ? "▸ DEBUG TURN IN · dock" : ("▸ TURN IN · " + (st ? st.name : "issuer")))
+      : this.questProgressText(q)),
+      x + 8, y + 28);
     g.textBaseline = "alphabetic";
   },
 
@@ -885,6 +1666,22 @@ Object.assign(GAME, {
       holdT: +q.holdT || 0, holdR: q.holdR != null ? q.holdR : null,
       holdDur: q.holdDur != null ? q.holdDur : null, needClear: !!q.needClear,
       need: q.need != null ? q.need : null, have: +q.have || 0, base: +q.base || 0,
+      // special_scout / special_end
+      phase: q.phase || null,
+      scanHold: q.scanHold != null ? +q.scanHold : null,
+      wpIndex: q.wpIndex | 0,
+      waypoints: Array.isArray(q.waypoints)
+        ? q.waypoints.map(w => ({
+          x: +w.x, y: +w.y, done: !!w.done, label: w.label || null,
+          kind: w.kind || null, kindLabel: w.kindLabel || null,
+          art: w.art || null, r: w.r != null ? +w.r : null, rot: w.rot != null ? +w.rot : null,
+        }))
+        : null,
+      homeX: q.homeX != null ? +q.homeX : null, homeY: q.homeY != null ? +q.homeY : null,
+      rendezvous: q.rendezvous ? { x: +q.rendezvous.x, y: +q.rendezvous.y, r: +q.rendezvous.r || 200, label: q.rendezvous.label || "QUEST START" } : null,
+      ambushSpawned: !!q.ambushSpawned,
+      survived: !!q.survived,
+      trapSprung: !!q.trapSprung,
       tiers: Array.isArray(q.tiers)
         ? q.tiers.map(t => ({ regionId: t.regionId, type: t.type, refId: t.refId, done: !!t.done }))
         : null,
@@ -1000,7 +1797,7 @@ Object.assign(GAME, {
     s = s || this.state;
     const held = this.heldQuestForProvider("main", s);
     if (held) {
-      const ready = this.questObjectiveDone(held);
+      const ready = this.questCanTurnIn(held);
       return { state: ready ? "turnin" : "progress", held, offer: null };
     }
     // Tutor/story grants are scripted — card is talk-only when nothing held
@@ -1016,7 +1813,7 @@ Object.assign(GAME, {
     if (provider === "open") {
       const heldQ = this.heldQuestForProvider("open", s);
       if (heldQ) {
-        const ready = this.questObjectiveDone(heldQ);
+        const ready = this.questCanTurnIn(heldQ);
         return { state: ready ? "turnin" : "progress", held: heldQ, offer: null, contract: null };
       }
       const c = (s.contracts || [])[0] || null;
@@ -1030,7 +1827,7 @@ Object.assign(GAME, {
     }
     const held = this.heldQuestForProvider(provider, s);
     if (held) {
-      const ready = this.questObjectiveDone(held);
+      const ready = this.questCanTurnIn(held);
       return { state: ready ? "turnin" : "progress", held, offer: null };
     }
     const offer = this._offerForProvider(provider, sid, s);
@@ -1151,7 +1948,13 @@ Object.assign(GAME, {
       const t = document.createElement("div"); t.className = "ctTitle"; t.textContent = q.title;
       const desc = document.createElement("div"); desc.className = "ctDesc"; desc.textContent = q.description || "";
       const meta = document.createElement("div"); meta.className = "ctMeta";
-      meta.textContent = "◇ " + q.reward + "cr" + (q.difficulty ? " · " + "⭐".repeat(q.difficulty) : "");
+      let metaTxt = "◇ " + q.reward + "cr" + (q.difficulty ? " · " + "⭐".repeat(q.difficulty) : "");
+      if ((q.minEscortCap | 0) > 0 && typeof this.escortCap === "function") {
+        const have = this.escortCap(), need = q.minEscortCap | 0;
+        metaTxt += " · wing " + have + "/" + need;
+        if (have < need) metaTxt += " (NEED UPGRADE)";
+      }
+      meta.textContent = metaTxt;
       body.appendChild(t); body.appendChild(desc); body.appendChild(meta);
     } else if (st.contractOffer) {
       const c = st.contractOffer;
@@ -1176,11 +1979,17 @@ Object.assign(GAME, {
       tr.textContent = isActive ? "◉ TRACKING — map waypoint" : "○ TRACK";
       tr.dataset.qact = "active"; tr.dataset.qid = String(q.id);
       row.appendChild(tr);
-      const ready = this.questObjectiveDone(q), here = q.stationId === sid;
+      const ready = this.questCanTurnIn(q);
+      const skip = this.questSkipEnabled();
+      // Dev skip: any dock works; otherwise must be the issuer.
+      const here = q.stationId === sid || (skip && !!sid);
       const ti = document.createElement("button"); ti.className = "ghBtn";
       const stn = this._questStation(q);
       ti.textContent = ready
-        ? (here ? "TURN IN ▸ +" + q.reward + "cr" : "turn in at " + (stn ? stn.name : "issuer"))
+        ? (here
+          ? ((skip && !this.questObjectiveDone(q) ? "DEBUG TURN IN ▸ " : "TURN IN ▸ +")
+            + q.reward + "cr")
+          : "turn in at " + (stn ? stn.name : "issuer"))
         : "IN PROGRESS";
       ti.disabled = !(ready && here);
       if (ready && here) ti.classList.add("go");
@@ -1257,11 +2066,15 @@ Object.assign(GAME, {
         act.textContent = isActive ? "◉ TRACKING" : "○ TRACK";
         act.dataset.qact = "active"; act.dataset.qid = String(q.id);
         brow.appendChild(act);
-        const ready = this.questObjectiveDone(q), here = q.stationId === sid;
+        const ready = this.questCanTurnIn(q);
+        const skip = this.questSkipEnabled();
+        const here = q.stationId === sid || (skip && !!sid);
         const ti = document.createElement("button"); ti.className = "ghBtn";
         const stn = this._questStation(q);
         ti.textContent = ready
-          ? (here ? "TURN IN ▸ +" + q.reward + "cr" : "turn in at " + (stn ? stn.name : "issuer"))
+          ? (here
+            ? ((skip && !this.questObjectiveDone(q) ? "DEBUG TURN IN ▸ " : "TURN IN ▸ +") + q.reward + "cr")
+            : "turn in at " + (stn ? stn.name : "issuer"))
           : this.questProgressText(q);
         ti.disabled = !(ready && here);
         if (ready && here) ti.classList.add("go");

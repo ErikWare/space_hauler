@@ -274,6 +274,8 @@ Object.assign(GAME, {
   // Cycles through enemies if one is already dead or locked — call on SCAN button tap
   // and automatically after each kill to chain targets.
   scanNearestEnemy() {
+    // Wing survey marks take priority over combat lock while the special is live.
+    if (this.tryTutorObjectiveScan && this.tryTutorObjectiveScan()) return true;
     const s = this.state;
     const curLockId = ForgeCombat.getLock().targetId;
     let best = null, bd = s.derived.scanRange;
@@ -468,6 +470,12 @@ Object.assign(GAME, {
   },
   onShipDestroyed() {
     const s = this.state, home = this.homeStationObj();
+    // Onboarding specials: death is a scripted exit (scout survive / end trap).
+    if (this.onTutorSpecialDeath && this.onTutorSpecialDeath()) {
+      // Scout path already advanced the ladder; still need a recovery berth.
+      // End path fires the ambush VN / merc restart and may wipe holdings.
+      if (s.mercenary) return;
+    }
     // recover at the last SAVE point, not the home berth — saving is the only
     // thing that moves your respawn, so an unsaved deep run is a real gamble
     const sp = s.savePoint;

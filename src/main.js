@@ -39,7 +39,13 @@ Object.assign(GAME, {
       (CONFIG.hulls.vulture && CONFIG.hulls.vulture.equipSlots) || CONFIG.equipSlots);
     ForgeCombat.initCombat();
     ForgeFaction.initFactions();
-    ForgeWorld.initWorld(42, { onToast: (t) => toast(t) });
+    // World discovery / nebula events go to radio, not center toasts — those
+    // were covering the upper quest HUD.
+    ForgeWorld.initWorld(42, { onToast: (t) => {
+      if (typeof GAME !== "undefined" && GAME.radioSay)
+        GAME.radioSay("local", String(t), "#57d1c9");
+      else toast(t);
+    } });
     const stations = ForgeWorld.getStations();
 
     // ── solar system: generate planets and relocate ForgeWorld stations ──
@@ -307,6 +313,9 @@ Object.assign(GAME, {
     // ── planet / moon proximity detection (space side) ─────────────────────────
     // Landable bodies: full planets with PLANET_DEFS, OR named moons with landKey
     // (e.g. Mira's moon "Selene" → moon base surface).
+    // Proximity is announced on the radio (not a bottom HUD bar) so it never
+    // covers the quest tracker.
+    const prevNear = s.nearBodyLabel || null;
     s.nearPlanetName = null;
     s.nearLandKey = null;
     s.nearBodyLabel = null;
@@ -320,13 +329,21 @@ Object.assign(GAME, {
       for (const m of (p.moons || [])) {
         if (!m.landKey) continue;
         if (Math.hypot(s.x - m.x, s.y - m.y) < Math.max(m.r * 3.5, 220)) {
-          s.nearPlanetName = m.name;      // HUD "Near Selene"
+          s.nearPlanetName = m.name;
           s.nearLandKey = m.landKey;      // PLANET.land("selene")
           s.nearBodyLabel = m.name + " (" + p.name + " moon)";
           break;
         }
       }
       if (s.nearLandKey) break;
+    }
+    if (s.nearBodyLabel && s.nearBodyLabel !== prevNear) {
+      if (this.radioSayCd)
+        this.radioSayCd("near_" + s.nearBodyLabel, "local",
+          "Local net — near " + s.nearBodyLabel + ". [L] to land.",
+          "#57d1c9", 12);
+      else if (this.radioSay)
+        this.radioSay("local", "Local net — near " + s.nearBodyLabel + ". [L] to land.", "#57d1c9");
     }
     if (s.nearLandKey && input.landEdge) {
       input.landEdge = false;
@@ -462,7 +479,9 @@ Object.assign(GAME, {
       ev.station.warpActive = true;   // fly-to-once unlocks warp — no gate to build
       const mi = s.markedStations ? s.markedStations.indexOf(ev.station.id) : -1;
       if (mi >= 0) s.markedStations.splice(mi, 1);   // reached a marked target → clear its waypoint
-      toast("⌘ WARP UNLOCKED — " + ev.station.name, "#8fd0ff");
+      if (this.radioSay)
+        this.radioSay("local", "⌘ WARP UNLOCKED — " + ev.station.name, "#8fd0ff");
+      else toast("⌘ WARP UNLOCKED — " + ev.station.name, "#8fd0ff");
       this.checkWin();   // discovering the last station now also completes the trade network
     }
     this._exploreTilesAround(s.x, s.y);
@@ -495,7 +514,12 @@ Object.assign(GAME, {
 
     // at-station: auto-bank haul + slow repair + emergency rations
     const near = this.nearestStationInfo();
+    // atStation: inside hard dock ring (can open berth / refuel).
+    // stationUI: same ring as WARP so DOCK/FUEL/WARP appear together.
+    const actionR = (CONFIG.stationActionR != null) ? CONFIG.stationActionR : 200;
     s.atStation = !!(near.station && near.station.discovered && near.dist < CONFIG.dockR);
+    s.stationUI = !!(near.station && near.station.discovered && near.dist < actionR)
+      || !!s.atStation || !!s.docked;
     if (s.atStation) {
       s.dockStationId = near.station.id;
       if (s.tows.length) { const got = this.depositTows(); if (got.ore || got.mods) { toast(`stored +${got.ore} ore, +${got.mods} salvage`); sfx("sell"); } }
@@ -535,6 +559,8 @@ Object.assign(GAME, {
     this.drawEncounterMarkers(g);
     this.drawContractWorld(g);    // Phase 4: escort freighter + bounty flagship dressing
     this.drawQuestWorld(g);       // Phase 5: pulsing reticles on the active quest's objectives
+    if (this.drawTutorObjectives) this.drawTutorObjectives(g); // survey bodies
+    if (this.drawTutorWing) this.drawTutorWing(g);  // onboarding wing lead
     this.drawScanWorld(g);        // region survey echo rings (game/scan.js)
     ForgeHUD.drawHUD(this.buildHudState());
     this.drawXpBar(g);            // ambient global-XP hairline atop the HUD (game/skills.js)
@@ -553,7 +579,8 @@ Object.assign(GAME, {
     this.drawShipBadge(g);        // current hull name under the top-strip bars
     this.drawMercBadge(g);        // "MERCENARY — NO AFFILIATION" after the Q10 wipe (game/onboarding.js)
     this.drawContractHUD(g);      // Phase 4: active-contract box, top-right
-    this.drawQuestHUD(g);         // Phase 5: active-quest tracker, under the contract box
+    this.drawQuestHUD(g);         // Phase 5: active-quest tracker (bottom-center / thrust band)
+    if (this.drawWingChatHUD) this.drawWingChatHUD(g);  // Reva/Cade/Lira subtitles
     if (this.drawRadioHUD) this.drawRadioHUD(g);  // cockpit radio log (game/radio.js)
     this.drawTraderAlert(g);      // Phase 6: blinking "trader under attack" edge note
     this.drawTradeRouteAlert(g);  // blinking "trade route under attack" edge note (trade_routes.js)
@@ -567,16 +594,8 @@ Object.assign(GAME, {
       g.font = "11px monospace"; g.fillStyle = "#e8edf4"; g.fillText(`${s.credits}cr banked · game continues`, CONFIG.W / 2, CONFIG.H / 2 + 4); g.textAlign = "left";
     }
     if (s.galaxyMapOpen) this.drawGalaxyMap(g);   // Phase 6: topmost overlay
-    // ── planet / moon landing prompt ───────────────────────────────────────────
-    if (s.nearPlanetName || s.nearLandKey) {
-      const W = CONFIG.W, H = CONFIG.H;
-      g.fillStyle = "rgba(5,7,13,0.78)";
-      g.fillRect(0, H - 40, W, 40);
-      g.fillStyle = "#57d1c9"; g.font = "bold 11px monospace"; g.textAlign = "center";
-      const label = s.nearBodyLabel || s.nearPlanetName || s.nearLandKey;
-      g.fillText("Near " + label + "   [L] Land", W / 2, H - 14);
-      g.textAlign = "left";
-    }
+    // Planet proximity is radio-only now (see update near-body radioSayCd) so
+    // the bottom strip never covers quest/radio HUD. LAND button still works.
   },
 
   // dock tab bar (game-owned chrome over the Forge overlays)
@@ -2523,7 +2542,9 @@ if (HEADLESS) {
   addEventListener("resize", fit);
   addEventListener("orientationchange", () => { setTimeout(fit, 100); setTimeout(fit, 300); });
   if (window.visualViewport) visualViewport.addEventListener("resize", fit);
-  GAME.wireUI(canvas, ctx); GAME.wireLoadoutDOM(); GAME.wireDroneDOM(); GAME.wireContractsDOM(); GAME.wireFleetDOM(); GAME.wireStoreDOM(); GAME.wireWarpDOM(); GAME.wireShipsDOM(); GAME.wireFortifyDOM(); GAME.wireSkillsUI(); GAME.wireVictoryDOM(); GAME.wireSaveUI(); GAME.wireTutorialDOM(); GAME.wireTitleDOM(); GAME.init();
+  GAME.wireUI(canvas, ctx); GAME.wireLoadoutDOM(); GAME.wireDroneDOM(); GAME.wireContractsDOM(); GAME.wireFleetDOM(); GAME.wireStoreDOM(); GAME.wireWarpDOM(); GAME.wireShipsDOM(); GAME.wireFortifyDOM(); GAME.wireSkillsUI(); GAME.wireVictoryDOM(); GAME.wireSaveUI(); GAME.wireTutorialDOM(); GAME.wireTitleDOM();
+  if (GAME.wireRadioLogDOM) GAME.wireRadioLogDOM();
+  GAME.init();
   GAME.migrateLegacySave();   // pre-slot space_hauler_save → slot 1 (one-time; logs to console)
   GAME.showTitleScreen();     // boot lands on the title — NEW GAME / LOAD GAME drive the run from there
   // Preload the external AI PNG art (sprites/*.png) behind the title screen
@@ -2597,6 +2618,13 @@ if (HEADLESS) {
   // Web Audio unlocks only inside a user gesture; left attached so a
   // browser-suspended context (tab switch) resumes on the next input too
   addEventListener("pointerdown", () => AUDIO.unlock());
+  // Kill iOS/WebView long-press text selection / callout while flying
+  document.addEventListener("selectstart", (e) => {
+    if (e.target && e.target.id === "game") e.preventDefault();
+    if (GAME.state && !GAME.state.docked && !GAME.state.titleOpen && !GAME.state.radioExpanded)
+      e.preventDefault();
+  });
+  document.addEventListener("gesturestart", (e) => e.preventDefault());
   addEventListener("keydown", () => AUDIO.unlock());
   document.addEventListener("visibilitychange", () => { if (document.hidden) AUDIO.stopAll(); });   // RAF pauses hidden — don't leave the hum running
 
@@ -2621,7 +2649,14 @@ if (HEADLESS) {
     if (e.key === "l" || e.key === "L") { input.landEdge = true; input.closeMenu = true; }
     if (e.key === "Escape") input.closeMenu = true;
     if (e.key >= "1" && e.key <= "6") input.skillTap = +e.key - 1;   // toggle skill/weapon in slot 0–5
-    if (e.key === "g" || e.key === "G") DEBUG = !DEBUG;
+    if (e.key === "g" || e.key === "G") {
+      DEBUG = !DEBUG;
+      // Mirror into the quest-skip flag so turn-in skip tracks the G toggle.
+      if (typeof CONFIG !== "undefined") CONFIG.debugQuestSkip = !!DEBUG;
+      if (typeof toast === "function")
+        toast(DEBUG ? "DEBUG ON — quest turn-in skips objectives" : "DEBUG OFF",
+          DEBUG ? "#ffd24a" : "#9aa7b8", 2.2);
+    }
   });
   addEventListener("keyup", e => { const m = keyDir(e.key.toLowerCase()); if (m) { held[m] = false; applyKeys(); } });
   addEventListener("wheel", e => {

@@ -5,8 +5,14 @@
 //   PLANET.tick(dt, s)          — planet game loop (replaces space update while on surface)
 //   PLANET.draw(g, s)           — ISO tile renderer + HUD (replaces space draw)
 // All canvas calls guarded by (HEADLESS). Progress stored in s.planetProgress[name].
+//
+// CLAY DIORAMA: ground paint + gen knobs live in ClayWorldEngine (locked).
+// Add a world by writing a recipe (see CLAY_WORLD_ENGINE.md) — do not fork paint.
 
 const PLANET = (() => {
+  // Engine handle (loaded before this file by build.py). Local alias for speed.
+  const CWE = (typeof ClayWorldEngine !== "undefined") ? ClayWorldEngine : null;
+  const ENGINE_LAYOUT_V = (CWE && CWE.LAYOUT_V) || 8;
   // ── constants ───────────────────────────────────────────────────────────────
   // 96×72 (was 80×60): +44% land — room to build and farm between the port and
   // town, and space for the terrain to roll. NOTE: pre-existing saves keep
@@ -118,14 +124,12 @@ const PLANET = (() => {
     _rngState = (_rngState * 1103515245 + 12345) & 0x7fffffff;
     return _rngState / 0x7fffffff;
   }
-  // Clay deco prop display widths (world px before zoom). Sized to be ENJOYED
-  // — clearly readable clay objects, not ground noise — while still sitting
-  // below the resource-node scale (trees ≈ 30) so the interactive layer stays
-  // visually dominant.
+  // Legacy deco widths (clay slab path). Diorama uses ClayWorldEngine.decoDisplayW
+  // so grass/flowers fill the whole tile diamond.
   const DECO_W = {
-    grass_tuft_a: 26, grass_tuft_b: 26, flower_white: 20, flower_pink: 21,
-    pebble_cluster: 19, bush_round: 30, reed_clump: 22, stone_mossy: 24,
-    stump_small: 20,
+    grass_tuft_a: 78, grass_tuft_b: 78, flower_white: 72, flower_pink: 72,
+    pebble_cluster: 44, bush_round: 70, reed_clump: 68, stone_mossy: 50,
+    stump_small: 46,
   };
 
   // Building sprite grandeur — per-type visual footprint multiplier. The city
@@ -179,6 +183,38 @@ const PLANET = (() => {
     g.closePath();
     g.fillStyle = col; g.fill();
     if (outline) { g.strokeStyle = outline; g.lineWidth = Math.max(0.3, 0.6*_cam.z); g.stroke(); }
+  }
+
+  // ── ClayWorldEngine paint bridge (locked procedural diorama) ────────────────
+  // Full implementation lives in clay_world_engine.js. These thin wrappers keep
+  // call sites readable and pass ISO geometry + live frame time.
+  function clayDiamond(g, sx, sy, hw, hh, thick, topC, lipL, lipR, edgeA, inset) {
+    if (CWE) return CWE.clayDiamond(g, sx, sy, hw, hh, thick, topC, lipL, lipR, edgeA, inset);
+  }
+  function shadeRgb(col, f) {
+    if (CWE) return CWE.shadeRgb(col, f);
+    return col;
+  }
+  function drawDioramaCell(g, sx, sy, z, col, ttype, tilled, crop, bio, tx, ty, elev) {
+    if (!CWE) {
+      // Emergency fallback if engine missing: flat fill only
+      flatTile(g, sx, sy, col, null);
+      return;
+    }
+    CWE.drawCell({
+      g, sx, sy, z, ISO_HW, ISO_HH,
+      col, ttype, tilled, crop, bio, tx, ty, elev,
+      def: _pdef, frame: _frame,
+      ART: (typeof ART !== "undefined") ? ART : null,
+    });
+  }
+  function drawDioramaCliff(g, sx, sy, z, col, ch, face, waterfall, lava) {
+    if (!CWE) return;
+    CWE.drawCliff({
+      g, sx, sy, z, ISO_HW, ISO_HH, col, ch, face, waterfall, lava, frame: _frame,
+      def: _pdef,
+      ART: (typeof ART !== "undefined") ? ART : null,
+    });
   }
 
   // 3-face ISO box  (top + left + right)
@@ -362,80 +398,99 @@ const PLANET = (() => {
       carRoutes.push(wp.concat(wp.slice(1,-1).reverse()), [V(px+.5,py-3),V(px+.5,py+3)]);
     }
 
-    // ── ADMINISTRATIVE DISTRICT — the civic quarter stands APART from the
-    //    core, off to a seeded side of town (never just "the middle"): its own
-    //    paved plaza holding every interactive building around the monument,
-    //    joined to downtown by a two-lane ceremonial avenue. The metropolis is
-    //    the backdrop; this is where you get things done.
-    const aDir = ((rnd()*8)|0) * Math.PI/4;             // one of 8 compass sides
-    px = Math.max(3.5, Math.min(CW-3.5, 11 + Math.cos(aDir)*7.5));
-    py = Math.max(3.5, Math.min(CH-3.5, 11 + Math.sin(aDir)*6.5));
-    pr = 2.4;
-    disc(px, py, 2.2);                                  // administrative plaza
-    line(px, py, ax, ay, true);                         // ceremonial avenue to the core
+    // ── TWO DISTRICTS ───────────────────────────────────────────────────────
+    // ISO draws higher (tx+ty) later = "in front". Pad approaches from the south
+    // (high world-Y). Put ADMIN on the approach edge (high local y) so skyline
+    // downtown sits BEHIND (lower local y) and never occludes interactive halls.
+    //
+    //   ┌─ DOWNTOWN (skyline, tall) ─┐  local y ~ 2..9
+    //   │                            │
+    //   │     avenue                 │
+    //   │                            │
+    //   └─ CITY HALL DISTRICT ───────┘  local y ~ CH-8..CH-2  (faces pad)
+    //
+    px = Math.max(4, Math.min(CW - 4, 11 + ((rnd() * 3) | 0) - 1));  // near mid X
+    py = Math.max(CH - 6, Math.min(CH - 3, CH - 4.5));                 // south edge
+    pr = 2.6;
+    // Downtown anchor: north half of the city footprint
+    ax = Math.max(5, Math.min(CW - 5, 11 + ((rnd() * 3) | 0) - 1));
+    ay = Math.max(4, Math.min(9, 5 + ((rnd() * 3) | 0)));
+    ar = 5.5;
 
-    // Entry road: west edge → admin plaza, so the home↔city connector (which
-    // runs up local column 0..1) delivers arrivals straight to the district.
-    // Gate arch stands over the entrance.
-    const gy = Math.max(2, Math.min(CH-2, Math.round(py)));
+    disc(px, py, 2.4);                                   // admin plaza paving
+    disc(ax, ay, 1.6);                                   // downtown plaza paving
+    line(px, py, ax, ay, true);                          // ceremonial avenue
+
+    // Entry from west edge → admin plaza (home↔city connector hits col 0..1)
+    const gy = Math.max(2, Math.min(CH - 2, Math.round(py)));
     line(0, gy, Math.round(px), gy);
-    buildings.push({ x:CX+1, y:CY+gy, type:'city_gate' }); occ.add('1,'+gy);
-    // shuttle: gate → admin plaza → downtown and back
-    carRoutes.push([V(1.5,gy+.5), V(px+.5,gy+.5), V(ax+.5,ay+.5), V(px+.5,gy+.5)]);
+    buildings.push({ x: CX + 1, y: CY + gy, type: 'city_gate' }); occ.add('1,' + gy);
+    carRoutes.push([V(1.5, gy + .5), V(px + .5, gy + .5), V(ax + .5, ay + .5), V(px + .5, gy + .5)]);
 
-    // ── civic cluster — every interactive building, together at the plaza ────
+    // Admin exclusion: nothing tall may enter this zone (world occlusion + playability)
+    const adminClear = (x, y, rExtra) => Math.hypot(x - px, y - py) < (pr + (rExtra || 5.5));
+    // Also block skyline south of admin (in front of hall toward camera)
+    const blocksAdminView = (x, y) => (y >= py - 1) && Math.abs(x - px) < pr + 6;
+
+    // ── CITY HALL DISTRICT — interactive buildings only, ringed around plaza ─
     const mx = Math.round(px), my = Math.round(py);
-    buildings.push({ x:CX+mx, y:CY+my, type:MON }); occ.add(mx+','+my);
-    const aOff = rnd()*Math.PI*2;
-    for (const type of ['city_hall','hotel','cantina','traders_guild','city_market']){
+    buildings.push({ x: CX + mx, y: CY + my, type: MON }); occ.add(mx + ',' + my);
+    // Fixed compass slots around plaza so halls aren't buried under spiral chaos
+    const civicSlots = [
+      [0, -2], [2, -1], [-2, -1], [2, 1], [-2, 1], [0, 2], [3, 0], [-3, 0],
+      [1, -2], [-1, -2], [1, 2], [-1, 2],
+    ];
+    const CIVIC = ['city_hall', 'hotel', 'cantina', 'traders_guild', 'city_market'];
+    for (let ci = 0; ci < CIVIC.length; ci++) {
       let done = false;
-      for (let d=pr+1.2; d<=pr+4.2 && !done; d+=0.9)
-        for (let i=0;i<14 && !done;i++){
-          const a = aOff + i/14*Math.PI*2;
-          done = put(Math.round(px+Math.cos(a)*d), Math.round(py+Math.sin(a)*d*0.75), type, 1);
-        }
-      // guarantee: spiral-scan outward from the plaza until it lands somewhere
-      for (let rr=2; rr<=12 && !done; rr++)
-        for (let dy=-rr; dy<=rr && !done; dy++)
-          for (let dx=-rr; dx<=rr && !done; dx++)
-            if (Math.abs(dx)===rr || Math.abs(dy)===rr)
-              done = put(mx+dx, my+dy, type, 1);
+      for (const [dx, dy] of civicSlots) {
+        if (put(mx + dx, my + dy, CIVIC[ci], 1)) { done = true; break; }
+      }
+      if (!done) {
+        for (let rr = 2; rr <= 8 && !done; rr++)
+          for (let dy = -rr; dy <= rr && !done; dy++)
+            for (let dx = -rr; dx <= rr && !done; dx++) {
+              if (Math.abs(dx) !== rr && Math.abs(dy) !== rr) continue;
+              // keep civic south of downtown (local y >= py-3)
+              if (my + dy < py - 3) continue;
+              done = put(mx + dx, my + dy, CIVIC[ci], 1);
+            }
+      }
     }
 
-    // ── downtown — tallest at the anchor, thinning with distance ─────────────
-    // This is an advanced spacefaring civilization: the core is a real skyline.
+    // ── DOWNTOWN — tall skyline only around north anchor ────────────────────
     let talls = 0;
-    for (let t=0; t<130 && talls<11; t++){
-      const a = rnd()*Math.PI*2, d = rnd()*ar*1.5;
-      const x = Math.round(ax+Math.cos(a)*d), y = Math.round(ay+Math.sin(a)*d);
-      if (rnd() > 1-(d/(ar*1.7))) continue;          // density falls off outward
-      if (Math.hypot(x-px,y-py) < pr+3) continue;    // skyline keeps clear of the admin district
-      if (!nearRoad(x,y,2)) continue;                // towers front the streets
+    for (let t = 0; t < 160 && talls < 12; t++) {
+      const a = rnd() * Math.PI * 2, d = rnd() * ar * 1.35;
+      const x = Math.round(ax + Math.cos(a) * d), y = Math.round(ay + Math.sin(a) * d);
+      if (y > (ay + ar * 0.85)) continue;              // stay in north district
+      if (adminClear(x, y, 6.5) || blocksAdminView(x, y)) continue;
+      if (!nearRoad(x, y, 2)) continue;
       if (put(x, y, SKY[talls % SKY.length], 2)) talls++;
     }
-    // mid-rise belt — apartments and offices pack the blocks around downtown
     let mids = 0;
-    for (let t=0; t<140 && mids<10; t++){
-      const a = rnd()*Math.PI*2, d = ar*0.8 + rnd()*ar*1.2;
-      const x = Math.round(ax+Math.cos(a)*d), y = Math.round(ay+Math.sin(a)*d);
-      if (Math.hypot(x-px,y-py) < pr+3) continue;    // admin district stays low-rise
-      if (!nearRoad(x,y,2)) continue;
-      if (put(x, y, rnd()<0.6?'apartment':'sky_med', 1)) mids++;
+    for (let t = 0; t < 150 && mids < 10; t++) {
+      const a = rnd() * Math.PI * 2, d = ar * 0.6 + rnd() * ar * 1.1;
+      const x = Math.round(ax + Math.cos(a) * d), y = Math.round(ay + Math.sin(a) * d);
+      if (adminClear(x, y, 5) || blocksAdminView(x, y)) continue;
+      if (!nearRoad(x, y, 2)) continue;
+      if (put(x, y, rnd() < 0.55 ? 'apartment' : 'sky_med', 1)) mids++;
     }
 
-    // ── residential fill — small street-facing lots, gaps left as yards ──────
+    // ── residential scatter — low buildings, never in admin clear zone ──────
     let homes = 0;
-    for (let t=0; t<460 && homes<42; t++){
-      const x = 2+((rnd()*(CW-3))|0), y = 1+((rnd()*(CH-1))|0);
-      if (!nearRoad(x,y, homes<28?1:2)) continue;    // later homes may sit back a row
-      if (put(x, y, SMALL[(rnd()*SMALL.length)|0], 1)) homes++;
+    for (let t = 0; t < 460 && homes < 40; t++) {
+      const x = 2 + ((rnd() * (CW - 3)) | 0), y = 1 + ((rnd() * (CH - 1)) | 0);
+      if (adminClear(x, y, 4)) continue;
+      if (!nearRoad(x, y, homes < 28 ? 1 : 2)) continue;
+      if (put(x, y, SMALL[(rnd() * SMALL.length) | 0], 1)) homes++;
     }
-    // utilities keep wide of the centre (water, power, comms, garrison)
     let utils = 0;
-    for (let t=0; t<60 && utils<6; t++){
-      const x = 2+((rnd()*(CW-3))|0), y = 1+((rnd()*(CH-1))|0);
-      if (Math.hypot(x-ax,y-ay) < ar || !nearRoad(x,y,2)) continue;
-      if (put(x, y, UTIL[(rnd()*UTIL.length)|0], 1)) utils++;
+    for (let t = 0; t < 60 && utils < 6; t++) {
+      const x = 2 + ((rnd() * (CW - 3)) | 0), y = 1 + ((rnd() * (CH - 1)) | 0);
+      if (adminClear(x, y, 4) || Math.hypot(x - ax, y - ay) < ar * 0.5) continue;
+      if (!nearRoad(x, y, 2)) continue;
+      if (put(x, y, UTIL[(rnd() * UTIL.length) | 0], 1)) utils++;
     }
 
     // ── pedestrian routes — foot traffic thickest around the plaza ───────────
@@ -451,11 +506,15 @@ const PLANET = (() => {
       pedRoutes.push([V(a2[0]+.5,a2[1]+.5), V(b2[0]+.5,b2[1]+.5)]);
     }
 
-    return { buildings, carRoutes, pedRoutes, plaza:{ x:CX+px, y:CY+py, r:pr } };
+    return { buildings, carRoutes, pedRoutes, plaza:{ x:CX+px, y:CY+py, r:pr }, downtown:{ x:CX+ax, y:CY+ay, r:ar } };
   }
 
   function genWorld(seed, def) {
     def = def || PLANET_DEFS.mira;
+    // Always normalize so ad-hoc / test defs get locked proc knobs
+    if (CWE && (!def.proc || def._engineVersion !== CWE.VERSION)) {
+      try { def = CWE.normalizeRecipe(def); } catch (_) { /* keep raw */ }
+    }
     rngSeed(seed);
     const I  = (x, y) => y * MAP_W + x;
     const ok = (x, y) => x >= 0 && x < MAP_W && y >= 0 && y < MAP_H;
@@ -465,52 +524,71 @@ const PLANET = (() => {
     const biomeA  = new Uint8Array(MAP_W * MAP_H);
     const elevA   = new Uint8Array(MAP_W * MAP_H);
 
-    // Home position: bottom-left corner, safe grass zone
-    const HX = 12, HY = MAP_H - 18;
+    // Home pad — SW corner with room for farm plots between pad and city road
+    const HX = 14, HY = MAP_H - 16;
 
-    // ─ 1. island heightmap ─────────────────────────────────────────────────
+    // ─ 1. island heightmap — larger continent, less ocean fringe ────────────
     const hN = makeNoise(12);
     const cx = MAP_W/2, cy = MAP_H/2;
     for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
-      const dx = (x-cx)/(MAP_W*0.44), dy = (y-cy)/(MAP_H*0.42);
-      const h = hN(x*0.6, y*0.6) - Math.sqrt(dx*dx+dy*dy)*0.9 + 0.35;
-      tiles[I(x,y)] = h > 0.18 ? T_GRASS : T_WATER;
+      const dx = (x-cx)/(MAP_W*0.48), dy = (y-cy)/(MAP_H*0.46);
+      // Soft continent + coastal noise — more walkable interior
+      const h = hN(x*0.55, y*0.55)*0.55 + hN(x*1.1, y*1.1)*0.25
+              - Math.sqrt(dx*dx+dy*dy)*0.78 + 0.42;
+      tiles[I(x,y)] = h > 0.14 ? T_GRASS : T_WATER;
     }
-    // Guarantee home zone is solid land (home is far from island center, may be water)
-    const HOME_LAND_R = 12;
+    // Solid land bubble around pad + homestead farm belt (NE of pad toward city)
+    const HOME_LAND_R = 14;
     for (let y = HY-HOME_LAND_R; y <= HY+HOME_LAND_R; y++) for (let x = HX-HOME_LAND_R; x <= HX+HOME_LAND_R; x++) {
       if (!ok(x,y)) continue;
       const dx=x-HX, dy=y-HY;
       if (Math.sqrt(dx*dx+dy*dy)<=HOME_LAND_R) tiles[I(x,y)]=T_GRASS;
     }
+    // Homestead rectangle: flat farmable land between pad and road (playability)
+    const FARM_X0 = HX - 2, FARM_X1 = HX + 18, FARM_Y0 = HY - 14, FARM_Y1 = HY + 2;
+    for (let y = FARM_Y0; y <= FARM_Y1; y++) for (let x = FARM_X0; x <= FARM_X1; x++) {
+      if (ok(x,y)) tiles[I(x,y)] = T_GRASS;
+    }
 
-    // ─ 2. winding river (top-down) ─────────────────────────────────────────
+    // ─ 2. winding river — steers clear of homestead + pad ─────────────────
     {
-      let rx = Math.floor(MAP_W*0.32 + rnd()*MAP_W*0.35);
+      let rx = Math.floor(MAP_W*0.42 + rnd()*MAP_W*0.22);
       for (let ry = 0; ry < MAP_H; ry++) {
+        // Push river east if too close to pad/farm
+        if (rx < FARM_X1 + 6) rx = FARM_X1 + 6 + ((rnd()*4)|0);
         for (let w = -1; w <= 1; w++) {
           const wx = rx + w;
-          if (ok(wx, ry)) tiles[I(wx, ry)] = T_WATER;
+          if (!ok(wx, ry)) continue;
+          // never carve through homestead or pad ring
+          if (Math.hypot(wx-HX, ry-HY) < 11) continue;
+          if (wx >= FARM_X0-1 && wx <= FARM_X1+1 && ry >= FARM_Y0-1 && ry <= FARM_Y1+1) continue;
+          tiles[I(wx, ry)] = T_WATER;
         }
-        if (rnd() < 0.45) rx += Math.floor(rnd()*3) - 1;
-        rx = Math.max(4, Math.min(MAP_W-5, rx));
+        if (rnd() < 0.42) rx += Math.floor(rnd()*3) - 1;
+        rx = Math.max(FARM_X1 + 5, Math.min(MAP_W-5, rx));
       }
     }
 
-    // ─ 3. lake (inland water body) ────────────────────────────────────────
+    // ─ 3. lake (inland, away from pad) ────────────────────────────────────
     {
-      const lx = Math.floor(MAP_W*0.55 + rnd()*15);
-      const ly = Math.floor(MAP_H*0.25 + rnd()*10);
-      const lr = 4 + Math.floor(rnd()*3);
+      const lx = Math.floor(MAP_W*0.58 + rnd()*12);
+      const ly = Math.floor(MAP_H*0.22 + rnd()*10);
+      const lr = 3 + Math.floor(rnd()*3);
       for (let y = ly-lr; y <= ly+lr; y++) for (let x = lx-lr; x <= lx+lr; x++) {
-        if (ok(x,y) && (x-lx)*(x-lx)/(lr*lr*1.2) + (y-ly)*(y-ly)/(lr*lr*0.8) < 1)
+        if (!ok(x,y)) continue;
+        if (Math.hypot(x-HX, y-HY) < 16) continue;
+        if ((x-lx)*(x-lx)/(lr*lr*1.2) + (y-ly)*(y-ly)/(lr*lr*0.8) < 1)
           tiles[I(x,y)] = T_WATER;
       }
     }
 
     // ─ 4. Voronoi biome regions ────────────────────────────────────────────
-    const BIOME_CYCLE = [B_GRASS, B_JUNGLE, B_DESERT, B_MOUNTAIN, B_JUNGLE, B_GRASS, B_MOUNTAIN, B_DESERT];
-    const regionPts = [{ x: HX, y: HY, b: B_GRASS }];
+    // Moon: mostly highland/mare rock (desert/mountain), almost no "jungle"
+    const isMoon = def.worldType === 'moon';
+    const BIOME_CYCLE = isMoon
+      ? [B_DESERT, B_MOUNTAIN, B_DESERT, B_MOUNTAIN, B_GRASS, B_DESERT, B_MOUNTAIN, B_DESERT]
+      : [B_GRASS, B_JUNGLE, B_DESERT, B_MOUNTAIN, B_JUNGLE, B_GRASS, B_MOUNTAIN, B_DESERT];
+    const regionPts = [{ x: HX, y: HY, b: isMoon ? B_DESERT : B_GRASS }];
     for (let i = 1; i < 8; i++) {
       regionPts.push({ x: 8 + Math.floor(rnd()*(MAP_W-16)), y: 8 + Math.floor(rnd()*(MAP_H-16)), b: BIOME_CYCLE[i] });
     }
@@ -523,17 +601,54 @@ const PLANET = (() => {
       }
       biomeA[I(x,y)] = regionPts[best].b;
     }
+    // Homestead: meadow on planets; flat mare dust on moons (still farmable)
+    for (let y = FARM_Y0; y <= FARM_Y1; y++) for (let x = FARM_X0; x <= FARM_X1; x++) {
+      if (ok(x,y)) biomeA[I(x,y)] = isMoon ? B_DESERT : B_GRASS;
+    }
 
-    // ─ 5. elevation (chunky plateaus) ─────────────────────────────────────
+    // Moon: punch circular impact craters (shadow pits = T_WATER, deep black)
+    if (isMoon) {
+      const nCraters = 14 + ((rnd() * 8) | 0);
+      for (let c = 0; c < nCraters; c++) {
+        const cx = 8 + ((rnd() * (MAP_W - 16)) | 0);
+        const cy = 8 + ((rnd() * (MAP_H - 16)) | 0);
+        if (Math.hypot(cx - HX, cy - HY) < 14) continue;
+        if (cx >= FARM_X0 - 2 && cx <= FARM_X1 + 2 && cy >= FARM_Y0 - 2 && cy <= FARM_Y1 + 2) continue;
+        const R = 2 + ((rnd() * 4) | 0); // 2–5 tile radius
+        for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) {
+          if (!ok(x, y)) continue;
+          const d = Math.hypot(x - cx, (y - cy) * 1.15);
+          if (d < R * 0.55) {
+            tiles[I(x, y)] = T_WATER; // deep void floor
+            elevA[I(x, y)] = 0;
+          } else if (d < R && tiles[I(x, y)] === T_GRASS) {
+            // raised rim
+            biomeA[I(x, y)] = B_MOUNTAIN;
+          }
+        }
+      }
+    }
+
+    // ─ 5. elevation (chunky plateaus) — knobs from ClayWorldEngine.proc ────
     const isL = (x, y) => ok(x,y) && tiles[I(x,y)] === T_GRASS;
     const eN = makeNoise(6);
+    const proc = (def.proc) || (CWE && CWE.DEFAULT_PROC) || {};
+    const diorama = CWE ? CWE.isDiorama(def) : def.ground === 'diorama';
     for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
       if (!isL(x,y)) { elevA[I(x,y)] = 0; continue; }
-      let e = eN(x*0.65, y*0.65);
-      if (biomeA[I(x,y)] === B_MOUNTAIN) e += 0.22;
-      else if (biomeA[I(x,y)] === B_JUNGLE) e -= 0.10;
-      // tier 4 is rare high country — mountain biome bonus pushes peaks there
-      elevA[I(x,y)] = e > 0.88 ? 4 : e > 0.72 ? 3 : e > 0.56 ? 2 : 1;
+      const noise = eN(x*0.65, y*0.65);
+      if (CWE && diorama) {
+        elevA[I(x,y)] = CWE.elevTier(noise, biomeA[I(x,y)], proc);
+      } else {
+        let e = noise;
+        if (biomeA[I(x,y)] === B_MOUNTAIN) e += 0.22;
+        else if (biomeA[I(x,y)] === B_JUNGLE) e -= 0.10;
+        elevA[I(x,y)] = e > 0.88 ? 4 : e > 0.72 ? 3 : e > 0.56 ? 2 : 1;
+      }
+    }
+    // Flatten homestead for easy tilling (no cliff farms)
+    for (let y = FARM_Y0; y <= FARM_Y1; y++) for (let x = FARM_X0; x <= FARM_X1; x++) {
+      if (ok(x,y) && tiles[I(x,y)]===T_GRASS) elevA[I(x,y)] = 1;
     }
     // majority-vote smoothing → no single-tile spires
     for (let pass = 0; pass < 2; pass++) {
@@ -620,9 +735,15 @@ const PLANET = (() => {
     const nk = (x,y) => `${x},${y}`;
     const nodeOn = (x,y) => nodeSet.has(nk(x,y));
 
+    const inFarm = (x, y) => x >= FARM_X0 && x <= FARM_X1 && y >= FARM_Y0 && y <= FARM_Y1;
     const addNode = (x, y, type) => {
       if (!ok(x,y)||!isL(x,y)||nodeOn(x,y)) return null;
-      const n = { x, y, type, id: nk(x,y), biome: biomeA[I(x,y)] };
+      if (inFarm(x,y)) return null;   // homestead plots stay clear for tilling
+      // Per-node size from ClayWorldEngine (rocks can be huge boulders).
+      const scale = CWE
+        ? CWE.nodeScale(type, x, y, proc)
+        : (0.85 + hash2(x * 3 + 1, y * 7 + 2) * 0.45);
+      const n = { x, y, type, id: nk(x,y), biome: biomeA[I(x,y)], scale };
       nodes.push(n); nodeSet.add(nk(x,y)); return n;
     };
 
@@ -646,60 +767,103 @@ const PLANET = (() => {
     };
 
     const fN = makeNoise(7), rN = makeNoise(8), bN = makeNoise(9);
+    const allowTree = !def.noTrees;
+    const treeChance = def.sparseTrees ? 0.04 : 0.09;
     for (let y = 2; y < MAP_H-2; y++) for (let x = 2; x < MAP_W-2; x++) {
       if (!isL(x,y)||nodeOn(x,y)) continue;
       const bio = biomeA[I(x,y)];
       const f=fN(x,y), r=rN(x+40,y+40), b=bN(x+80,y+80);
+      if (def.landOnlyRocks) {
+        // Cinder-style: basalt/rock and sparse berries only — no forests
+        if (r>0.62&&rnd()<0.14) growClump(x,y,"rock",3,6);
+        else if (b>0.78&&rnd()<0.07) growClump(x,y,"berry",2,4);
+        continue;
+      }
       if (bio===B_JUNGLE) {
         if (b>0.62&&rnd()<0.12) growClump(x,y,"berry",3,5);
-        else if (f>0.66&&rnd()<0.10) growClump(x,y,"tree",2,4);
+        else if (allowTree && f>0.66&&rnd()<0.10) growClump(x,y,"tree",2,4);
         else if (r>0.80&&rnd()<0.09) growClump(x,y,"rock",3,5);
       } else if (bio===B_DESERT) {
         if (r>0.72&&rnd()<0.11) growClump(x,y,"rock",3,5);
         else if (b>0.82&&rnd()<0.09) growClump(x,y,"berry",3,4);
-        else if (f>0.84&&rnd()<0.06) growClump(x,y,"tree",2,3);
+        else if (allowTree && f>0.84&&rnd()<treeChance) growClump(x,y,"tree",2,3);
       } else if (bio===B_MOUNTAIN) {
         if (r>0.66&&rnd()<0.12) growClump(x,y,"rock",4,5);
         else if (b>0.78&&rnd()<0.08) growClump(x,y,"berry",3,4);
-        else if (f>0.76&&rnd()<0.07) growClump(x,y,"tree",2,4);
+        else if (allowTree && f>0.76&&rnd()<0.07) growClump(x,y,"tree",2,4);
       } else {
         if (b>0.68&&rnd()<0.12) growClump(x,y,"berry",3,5);
-        else if (f>0.68&&rnd()<0.09) growClump(x,y,"tree",2,4);
+        else if (allowTree && f>0.68&&rnd()<treeChance) growClump(x,y,"tree",2,4);
         else if (r>0.74&&rnd()<0.09) growClump(x,y,"rock",3,5);
       }
     }
 
-    // clear home plaza
+    // clear home plaza + entire homestead farm belt of nodes
     const PLAZA = 7;
+    const clearNodeAt = (x, y) => {
+      const k = nk(x,y);
+      if (!nodeSet.has(k)) return;
+      const ni = nodes.findIndex(n => n.id === k);
+      if (ni >= 0) nodes.splice(ni, 1);
+      nodeSet.delete(k);
+    };
     for (let y = HY-PLAZA-1; y <= HY+PLAZA+1; y++) for (let x = HX-PLAZA-1; x <= HX+PLAZA+1; x++) {
       if (!ok(x,y)) continue;
-      const dx=x-HX, dy=y-HY;
-      if (Math.sqrt(dx*dx+dy*dy)<=PLAZA) {
-        const k=nk(x,y);
-        if (nodeSet.has(k)) { nodes.splice(nodes.findIndex(n=>n.id===k),1); nodeSet.delete(k); }
+      if (Math.hypot(x-HX, y-HY) <= PLAZA) clearNodeAt(x, y);
+    }
+    for (let y = FARM_Y0; y <= FARM_Y1; y++) for (let x = FARM_X0; x <= FARM_X1; x++) {
+      if (ok(x,y)) clearNodeAt(x, y);
+    }
+
+    // Starter resource grove WEST of pad (not in farm) — wood/stone/berry walkable in 1 minute
+    const starterPack = def.noTrees || def.landOnlyRocks
+      ? [["rock", 7, -8, -2], ["rock", 5, -5, 3], ["berry", 5, -9, 1]]
+      : [["tree", 6, -8, -2], ["rock", 5, -6, 3], ["berry", 5, -9, 1]];
+    for (const [type, cnt, ox0, oy0] of starterPack) {
+      let placed = 0;
+      for (let att = 0; att < 200 && placed < cnt; att++) {
+        const x = HX + ox0 + ((rnd() * 5) | 0) - 2;
+        const y = HY + oy0 + ((rnd() * 5) | 0) - 2;
+        if (addNode(x, y, type)) placed++;
+      }
+    }
+    // Second grove along the road toward city (gathers while traveling)
+    for (const [type, cnt] of [["tree", 4], ["rock", 3], ["berry", 3]]) {
+      let placed = 0;
+      for (let att = 0; att < 180 && placed < cnt; att++) {
+        const x = HX + 8 + ((rnd() * 14) | 0);
+        const y = HY - 18 + ((rnd() * 8) | 0);
+        if (inFarm(x, y)) continue;
+        if (addNode(x, y, type)) placed++;
       }
     }
 
-    // guaranteed starter resources just outside plaza
-    for (const [type,cnt] of [["tree",5],["rock",4],["berry",4]]) {
-      let placed=0;
-      for (let att=0; att<300&&placed<cnt; att++) {
-        const ang=rnd()*Math.PI*2, dd=PLAZA+1.5+rnd()*3;
-        const x=Math.round(HX+Math.cos(ang)*dd), y=Math.round(HY+Math.sin(ang)*dd);
-        if (!ok(x,y)||!isL(x,y)||nodeOn(x,y)) continue;
-        if (addNode(x,y,type)) placed++;
+    // guarantee minimum resource counts on the full map (still skip farm)
+    const minNodes = def.noTrees || def.landOnlyRocks
+      ? [["rock", 40], ["berry", 22]]
+      : [["tree", 32], ["rock", 26], ["berry", 28]];
+    for (const [type, min] of minNodes) {
+      let have = nodes.filter(n => n.type === type).length;
+      for (let att = 0; att < 600 && have < min; att++) {
+        const x = 2 + Math.floor(rnd() * (MAP_W - 4)), y = 2 + Math.floor(rnd() * (MAP_H - 4));
+        if (Math.hypot(x - HX, y - HY) < PLAZA + 1) continue;
+        if (addNode(x, y, type)) have++;
       }
     }
 
-    // guarantee minimum resource counts on the full map
-    for (const [type,min] of [["tree",32],["rock",26],["berry",28]]) {   // scaled for the 96×72 map
-      let have = nodes.filter(n=>n.type===type).length;
-      for (let att=0; att<600&&have<min; att++) {
-        const x=2+Math.floor(rnd()*(MAP_W-4)), y=2+Math.floor(rnd()*(MAP_H-4));
-        const dx=x-HX, dy=y-HY;
-        if (!isL(x,y)||nodeOn(x,y)||Math.sqrt(dx*dx+dy*dy)<PLAZA+1) continue;
-        if (addNode(x,y,type)) have++;
-      }
+    // Homestead soil tint — warm farm-plot color so plots read as "till here"
+    const FARM_SOIL = def.farmSoil || (def.name==='Cinder' ? '#6A4A38'
+      : def.name==='Dusk' ? '#B8C8D8'
+      : def.name==='Sorn' ? '#C8A060'
+      : def.name==='Vesper' ? '#7A7088' : '#7A9A48');
+    const FARM_ALT = def.farmSoilAlt || (def.name==='Cinder' ? '#5A3A2C'
+      : def.name==='Dusk' ? '#A0B4C8'
+      : def.name==='Sorn' ? '#B89050'
+      : def.name==='Vesper' ? '#6A6080' : '#6E8E3C');
+    for (let y = FARM_Y0; y <= FARM_Y1; y++) for (let x = FARM_X0; x <= FARM_X1; x++) {
+      if (!ok(x, y) || tiles[I(x, y)] !== T_GRASS) continue;
+      const hv = ((x + y) & 1) ? 1 : 0;
+      tileColors[I(x, y)] = hv ? FARM_SOIL : FARM_ALT;
     }
 
     // ─ 9. city (pre-built settlement) + 9b. spaceport at the landing zone ──
@@ -805,20 +969,22 @@ const PLANET = (() => {
       });
     }
 
-    // ─ 10. connecting road from home base to the city — generic L-shape ────
-    // Works for a city in ANY direction: a horizontal leg at the home's row,
-    // then a vertical leg up/down the city's west-edge column to its gate.
-    const ROAD_Y = HY - 2;
-    const hx0 = Math.min(HX+4, CX), hx1 = Math.max(HX+4, CX+1);
+    // ─ 10. connecting road pad → city (2-wide), keeps a grass farm strip free ─
+    const ROAD_Y = Math.min(HY - 3, FARM_Y0 - 1);
+    const hx0 = Math.min(HX+3, CX), hx1 = Math.max(HX+3, CX+1);
     for (let x = hx0; x <= hx1; x++) {
       if (ok(x, ROAD_Y))   { tiles[I(x, ROAD_Y)]   = T_ROAD; elevA[I(x, ROAD_Y)]   = 1; }
       if (ok(x, ROAD_Y+1)) { tiles[I(x, ROAD_Y+1)] = T_ROAD; elevA[I(x, ROAD_Y+1)] = 1; }
     }
-    // vertical leg: from the horizontal road's row to whichever city edge faces it
     const vy0 = Math.min(ROAD_Y+1, CY+CH), vy1 = Math.max(ROAD_Y, CY);
     for (let y = vy0; y <= vy1; y++) {
       if (ok(CX,   y)) { tiles[I(CX,   y)] = T_ROAD; elevA[I(CX,   y)] = 1; }
       if (ok(CX+1, y)) { tiles[I(CX+1, y)] = T_ROAD; elevA[I(CX+1, y)] = 1; }
+    }
+    // Re-stamp farm grass where road overwrote the homestead (road runs above farm)
+    for (let y = FARM_Y0; y <= FARM_Y1; y++) for (let x = FARM_X0; x <= FARM_X1; x++) {
+      if (!ok(x,y)) continue;
+      if (tiles[I(x,y)] === T_ROAD && y > ROAD_Y+1) { tiles[I(x,y)] = T_GRASS; elevA[I(x,y)] = 1; }
     }
 
     // ─ 11. road tile colors + runway markings + perimeter trees + parking ──────
@@ -863,7 +1029,7 @@ const PLANET = (() => {
       }
     }
 
-    // ─ 13. clay deco scatter (ground:'clay' planets — CLAY_GROUND_SPEC.md) ──
+    // ─ 13. clay deco scatter (ground:'clay' | 'diorama') ──────────────────
     // Small 3D-clay prop billboards (grass tufts, flowers, pebbles, reeds…)
     // hash-scattered by biome over open land. Deterministic per seed (hash2 of
     // tile coords, not rnd(), so density tweaks never reshuffle the world).
@@ -871,12 +1037,18 @@ const PLANET = (() => {
     // resource-node and emoji-prop tiles. One deco per tile, with sub-tile
     // jitter + size jitter so the meadow never reads as a grid.
     const deco = [];
-    if (def.ground === 'clay') {
+    // Sprite carpet: on diorama + carpetAll, EVERY open grass tile gets a
+    // full-tile grass/flower prop so no bare ground diamonds show through.
+    // City apron / farm / pad stay clearer for readability.
+    if (def.ground === 'clay' || def.ground === 'diorama') {
+      const carpetAll = diorama && (proc.carpetAll !== false);
+      const dense = diorama ? (proc.decoDense || 2.0) : 1.0;
       for (let y = 1; y < MAP_H-1; y++) for (let x = 1; x < MAP_W-1; x++) {
         if (tiles[I(x,y)] !== T_GRASS) continue;
         if (x >= CX-1 && x <= CX+CW+1 && y >= CY-1 && y <= CY+CH+1) continue;
         if (x >= PORT_X0-1 && x <= PORT_X1+1 && y >= PORT_Y0-1 && y <= PORT_Y1+1) continue;
         if (Math.hypot(x-HX, y-HY) < PLAZA+1) continue;
+        if (x >= FARM_X0 && x <= FARM_X1 && y >= FARM_Y0 && y <= FARM_Y1) continue;
         if (nodeSet.has(`${x},${y}`)) continue;
         if (props.some(p => p.x===x && p.y===y)) continue;
         const bio = biomeA[I(x,y)];
@@ -884,27 +1056,294 @@ const PLANET = (() => {
         let key = null;
         const nearWater = [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) =>
           ok(x+dx,y+dy) && tiles[I(x+dx,y+dy)]===T_WATER);
-        if (nearWater) { if (h1 < 0.30) key = 'reed_clump'; }
-        else if (bio === B_GRASS) {
-          if      (h1 < 0.16) key = h2 < 0.5 ? 'grass_tuft_a' : 'grass_tuft_b';
-          else if (h1 < 0.21) key = h2 < 0.5 ? 'flower_white' : 'flower_pink';
-          else if (h1 < 0.24) key = h2 < 0.5 ? 'pebble_cluster' : 'stone_mossy';
-          else if (h1 < 0.25) key = h2 < 0.5 ? 'bush_round' : 'stump_small';
-        } else if (bio === B_JUNGLE) {
-          if (h1 < 0.18) key = h2 < 0.5 ? 'grass_tuft_a' : 'bush_round';
-        } else if (bio === B_DESERT) {
-          if (h1 < 0.08) key = 'pebble_cluster';
-        } else {   // mountain
-          if (h1 < 0.07) key = h2 < 0.5 ? 'stone_mossy' : 'pebble_cluster';
+
+        if (carpetAll) {
+          if (isMoon) {
+            // Lunar dust & rock only — no vegetation carpet
+            if (nearWater) key = h2 < 0.5 ? 'stone_mossy' : 'pebble_cluster';
+            else if (h1 < 0.22) key = 'pebble_cluster';
+            else if (h1 < 0.38) key = 'stone_mossy';
+            else if (h1 < 0.48) key = h2 < 0.5 ? 'stump_small' : 'bush_round'; // debris
+            else key = h2 < 0.5 ? 'grass_tuft_a' : 'grass_tuft_b'; // dust ridges
+          } else if (nearWater) key = h2 < 0.55 ? 'reed_clump' : 'grass_tuft_a';
+          else if (bio === B_JUNGLE) key = h2 < 0.4 ? 'bush_round' : (h2 < 0.7 ? 'grass_tuft_a' : 'grass_tuft_b');
+          else if (bio === B_DESERT) key = h2 < 0.35 ? 'pebble_cluster' : (h2 < 0.55 ? 'stone_mossy' : 'grass_tuft_b');
+          else if (bio === B_MOUNTAIN) key = h2 < 0.45 ? 'stone_mossy' : (h2 < 0.7 ? 'pebble_cluster' : 'grass_tuft_b');
+          else {
+            if (h1 < 0.18) key = h2 < 0.5 ? 'flower_white' : 'flower_pink';
+            else if (h1 < 0.28) key = 'bush_round';
+            else if (h1 < 0.34) key = h2 < 0.5 ? 'pebble_cluster' : 'stump_small';
+            else key = h2 < 0.5 ? 'grass_tuft_a' : 'grass_tuft_b';
+          }
+        } else {
+          if (nearWater) { if (h1 < 0.30 * dense) key = 'reed_clump'; }
+          else if (bio === B_GRASS) {
+            if      (h1 < 0.16 * dense) key = h2 < 0.5 ? 'grass_tuft_a' : 'grass_tuft_b';
+            else if (h1 < 0.21 * dense) key = h2 < 0.5 ? 'flower_white' : 'flower_pink';
+            else if (h1 < 0.24 * dense) key = h2 < 0.5 ? 'pebble_cluster' : 'stone_mossy';
+            else if (h1 < 0.25 * dense) key = h2 < 0.5 ? 'bush_round' : 'stump_small';
+          } else if (bio === B_JUNGLE) {
+            if (h1 < 0.18 * dense) key = h2 < 0.5 ? 'grass_tuft_a' : 'bush_round';
+          } else if (bio === B_DESERT) {
+            if (h1 < 0.08 * dense) key = 'pebble_cluster';
+          } else {
+            if (h1 < 0.07 * dense) key = h2 < 0.5 ? 'stone_mossy' : 'pebble_cluster';
+          }
         }
-        if (key) deco.push({ x, y, key,
-          ox: (hash2(x*3+1, y*5+2) - 0.5) * 0.56,
-          oy: (hash2(x*7+3, y*3+1) - 0.5) * 0.56,
-          s:  0.85 + hash2(x*11+7, y*13+5) * 0.30 });
+        if (key) {
+          const full = diorama && proc.decoFullTile &&
+            (key.startsWith('grass') || key.startsWith('flower') || key === 'reed_clump' || key === 'bush_round');
+          deco.push({
+            x, y, key,
+            ox: full ? 0 : (hash2(x*3+1, y*5+2) - 0.5) * 0.25,
+            oy: full ? 0 : (hash2(x*7+3, y*3+1) - 0.5) * 0.25,
+            s: diorama && CWE ? CWE.decoSize(x, y, proc)
+               : (0.85 + hash2(x*11+7, y*13+5) * 0.30),
+            fullTile: !!full,
+            flip: CWE ? CWE.decoFlip(x, y, proc) : (hash2(x, y) > 0.5),
+          });
+        }
       }
     }
 
-    return { tiles, biomeA, elevA, tileColors, nodes, cityBuildings, npcCars, npcPeds, props, deco, def, HX, HY, CX, CY };
+    // ─ 14. MULTI-TILE collidable landmarks (mountain ranges, mesas, ridges) ─
+    // Mountains are 6–11 tile massifs, often clustered 2–4 together, with
+    // real collision ellipses so the player must walk around the range.
+    const landmarks = [];
+    const nClusters = def.landmarkN != null ? def.landmarkN : (proc.landmarkN || 5);
+    const lmKeys = def.landmarks || ['mesa', 'boulder', 'ridge'];
+    const minSep = proc.landmarkMinSep || 10;
+    const cMin = proc.landmarkClusterMin || 2;
+    const cMax = proc.landmarkClusterMax || 4;
+
+    const siteClear = (x, y, rad) => {
+      if (!isL(x, y)) return false;
+      if (inFarm(x, y)) return false;
+      if (Math.hypot(x - HX, y - HY) < 14 + rad) return false;
+      if (x >= CX - 2 - rad && x <= CX + CW + 2 + rad &&
+          y >= CY - 2 - rad && y <= CY + CH + 2 + rad) return false;
+      for (const L of landmarks) {
+        if (Math.hypot(L.x - x, L.y - y) < minSep + (L.w || 4) * 0.35) return false;
+      }
+      return true;
+    };
+
+    const claimFootprint = (cx, cy, w, h) => {
+      const hw = w * 0.5, hh = h * 0.5;
+      for (let dy = -Math.ceil(hh) - 1; dy <= Math.ceil(hh) + 1; dy++) {
+        for (let dx = -Math.ceil(hw) - 1; dx <= Math.ceil(hw) + 1; dx++) {
+          const tx = cx + dx, ty = cy + dy;
+          if (!ok(tx, ty)) continue;
+          if ((dx / Math.max(0.5, hw)) ** 2 + (dy / Math.max(0.5, hh)) ** 2 > 1.05) continue;
+          // Raise terrain under the massif so cliffs read around it
+          if (tiles[I(tx, ty)] === T_GRASS) {
+            elevA[I(tx, ty)] = Math.max(elevA[I(tx, ty)] || 1, dx * dx + dy * dy < 0.25 ? 4 : 3);
+          }
+          // Keep resource nodes out of the rock
+          nodeSet.add(nk(tx, ty));
+          clearNodeAt(tx, ty);
+        }
+      }
+    };
+
+    for (let ci = 0; ci < nClusters; ci++) {
+      let cx = 0, cy = 0, found = false;
+      for (let att = 0; att < 100; att++) {
+        cx = 6 + ((rnd() * (MAP_W - 12)) | 0);
+        cy = 6 + ((rnd() * (MAP_H - 12)) | 0);
+        if (siteClear(cx, cy, 5)) { found = true; break; }
+      }
+      if (!found) continue;
+
+      // Prefer mountain/ridge keys for big ranges; boulders stay smaller satellites
+      const clusterN = cMin + ((rnd() * (cMax - cMin + 1)) | 0);
+      const primaryKey = lmKeys.find(k => k === 'mountain' || k === 'volcano' || k === 'ridge' || k === 'mesa')
+        || lmKeys[0];
+
+      for (let m = 0; m < clusterN; m++) {
+        let x = cx, y = cy;
+        if (m > 0) {
+          // Satellite peaks offset 3–6 tiles from cluster center
+          const ang = rnd() * Math.PI * 2;
+          const dist = 3 + rnd() * 4;
+          x = Math.round(cx + Math.cos(ang) * dist);
+          y = Math.round(cy + Math.sin(ang) * dist);
+          if (!ok(x, y) || !isL(x, y) || inFarm(x, y)) continue;
+          if (Math.hypot(x - HX, y - HY) < 14) continue;
+        }
+        const key = m === 0 ? primaryKey : lmKeys[(rnd() * lmKeys.length) | 0];
+        const tiles = CWE
+          ? CWE.landmarkFootprintTiles(key, rnd, proc)
+          : (key === 'boulder' ? 3 : 7);
+        const w = tiles;
+        const h = Math.max(2, Math.round(tiles * (0.75 + rnd() * 0.35)));
+        const sizeMul = CWE ? CWE.landmarkSizeMul(rnd, proc) : (1 + rnd() * 0.4);
+        // Collision radius ≈ half the long axis
+        const r = Math.max(w, h) * 0.48;
+        landmarks.push({
+          x, y, key, w, h, r, collide: true, sizeMul,
+          cluster: ci,
+          e: def.landmarkEmoji ? (def.landmarkEmoji[key] || '🪨') : '🪨',
+          big: true,
+        });
+        claimFootprint(x, y, w, h);
+      }
+    }
+
+    // ─ 15. Large landscape overlays (vista mountains — decorative, no collision)
+    // Big sprite / clay massifs on the horizon to sell depth without blocking.
+    const landscapes = [];
+    const nVista = proc.landscapeN != null ? proc.landscapeN : 3;
+    for (let i = 0; i < nVista; i++) {
+      for (let att = 0; att < 60; att++) {
+        const x = 5 + ((rnd() * (MAP_W - 10)) | 0);
+        const y = 4 + ((rnd() * (MAP_H * 0.45)) | 0); // prefer north / deeper map
+        if (!isL(x, y)) continue;
+        if (Math.hypot(x - HX, y - HY) < 18) continue;
+        if (x >= CX - 4 && x <= CX + CW + 4 && y >= CY - 4 && y <= CY + CH + 4) continue;
+        if (landscapes.some(V => Math.hypot(V.x - x, V.y - y) < 12)) continue;
+        if (landmarks.some(L => Math.hypot(L.x - x, L.y - y) < 8)) continue;
+        const w = 10 + ((rnd() * 6) | 0); // 10–15 tiles wide
+        const h = 5 + ((rnd() * 4) | 0);
+        landscapes.push({
+          x, y, key: lmKeys[(rnd() * lmKeys.length) | 0],
+          w, h, sizeMul: 1.1 + rnd() * 0.5,
+          collide: false, vista: true,
+          // Prefer directional peak / cliff art when available
+          feat: rnd() > 0.45 ? 'peak' : ('cliff_' + ['s','e','n','w'][(rnd()*4)|0]),
+          e: '⛰️',
+        });
+        break;
+      }
+    }
+
+    // ─ 16. Oriented world FEATURES (10-asset packs × 4 angles for cliffs)
+    // feat_cliff_{s,e,n,w} + peak/boulder/outcrop/plant/accent — WORLD_TYPES.md
+    const features = [];
+    const FEAT_PLANT = ['plant_a', 'plant_b', 'accent'];
+    const FEAT_ROCK = ['boulder', 'outcrop', 'peak'];
+    const FEAT_CLIFF = ['cliff_s', 'cliff_e', 'cliff_n', 'cliff_w'];
+    const nFeat = proc.featureN != null ? proc.featureN : 28;
+    // isMoon already set in biome step
+    for (let i = 0; i < nFeat; i++) {
+      for (let att = 0; att < 50; att++) {
+        const x = 3 + ((rnd() * (MAP_W - 6)) | 0);
+        const y = 3 + ((rnd() * (MAP_H - 6)) | 0);
+        if (!isL(x, y)) continue;
+        if (inFarm(x, y)) continue;
+        if (Math.hypot(x - HX, y - HY) < 12) continue;
+        if (x >= CX - 2 && x <= CX + CW + 2 && y >= CY - 2 && y <= CY + CH + 2) continue;
+        if (nodeOn(x, y)) continue;
+        if (features.some(F => Math.hypot(F.x - x, F.y - y) < 2.5)) continue;
+        // Prefer cliff facing that matches local elevation drop (looks correct)
+        let key;
+        const eHere = elevA[I(x, y)] || 0;
+        const eS = (y + 1 < MAP_H) ? (elevA[I(x, y + 1)] || 0) : eHere;
+        const eE = (x + 1 < MAP_W) ? (elevA[I(x + 1, y)] || 0) : eHere;
+        const eN = (y > 0) ? (elevA[I(x, y - 1)] || 0) : eHere;
+        const eW = (x > 0) ? (elevA[I(x - 1, y)] || 0) : eHere;
+        // Moon base: sprinkle dish beacons among rocks/cliffs
+        if (isMoon && rnd() < 0.12) key = 'dish';
+        else if (eHere > eS + 0 && rnd() < 0.55) key = 'cliff_s';
+        else if (eHere > eE && rnd() < 0.5) key = 'cliff_e';
+        else if (eHere > eW && rnd() < 0.5) key = 'cliff_w';
+        else if (eHere > eN && rnd() < 0.4) key = 'cliff_n';
+        else if (rnd() < 0.35) key = FEAT_ROCK[(rnd() * FEAT_ROCK.length) | 0];
+        else key = FEAT_PLANT[(rnd() * FEAT_PLANT.length) | 0];
+
+        const isCliff = key.startsWith('cliff');
+        const isRock = key === 'boulder' || key === 'outcrop' || key === 'peak';
+        const sizeMul = isCliff ? (1.1 + rnd() * 0.6)
+          : isRock ? (0.9 + rnd() * 0.8)
+          : (0.7 + rnd() * 0.5);
+        // Hard-body radius (tile units) — cliffs/rocks block, plants don't
+        const r = isCliff ? (1.4 + sizeMul * 0.5) : isRock ? (0.9 + sizeMul * 0.4) : 0;
+        features.push({
+          x, y, key, sizeMul, r,
+          collide: r > 0.4,
+          angle: isCliff ? key.slice(-1) : null, // s/e/n/w
+        });
+        if (r > 0.4) {
+          // claim footprint for nodes
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            if (ok(x + dx, y + dy) && Math.hypot(dx, dy) <= r * 0.7)
+              nodeSet.add(nk(x + dx, y + dy));
+          }
+        }
+        break;
+      }
+    }
+
+    // ─ 17. Large lunar plates (crater bowls + regolith fields + cliff walls) ─
+    // These are multi-tile SPRITES (not cell stamps) so the moon reads as
+    // rocky grey-on-black terrain rather than a grass grid.
+    const plates = [];
+    if (isMoon) {
+      const nCraters = 10 + ((rnd() * 6) | 0);
+      for (let i = 0; i < nCraters; i++) {
+        for (let att = 0; att < 40; att++) {
+          const x = 6 + ((rnd() * (MAP_W - 12)) | 0);
+          const y = 6 + ((rnd() * (MAP_H - 12)) | 0);
+          if (Math.hypot(x - HX, y - HY) < 12) continue;
+          if (x >= FARM_X0 - 1 && x <= FARM_X1 + 1 && y >= FARM_Y0 - 1 && y <= FARM_Y1 + 1) continue;
+          if (x >= CX - 2 && x <= CX + CW + 2 && y >= CY - 2 && y <= CY + CH + 2) continue;
+          if (plates.some(P => Math.hypot(P.x - x, P.y - y) < 6)) continue;
+          plates.push({
+            x, y,
+            key: 'plate_selene_crater_' + ((rnd() * 4) | 0),
+            w: 5 + ((rnd() * 4) | 0),
+            sizeMul: 1.0 + rnd() * 0.7,
+            kind: 'crater',
+          });
+          break;
+        }
+      }
+      // Regolith field plates between base and wilds
+      for (let i = 0; i < 8; i++) {
+        for (let att = 0; att < 30; att++) {
+          const x = 5 + ((rnd() * (MAP_W - 10)) | 0);
+          const y = 5 + ((rnd() * (MAP_H - 10)) | 0);
+          if (Math.hypot(x - HX, y - HY) < 8) continue;
+          if (plates.some(P => Math.hypot(P.x - x, P.y - y) < 5)) continue;
+          plates.push({
+            x, y,
+            key: 'plate_selene_regolith_' + ((rnd() * 4) | 0),
+            w: 4 + ((rnd() * 3) | 0),
+            sizeMul: 0.9 + rnd() * 0.5,
+            kind: 'regolith',
+          });
+          break;
+        }
+      }
+      // Cliff wall plates along high→low elevation edges
+      for (let y = 2; y < MAP_H - 2; y += 2) for (let x = 2; x < MAP_W - 2; x += 2) {
+        if (tiles[I(x, y)] !== T_GRASS) continue;
+        const e = elevA[I(x, y)] || 0;
+        if (e < 2) continue;
+        let face = null;
+        if ((elevA[I(x, y + 1)] || 0) < e - 0) face = 's';
+        else if ((elevA[I(x + 1, y)] || 0) < e) face = 'e';
+        else if ((elevA[I(x - 1, y)] || 0) < e) face = 'w';
+        else if ((elevA[I(x, y - 1)] || 0) < e) face = 'n';
+        if (!face || rnd() > 0.22) continue;
+        if (Math.hypot(x - HX, y - HY) < 10) continue;
+        plates.push({
+          x, y,
+          key: 'plate_selene_cliff_' + face,
+          w: 3,
+          sizeMul: 0.95 + rnd() * 0.4,
+          kind: 'cliff',
+          face,
+        });
+      }
+    }
+
+    return {
+      tiles, biomeA, elevA, tileColors, nodes, cityBuildings, npcCars, npcPeds, props, deco, def,
+      landmarks, landscapes, features, plates,
+      HX, HY, CX, CY,
+      farm: { x0: FARM_X0, x1: FARM_X1, y0: FARM_Y0, y1: FARM_Y1 },
+    };
   }
 
   // ── cache access ────────────────────────────────────────────────────────────
@@ -913,20 +1352,29 @@ const PLANET = (() => {
   function getWorld(seed, pKey) {
     if (_worldCache && _worldCache.seed === seed) return _worldCache;
     const def = planetDef(pKey || 'mira');
-    if (HEADLESS) {
-      _worldCache = { seed, tiles:new Uint8Array(MAP_W*MAP_H), biomeA:new Uint8Array(MAP_W*MAP_H),
-        elevA:new Uint8Array(MAP_W*MAP_H), tileColors:[], nodes:[], cityBuildings:[], npcCars:[], npcPeds:[], props:[], deco:[], def, HX:12, HY:MAP_H-18, CX:def.cityXY[0], CY:def.cityXY[1] };
-    } else {
-      _worldCache = { seed, ...genWorld(seed, def) };
-    }
+    // Always run full genWorld (pure math) — needed for headless playability tests
+    // and ensures farm/pad layout is identical in Node and browser.
+    _worldCache = { seed, ...genWorld(seed, def) };
     return _worldCache;
   }
 
-  // ── collision: only water blocks walking ────────────────────────────────────
+  // ── collision: water + multi-tile landmark massifs + oriented features ─────
   function blocked(px, py, world) {
     const tx = Math.floor(px), ty = Math.floor(py);
     if (tx < 0||tx >= MAP_W||ty < 0||ty >= MAP_H) return true;
-    return world.tiles[ty*MAP_W + tx] === T_WATER;
+    if (world.tiles[ty*MAP_W + tx] === T_WATER) return true;
+    // Multi-tile mountain / mesa ranges (elliptical footprint)
+    for (const L of (world.landmarks || [])) {
+      if (!L.collide) continue;
+      if (CWE && CWE.landmarkBlocks(L, px, py)) return true;
+      if (!CWE && Math.hypot(px - L.x, py - L.y) < (L.r || 1.2)) return true;
+    }
+    // Oriented feature hard-bodies (cliffs / boulders) — circle approx
+    for (const F of (world.features || [])) {
+      if (!F.collide || !(F.r > 0)) continue;
+      if (Math.hypot(px - F.x, py - F.y) < F.r) return true;
+    }
+    return false;
   }
 
   // ── progress state ──────────────────────────────────────────────────────────
@@ -1018,7 +1466,7 @@ const PLANET = (() => {
   const BTYPES = [
     { key:"sawmill",  name:"Sawmill",  emoji:"🪚", cost:{wood:8},          up:{wood:14,stone:6}, maxLvl:2, hw:0.80, bh:20, colT:"#C89060", colL:"#9A6838", colR:"#7A5028", desc:"Wood harvest ×(lvl+1)" },
     { key:"quarry",   name:"Quarry",   emoji:"⛏", cost:{wood:5,stone:5},  up:{wood:6,stone:14}, maxLvl:2, hw:0.85, bh:15, colT:"#B0A890", colL:"#888070", colR:"#686050", desc:"Stone harvest ×(lvl+1)" },
-    { key:"barn",     name:"Barn",     emoji:"🚜", cost:{wood:18,stone:8},                        hw:1.00, bh:22, colT:"#A83828", colL:"#802818", colR:"#601C10", desc:"Farm hub — stores the harvest" },
+    { key:"barn",     name:"Barn",     emoji:"🚜", cost:{wood:18,stone:8},                        hw:1.00, bh:22, colT:"#A83828", colL:"#802818", colR:"#601C10", desc:"Farm hub — livestock +8–14₡ per sleep" },
     { key:"well",     name:"Well",     emoji:"🪣", cost:{wood:6,stone:12},                        hw:0.45, bh:12, colT:"#8090A0", colL:"#586878", colR:"#404E5C", desc:"Refill the watering can here" },
     { key:"shelter",  name:"Shelter",  emoji:"⛺", cost:{wood:15,stone:5},                        hw:0.78, bh:18, colT:"#E8D890", colL:"#B0A858", colR:"#908840", desc:"Sleep → next turn, resources regrow" },
     { key:"market",   name:"Market",   emoji:"🏪", cost:{wood:20,stone:15},                       hw:0.88, bh:20, colT:"#80C880", colL:"#50A050", colR:"#388038", desc:"Buy & sell — trade goods and seeds" },
@@ -1052,81 +1500,178 @@ const PLANET = (() => {
     // Sorn — desert oasis plots
     { key:"suncorn",   name:"Sun Corn",   emoji:"🌽", grow:2, yield:4, sellEach:5,  seedCost:8,  home:'sorn' },
     { key:"cactifruit",name:"Cactifruit", emoji:"🍈", grow:3, yield:3, sellEach:7,  seedCost:11, home:'sorn' },
+    // Selene — Mira moon base (hydroponics under domes)
+    { key:"moongrain", name:"Moongrain",  emoji:"🌑", grow:2, yield:4, sellEach:6,  seedCost:10, home:'selene' },
+    { key:"voidberry", name:"Voidberry",  emoji:"🫐", grow:3, yield:3, sellEach:8,  seedCost:12, home:'selene' },
   ];
   const SEED_BY = {}; for (const c of SEED_TYPES) SEED_BY[c.key] = c;
 
   // ════════════════════════════════════════════════════════════════════════════
-  //  PLANET DEFS — one engine, five worlds. Each def restyles the same generator:
-  //  biome palette, sky, water (lava on Cinder!), road stone, where the city sits
-  //  relative to the landing pad, native crops, and emoji flora/props.
+  //  PLANET DEFS — recipes for ClayWorldEngine. One engine, many worlds.
+  //  ground:'diorama' → locked procedural clay (preferred for new worlds)
+  //  ground:'clay'    → legacy slab PNGs (kept for A/B)
+  //  theme + proc knobs: see CLAY_WORLD_ENGINE.md / ClayWorldEngine.THEMES
   // ════════════════════════════════════════════════════════════════════════════
-  const PLANET_DEFS = {
+  // worldType: earth | ice | lava | desert | barren — drives art pack + lore (see WORLD_TYPES.md)
+  const PLANET_DEFS_RAW = {
     mira: {
-      tileset:'mira', bldgset:'mira',   // terrain art set (sprites/<set>/) — flip when this planet gets its own
-      name:'Mira', tag:'temperate homeworld', cityXY:[48,10],
-      sky:null,   // null → Mira keeps its seasonal daytime sky
+      name:'Mira', tag:'temperate homeworld', worldType:'earth', cityXY:[48,10],
+      sky:null,
       biomeLO:["#5E9E3C","#2E6B3A","#CDB06A","#7C7568"], biomeHI:["#8FCB5C","#4C9B54","#E8D492","#A59C8C"],
       water:["#4FA9D8","#2C6FA6"], glint:'#E8F6FF', road:'#B9AE97',
       crops:['carrot','grain','tomato'],
       flora:{[B_GRASS]:'🌳',[B_JUNGLE]:'🌴',[B_DESERT]:'🌵',[B_MOUNTAIN]:'🌲'}, rock:'🪨', berry:'🫐',
       props:[{e:'🌻',n:9},{e:'🦋',n:5}],
-      port:{ flip:false, hangars:3 },                              // full homeworld port
-      city:{ pattern:'grid', monument:'obelisk', skyline:'towers' },   // surveyed metropolis blocks
-      // CLAY_GROUND_SPEC.md pilot: flat procedural ground + clay prop scatter
-      // (skips the PNG tile stamps entirely). Remove this flag to roll back.
-      // nodeset: clay sprites for the minable trees/rocks/berries (emoji
-      // placeholders remain the fallback wherever a sprite is missing).
-      ground:'clay', propset:'mira', nodeset:'mira',
+      port:{ flip:false, hangars:3 },
+      city:{ pattern:'grid', monument:'obelisk', skyline:'towers' },
+      ground:'diorama', theme:'temperate', propset:'mira', nodeset:'mira', bldgset:'mira', tileset:'mira',
+      landmarks:['mountain','mesa','ridge','boulder'], landmarkN:5,
+      landmarkEmoji:{ mountain:'⛰️', mesa:'🪨', ridge:'⛰️', boulder:'🪨' },
+      proc:{
+        seamlessSprite:true, carpetAll:true, groundOverlap:1.4, groundJitter:true,
+        decoDense:2.0, decoFullTile:true, decoTileFill:1.0, decoMirror:true,
+        decoSizeMin:0.45, decoSizeMax:0.72, decoHeroChance:0.16,
+        elevDramatic:true, fleckGrass:false, landscapeN:3,
+        landmarkClusterMin:2, landmarkClusterMax:4,
+        // Trees: modest vs player (~34px); rocks keep engine defaults
+        treeScale:[0.95, 1.45], treeGiantChance:0.05, treeGiantScale:[1.6, 2.0],
+      },
     },
     vesper: {
-      tileset:'vesper', bldgset:'vesper',   // full vesper art pack (tiles + vex buildings)
-      name:'Vesper', tag:'bare-rock mining world', cityXY:[52,24],
+      name:'Vesper', tag:'bare-rock mining world', worldType:'barren', cityXY:[52,24],
       sky:{top:'#8A7FA8',hor:'#D8CDE8',cloud:'#C8C0D8'},
       biomeLO:["#8A8494","#6E6880","#5C566C","#4A4458"], biomeHI:["#ABA4B8","#8E88A0","#7A7490","#686278"],
       water:["#6FA0B8","#42708C"], glint:'#D8E8F0', road:'#9A94A8',
       crops:['glowcap','stonetuber'],
       flora:{[B_GRASS]:'🍄',[B_JUNGLE]:'🍄',[B_DESERT]:'🗿',[B_MOUNTAIN]:'⛰️'}, rock:'💎', berry:'🌰',
-      props:[{e:'⛏️',n:5},{e:'🗿',n:4},{e:'💎',n:6}],
-      port:{ flip:true, hangars:2, extra:'cargo_bay' },            // ore-export port, east-facing
-      city:{ pattern:'organic', monument:'water_tower', skyline:'industrial' },  // mining warren, grown not planned
+      props:[{e:'⛏️',n:5},{e:'🗿',n:5},{e:'💎',n:7}],
+      noTrees:true,
+      port:{ flip:true, hangars:2, extra:'cargo_bay' },
+      city:{ pattern:'organic', monument:'water_tower', skyline:'industrial' },
+      ground:'diorama', theme:'barren', propset:'vesper', nodeset:'vesper', bldgset:'vesper', tileset:'vesper',
+      landmarks:['mesa','boulder','ridge','mountain'], landmarkN:5,
+      landmarkEmoji:{ mesa:'🗿', boulder:'💎', ridge:'⛰️', mountain:'⛰️' },
+      slabTint:{ grass:'#9A94A8', dirt:'#6E6880', water:'#6FA0B8', path:'#9A94A8' },
+      proc:{
+        seamlessSprite:true, carpetAll:true, groundOverlap:1.35, groundJitter:true,
+        decoDense:1.4, decoFullTile:true, decoMirror:true,
+        decoSizeMin:0.4, decoSizeMax:0.65, decoHeroChance:0.12,
+        fleckGrass:false, elevDramatic:true, landscapeN:3,
+        landmarkClusterMin:2, landmarkClusterMax:4,
+      },
     },
     cinder: {
-      tileset:'cinder', bldgset:'cinder',   // full cinder art pack (tiles + vex forge buildings)
-      name:'Cinder', tag:'volcanic spice world', cityXY:[48,34],
+      name:'Cinder', tag:'volcanic spice world', worldType:'lava', cityXY:[48,34],
       sky:{top:'#C86A48',hor:'#F2C494',cloud:'#B8988A'},
       biomeLO:["#5A4038","#4A3028","#6E5A46","#3E3430"], biomeHI:["#7A5A4C","#684A3C","#8E765C","#5A4C44"],
-      water:["#E8752A","#B8481A"], glint:'#FFE0A0', road:'#6E6258',   // the "water" is LAVA
+      water:["#E8752A","#B8481A"], glint:'#FFE0A0', road:'#6E6258',
       crops:['emberchili','ashyam'],
-      flora:{[B_GRASS]:'🪵',[B_JUNGLE]:'🪵',[B_DESERT]:'🪵',[B_MOUNTAIN]:'🪵'}, rock:'🪨', berry:'🍒',
-      props:[{e:'🌋',n:5,big:true},{e:'🔥',n:8},{e:'💨',n:4}],
-      port:{ flip:false, hangars:2, extra:'round_guard' },         // guarded frontier port
-      city:{ pattern:'radial', monument:'stepped_temple', skyline:'frontier' },  // defensive ring, flame altar heart
+      flora:{[B_GRASS]:'🪨',[B_JUNGLE]:'🪨',[B_DESERT]:'🪨',[B_MOUNTAIN]:'🪨'}, rock:'🪨', berry:'🍒',
+      props:[{e:'🌋',n:6,big:true},{e:'🔥',n:10},{e:'💨',n:5}],
+      noTrees:true, landOnlyRocks:true,
+      port:{ flip:false, hangars:2, extra:'round_guard' },
+      city:{ pattern:'radial', monument:'stepped_temple', skyline:'frontier' },
+      ground:'diorama', theme:'volcanic', propset:'cinder', nodeset:'cinder', bldgset:'cinder', tileset:'cinder',
+      landmarks:['volcano','mesa','boulder','mountain'], landmarkN:5,
+      landmarkEmoji:{ volcano:'🌋', mesa:'🪨', boulder:'🪨', mountain:'⛰️' },
+      slabTint:{ grass:'#8A6A58', dirt:'#5A4038', water:'#E8752A', path:'#6E6258' },
+      proc:{
+        seamlessSprite:true, carpetAll:true, groundOverlap:1.35, groundJitter:true,
+        waterIsLava:true, fleckGrass:false, elevDramatic:true,
+        decoDense:1.6, decoFullTile:true, decoMirror:true,
+        decoSizeMin:0.42, decoSizeMax:0.7, decoHeroChance:0.14,
+        landscapeN:4, landmarkClusterMin:2, landmarkClusterMax:5,
+        rockScale:[1.0, 2.8],
+      },
     },
     dusk: {
-      tileset:'dusk', bldgset:'dusk',   // full dusk art pack (tiles + snow-krag buildings)
-      name:'Dusk', tag:'ice-field world', cityXY:[16,4],
+      name:'Dusk', tag:'ice-field world', worldType:'ice', cityXY:[16,4],
       sky:{top:'#9FC4E8',hor:'#EAF4FC',cloud:'#FFFFFF'},
       biomeLO:["#C2D4E4","#A8C0D8","#B0C8D0","#98A8C0"], biomeHI:["#EAF4FC","#CCE0F0","#D8E8EC","#B8C8DC"],
       water:["#7FD0E0","#4FA0C0"], glint:'#FFFFFF', road:'#A8B4C4',
       crops:['frostleaf','icegrape'],
-      flora:{[B_GRASS]:'🌲',[B_JUNGLE]:'🌲',[B_DESERT]:'🌲',[B_MOUNTAIN]:'🏔️'}, rock:'🧊', berry:'🫐',
-      props:[{e:'⛄',n:5},{e:'🏔️',n:4,big:true},{e:'❄️',n:6}],
-      port:{ flip:true, hangars:3, extra:'comms_tower' },          // remote relay port, east-facing
-      city:{ pattern:'radial', compact:true, monument:'obelisk', skyline:'low' },  // huddled rings against the cold
+      flora:{[B_GRASS]:'🌲',[B_JUNGLE]:'🌲',[B_DESERT]:'🧊',[B_MOUNTAIN]:'🏔️'}, rock:'🧊', berry:'🫐',
+      props:[{e:'⛄',n:5},{e:'🏔️',n:5,big:true},{e:'❄️',n:8}],
+      port:{ flip:true, hangars:3, extra:'comms_tower' },
+      city:{ pattern:'radial', compact:true, monument:'obelisk', skyline:'low' },
+      ground:'diorama', theme:'ice', propset:'dusk', nodeset:'dusk', bldgset:'dusk', tileset:'dusk',
+      landmarks:['mountain','ridge','boulder','mesa'], landmarkN:5,
+      landmarkEmoji:{ mountain:'🏔️', ridge:'🧊', boulder:'🧊', mesa:'🏔️' },
+      slabTint:{ grass:'#D0E0F0', dirt:'#B0C8D8', water:'#7FD0E0', path:'#A8B4C4' },
+      proc:{
+        seamlessSprite:true, carpetAll:true, groundOverlap:1.35, groundJitter:true,
+        fleckGrass:false, elevDramatic:true, decoDense:1.7, decoFullTile:true, decoMirror:true,
+        decoSizeMin:0.45, decoSizeMax:0.7, decoHeroChance:0.15,
+        landscapeN:4, landmarkClusterMin:2, landmarkClusterMax:4,
+        treeScale:[1.0, 1.5], treeGiantChance:0.06, treeGiantScale:[1.65, 2.05],
+      },
     },
     sorn: {
-      tileset:'sorn', bldgset:'sorn',   // full sorn art pack (tiles + salvage-krag buildings)
-      name:'Sorn', tag:'desert caravan world', cityXY:[30,8],
+      name:'Sorn', tag:'desert caravan world', worldType:'desert', cityXY:[30,8],
       sky:{top:'#E0AE5C',hor:'#F8E4B8',cloud:'#F0E0C0'},
       biomeLO:["#D0A860","#C09850","#B08840","#987838"], biomeHI:["#E8CC88","#D8BC70","#C8AC60","#B09850"],
       water:["#4FC0B0","#2C8A80"], glint:'#E8FFF8', road:'#B89868',
       crops:['suncorn','cactifruit'],
-      flora:{[B_GRASS]:'🌴',[B_JUNGLE]:'🌴',[B_DESERT]:'🌵',[B_MOUNTAIN]:'🌵'}, rock:'🪨', berry:'🍑',
-      props:[{e:'🐫',n:4},{e:'🌵',n:8},{e:'⛺',n:3}],
-      port:{ flip:false, hangars:2, extra:'water_tower' },         // desert port hoards water
-      city:{ pattern:'strip', monument:'pyramid', skyline:'market' },  // one caravan boulevard, bazaar mid-strip
+      flora:{[B_GRASS]:'🌵',[B_JUNGLE]:'🌴',[B_DESERT]:'🌵',[B_MOUNTAIN]:'🌵'}, rock:'🪨', berry:'🍑',
+      props:[{e:'🐫',n:4},{e:'🌵',n:10},{e:'⛺',n:3}],
+      sparseTrees:true,
+      port:{ flip:false, hangars:2, extra:'water_tower' },
+      city:{ pattern:'strip', monument:'pyramid', skyline:'market' },
+      ground:'diorama', theme:'desert', propset:'sorn', nodeset:'sorn', bldgset:'sorn', tileset:'sorn',
+      landmarks:['mesa','dune','boulder','mountain'], landmarkN:5,
+      landmarkEmoji:{ mesa:'🏜️', dune:'🌵', boulder:'🪨', mountain:'⛰️' },
+      slabTint:{ grass:'#E0B870', dirt:'#C09850', water:'#4FC0B0', path:'#B89868' },
+      proc:{
+        seamlessSprite:true, carpetAll:true, groundOverlap:1.35, groundJitter:true,
+        fleckGrass:false, elevDramatic:false, decoDense:1.5, decoFullTile:true, decoMirror:true,
+        decoSizeMin:0.42, decoSizeMax:0.68, decoHeroChance:0.12,
+        landscapeN:3, landmarkClusterMin:2, landmarkClusterMax:3,
+        treeScale:[0.9, 1.35], treeGiantChance:0.04, treeGiantScale:[1.5, 1.9],
+      },
+    },
+    // ── SELENE — Mira's moon base (same ClayWorldEngine pipeline as Mira/etc.) ──
+    // Access: approach Mira's named moon "Selene" in space and press L.
+    // Dual districts + port via genWorld; grey regolith diorama + selene sprite pack.
+    selene: {
+      name:'Selene', tag:"Mira's moon — grey craters, basalt cliffs, station base",
+      worldType:'moon', parentPlanet:'mira', cityXY:[46,12],
+      sky:{top:'#000000',hor:'#12141A',cloud:'#1A1C22'},
+      biomeLO:["#5A5856","#3A3836","#4A4846","#2A2826"],
+      biomeHI:["#9A9894","#6A6864","#7A7874","#4A4844"],
+      water:["#0A0A0E","#050508"], glint:'#C8D0D8',
+      road:'#7A828C',
+      crops:['moongrain','voidberry'],
+      flora:{[B_GRASS]:'🪨',[B_JUNGLE]:'🪨',[B_DESERT]:'🪨',[B_MOUNTAIN]:'🌑'}, rock:'🪨', berry:'💎',
+      props:[{e:'🪨',n:8},{e:'🌑',n:4,big:true},{e:'📡',n:5}],
+      noTrees:true, landOnlyRocks:true,
+      port:{ flip:false, hangars:3, extra:'comms_tower' },
+      city:{ pattern:'grid', monument:'obelisk', skyline:'industrial',
+             districts:['command','habitat'] },
+      ground:'diorama', theme:'barren', propset:'selene', nodeset:'selene',
+      bldgset:'selene', tileset:'selene',
+      landmarks:['mountain','mesa','ridge','boulder'], landmarkN:6,
+      landmarkEmoji:{ mountain:'🌑', mesa:'🪨', ridge:'🪨', boulder:'🪨' },
+      slabTint:{ grass:'#6A6864', dirt:'#3A3836', water:'#0A0A0E', path:'#7A828C' },
+      farmSoil:'#5A5248', farmSoilAlt:'#4A443C',
+      proc:{
+        seamlessSprite:true, carpetAll:true, groundOverlap:1.55, groundJitter:true,
+        fleckGrass:false, elevDramatic:true, elevMountainBoost:0.36,
+        decoDense:1.35, decoFullTile:true, decoMirror:true,
+        decoSizeMin:0.4, decoSizeMax:0.65, decoHeroChance:0.1,
+        landscapeN:4, featureN:32,
+        landmarkClusterMin:2, landmarkClusterMax:4,
+        rockScale:[1.1, 2.8],
+        waterIsLava:false,
+      },
     },
   };
+  // Normalize every recipe through the locked engine (stamps proc + validates).
+  const PLANET_DEFS = {};
+  for (const k of Object.keys(PLANET_DEFS_RAW)) {
+    PLANET_DEFS[k] = CWE
+      ? CWE.normalizeRecipe(PLANET_DEFS_RAW[k])
+      : PLANET_DEFS_RAW[k];
+  }
   function planetDef(pKey){ return PLANET_DEFS[pKey] || PLANET_DEFS.mira; }
   // the def whose world is currently being drawn (set by draw/drawScene)
   let _pdef = PLANET_DEFS.mira;
@@ -1327,18 +1872,26 @@ const PLANET = (() => {
   }
 
   function drawTree(g, sx, sy, bio, z, fx) {
-    const s = (fx&&fx.scale)||1, shk = (fx&&fx.shake)||0;
+    const s = ((fx&&fx.scale)||1) * ((fx&&fx.nodeScale)||1), shk = (fx&&fx.shake)||0;
     // Clay sprite first (nodeset planets) — biome picks the species, a stable
     // per-node hash picks the oak silhouette so the forest isn't clones.
     if (_pdef.nodeset) {
-      const key = bio===B_JUNGLE ? 'tree_palm' : bio===B_DESERT ? 'tree_cactus'
+      let key;
+      if (_pdef.noTrees || _pdef.landOnlyRocks) key = 'rock_basalt';
+      else if (_pdef.name === 'Vesper') key = 'tree_crystal';
+      else if (_pdef.name === 'Dusk') key = 'tree_pine';
+      else if (_pdef.name === 'Sorn') key = 'tree_cactus';
+      else key = bio===B_JUNGLE ? 'tree_palm' : bio===B_DESERT ? 'tree_cactus'
                 : bio===B_MOUNTAIN ? 'tree_pine'
                 : (hash2((fx&&fx.hx)||0, (fx&&fx.hy)||0) > 0.5 ? 'tree_oak_a' : 'tree_oak_b');
-      const w = 46*z*s;
+      const base = (CWE ? CWE.nodeBaseW('tree', _pdef.proc) : 70);
+      const w = base*z*s;
       nodeShadow(g, sx, sy, w, z);
-      if (ART.drawProp(g, 'node_'+_pdef.nodeset+'_'+key, sx+shk, sy+2*z, w, 192)) return;
+      const set = _pdef.nodeset;
+      if (ART.drawProp(g, 'node_'+set+'_'+key, sx+shk, sy+2*z, w, 256)) return;
+      if (set !== 'mira' && ART.drawProp(g, 'node_mira_'+key, sx+shk, sy+2*z, w, 256)) return;
     }
-    if (USE_EMOJI) { drawEmoji(g, (_pdef.flora&&_pdef.flora[bio])||TREE_EMOJI[bio]||'🌳', sx, sy, 30*z*s, shk); return; }
+    if (USE_EMOJI) { drawEmoji(g, (_pdef.flora&&_pdef.flora[bio])||TREE_EMOJI[bio]||'🌳', sx, sy, 42*z*s, shk); return; }
     const tH = 11*z, tW = 5*z;
     // shadow
     g.save(); g.globalAlpha=0.16; g.fillStyle=C.ink;
@@ -1377,15 +1930,21 @@ const PLANET = (() => {
   }
 
   function drawRock(g, sx, sy, bio, z, fx) {
-    const s = (fx&&fx.scale)||1, shk = (fx&&fx.shake)||0;
+    const s = ((fx&&fx.scale)||1) * ((fx&&fx.nodeScale)||1), shk = (fx&&fx.shake)||0;
     if (_pdef.nodeset) {
-      const key = hash2((fx&&fx.hx)||0, (fx&&fx.hy)||0) > 0.5 ? 'rock_a' : 'rock_b';
-      const w = 32*z*s;
+      let key = hash2((fx&&fx.hx)||0, (fx&&fx.hy)||0) > 0.5 ? 'rock_a' : 'rock_b';
+      if (_pdef.name === 'Cinder') key = 'rock_basalt';
+      else if (_pdef.name === 'Dusk') key = 'rock_ice';
+      else if (_pdef.name === 'Vesper') key = hash2((fx&&fx.hx)||1,(fx&&fx.hy)||1)>0.5 ? 'rock_crystal' : 'rock_a';
+      const base = (CWE ? CWE.nodeBaseW('rock', _pdef.proc) : 58);
+      const w = base*z*s;
       nodeShadow(g, sx, sy, w, z);
-      if (ART.drawProp(g, 'node_'+_pdef.nodeset+'_'+key, sx+shk, sy+2*z, w, 192)) return;
+      const set = _pdef.nodeset;
+      if (ART.drawProp(g, 'node_'+set+'_'+key, sx+shk, sy+2*z, w, 256)) return;
+      if (set !== 'mira' && ART.drawProp(g, 'node_mira_'+key, sx+shk, sy+2*z, w, 256)) return;
     }
     if (USE_EMOJI) { drawEmoji(g, _pdef.rock||'🪨', sx, sy, 22*z*s, shk); return; }
-    const rs = 8*z;
+    const rs = 8*z*s;
     g.save(); g.globalAlpha=0.14; g.fillStyle=C.ink;
     g.beginPath(); g.ellipse(sx+2*z, sy+1*z, rs*1.2, rs*0.5, 0, 0, Math.PI*2); g.fill(); g.restore();
     const topC = bio===B_MOUNTAIN ? '#B8B8C8' : bio===B_DESERT ? '#C8B888' : '#A8A090';
@@ -1395,11 +1954,18 @@ const PLANET = (() => {
   }
 
   function drawBerry(g, sx, sy, bio, z, fx) {
-    const s = (fx&&fx.scale)||1, shk = (fx&&fx.shake)||0;
+    const s = ((fx&&fx.scale)||1) * ((fx&&fx.nodeScale)||1), shk = (fx&&fx.shake)||0;
     if (_pdef.nodeset) {
-      const w = 33*z*s;
+      let bkey = 'berry_bush';
+      if (_pdef.name === 'Vesper') bkey = 'berry_glow';
+      else if (_pdef.name === 'Sorn' || _pdef.name === 'Cinder') bkey = 'berry_cactus';
+      const base = (CWE ? CWE.nodeBaseW('berry', _pdef.proc) : 48);
+      const w = base*z*s;
       nodeShadow(g, sx, sy, w, z);
-      if (ART.drawProp(g, 'node_'+_pdef.nodeset+'_berry_bush', sx+shk, sy+2*z, w, 192)) return;
+      const set = _pdef.nodeset;
+      if (ART.drawProp(g, 'node_'+set+'_'+bkey, sx+shk, sy+2*z, w, 256)) return;
+      if (set !== 'mira' && ART.drawProp(g, 'node_mira_'+bkey, sx+shk, sy+2*z, w, 256)) return;
+      if (ART.drawProp(g, 'node_mira_berry_bush', sx+shk, sy+2*z, w, 256)) return;
     }
     if (USE_EMOJI) { drawEmoji(g, _pdef.berry||BERRY_EMOJI[bio]||'🫐', sx, sy, 20*z*s, shk); return; }
     // bush base
@@ -1584,6 +2150,20 @@ const PLANET = (() => {
              || CITY_BY_KEY[type]
              || BTYPES[0];
     const _nm = (showName===false) ? '' : def.name;
+
+    // Soft ground contact shadow — D2/AoE buildings sit ON the ground, not float
+    {
+      const _gs0 = BLDG_SCALE[type] || 1.1;
+      const shw = ISO_HW * z * (def.hw || 0.85) * _gs0 * 0.95;
+      const shh = ISO_HH * z * (def.hw || 0.85) * _gs0 * 0.55;
+      g.save();
+      g.globalAlpha = (_pdef && _pdef.worldType === 'moon') ? 0.38 : 0.26;
+      g.fillStyle = '#0A0A10';
+      g.beginPath();
+      g.ellipse(sx, sy + 2 * z, shw, shh, 0, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    }
 
     // ── Sprite-first: cute 3D PNG art when the Mira building pack covers this
     //    type. Every procedural branch below stays as the fallback (headless,
@@ -2289,7 +2869,7 @@ const PLANET = (() => {
   // Advance one sleep/turn. Called when the player rests (Inn / Shelter). Rolls
   // fresh weather; every SLEEPS_PER_SEASON sleeps rolls the season over and swaps
   // the festival. This is the ONLY thing that moves seasons/weather forward now.
-  function advanceSleep(prog) {
+  function advanceSleep(prog, s) {
     _season.tick += 1;
     let seasonChanged = false;
     if (_season.tick >= SLEEPS_PER_SEASON) {
@@ -2304,13 +2884,29 @@ const PLANET = (() => {
         const def = SEED_BY[c.type]; if (!def) continue;
         c.stage = Math.min(def.grow, c.stage + (c.watered ? 2 : 1));
         c.watered = false;
+        c.dayBoost = false;
       }
     }
-    // festival always tracks the current season
+    // Barn micro-income while sleeping
+    if (prog && s && (prog.buildings || []).some(b => b.type === 'barn')) {
+      ensureShipState(s);
+      const bonus = 8 + ((Math.random() * 7) | 0);
+      s.credits += bonus;
+      if (typeof toast === 'function') toast('🚜 Barn livestock +' + bonus + '₡ overnight', '#a0ffa0', 2);
+    }
+    // City Hall: refill empty offer board if quest slots free
+    if (s && s.questState && s.currentPlanetName) {
+      const pKey = s.currentPlanetName;
+      const qs = s.questState;
+      const free = QUEST_MAX_ACTIVE - (qs.active || []).length;
+      if (free > 0 && (!(qs.offers[pKey]) || !qs.offers[pKey].length)) {
+        delete qs.offers[pKey];
+        genQuestOffers(s, pKey);
+        if (typeof toast === 'function') toast('🏛 City Hall posted new jobs overnight', '#E8D06A', 2.2);
+      }
+    }
     _festival.active = true;
     _festival.name   = FESTIVAL_NAMES[_season.idx];
-    // new weather for the new turn
-    const prev = _weather.type;
     _weather.type = rollWeather();
     if (seasonChanged) {
       _weather.notifText  = `// ${SEASON_NAMES[_season.idx]} · ${_festival.name} //`;
@@ -2433,58 +3029,51 @@ const PLANET = (() => {
     g.restore();
   }
 
-  function drawPlayer(g, sx, sy, z, pDir) {
-    // Gentle vertical bob so the character feels alive
-    const bob  = Math.sin(_frame * 2.6) * 1.6 * z;
-    const sby  = sy + bob;
-    const bH   = 16*z, bHW = 6.5*z, hR = 7*z;
+  // pDir: 0=S (camera), 1=W, 2=E, 3=N  — matches movement assignment
+  function drawPlayer(g, sx, sy, z, pDir, moving) {
+    const dirKey = ({ 0: 's', 1: 'w', 2: 'e', 3: 'n' })[pDir|0] || 's';
+    // Walk cycle when moving; idle frame 0 when still
+    const frame = moving ? ((_frame * 8) | 0) % 4 : 0;
+    const key = 'player_explorer_' + dirKey + '_' + frame;
+    const im = (typeof ART !== 'undefined' && ART.get) ? ART.get(key) : null;
 
-    // ── Locator ring on the ground — keeps the character easy to find.
-    const ringPulse = (_frame * 0.9) % 1;               // 0→1 loop
+    // Locator ring + shadow (always)
+    const ringPulse = (_frame * 0.9) % 1;
     g.save();
     g.globalAlpha = 0.40 * (1 - ringPulse);
-    g.strokeStyle = '#FFFFFF'; g.lineWidth = Math.max(1, 2*z);
+    g.strokeStyle = '#FFFFFF'; g.lineWidth = Math.max(1, 2 * z);
     g.beginPath();
-    g.ellipse(sx, sy + 2*z, (10 + ringPulse*10)*z, (5 + ringPulse*5)*z, 0, 0, Math.PI*2);
+    g.ellipse(sx, sy + 2 * z, (10 + ringPulse * 10) * z, (5 + ringPulse * 5) * z, 0, 0, Math.PI * 2);
     g.stroke();
-    g.globalAlpha = 0.6; g.strokeStyle = '#FFF4CC';
-    g.beginPath(); g.ellipse(sx, sy + 2*z, 10*z, 5*z, 0, 0, Math.PI*2); g.stroke();
+    g.globalAlpha = 0.55; g.strokeStyle = '#FFF4CC';
+    g.beginPath(); g.ellipse(sx, sy + 2 * z, 10 * z, 5 * z, 0, 0, Math.PI * 2); g.stroke();
     g.restore();
+    g.save(); g.globalAlpha = 0.22; g.fillStyle = '#2a2a1a';
+    g.beginPath(); g.ellipse(sx + 1 * z, sy + 2 * z, 10 * z, 4.5 * z, 0, 0, Math.PI * 2); g.fill(); g.restore();
 
-    // Grounded shadow
-    g.save(); g.globalAlpha = 0.20; g.fillStyle = '#2a2a1a';
-    g.beginPath(); g.ellipse(sx+2*z, sy+2*z, 11*z, 5*z, 0, 0, Math.PI*2); g.fill(); g.restore();
+    if (im && im.naturalWidth) {
+      // Bottom-center anchor on tile; height scales with zoom
+      const h = 34 * z, w = h * (im.naturalWidth / im.naturalHeight);
+      const bob = moving ? Math.sin(_frame * 10) * 0.8 * z : Math.sin(_frame * 2.2) * 0.6 * z;
+      g.drawImage(im, sx - w / 2, sy - h + bob + 2 * z, w, h);
+    } else {
+      // Procedural fallback (headless / art still loading)
+      const bob = Math.sin(_frame * 2.6) * 1.6 * z;
+      const sby = sy + bob;
+      const bH = 16 * z, bHW = 6.5 * z, hR = 7 * z;
+      isoBox(g, sx, sby, bHW, bHW * 0.5, bH, C.playerTop, C.playerL, C.playerR, C.ink);
+      g.fillStyle = '#EDE7D8';
+      g.beginPath(); g.arc(sx, sby - bH - hR * 0.52, hR, 0, Math.PI * 2); g.fill();
+    }
 
-    // ── Explorer suit body (warm) ────────────────────────────────────────
-    isoBox(g, sx, sby, bHW, bHW*0.5, bH, C.playerTop, C.playerL, C.playerR, C.ink);
-
-    // Cream accent stripe across the chest
-    g.globalAlpha = 0.9; g.fillStyle = '#F5E6C0';
-    g.fillRect(sx - bHW*0.82, sby - bH*0.52, bHW*1.64, Math.max(1.5, 2.6*z));
-    g.globalAlpha = 1;
-
-    // ── Helmet + tinted visor ────────────────────────────────────────────
-    g.fillStyle = '#EDE7D8';
-    g.beginPath(); g.arc(sx, sby - bH - hR*0.52, hR, 0, Math.PI*2); g.fill();
-    g.strokeStyle = C.ink; g.lineWidth = Math.max(0.5, 0.7*z); g.stroke();
-    g.fillStyle = '#4E6E86';   // glass visor
-    g.beginPath(); g.arc(sx, sby - bH - hR*0.52, hR*0.66, Math.PI, Math.PI*2); g.closePath(); g.fill();
-    g.globalAlpha = 0.55; g.fillStyle = '#DFF1FF';   // specular
-    g.beginPath(); g.arc(sx - hR*0.22, sby - bH - hR*0.85, hR*0.26, 0, Math.PI*2); g.fill();
-    g.globalAlpha = 1;
-
-    // ── Small backpack nub ───────────────────────────────────────────────
-    g.fillStyle = '#6E4A2C';
-    g.fillRect(sx - bHW - 1.5*z, sby - bH*0.72, Math.max(1.5, 2.5*z), bH*0.35);
-
-    // ── Floating "you are here" chevron above the head (gold) ────────────
+    // Gold chevron marker above head
     const markBob = Math.sin(_frame * 3.0) * 2 * z;
-    const markY   = sby - bH - hR*1.5 - 6*z + markBob;
-    const cw = 5*z, chH = 5*z;
+    const markY = sy - 36 * z + markBob;
+    const cw = 5 * z, chH = 5 * z;
     g.save();
     g.globalAlpha = 0.92;
     g.fillStyle = '#FFC83D';
-    g.strokeStyle = 'rgba(120,80,0,0.5)'; g.lineWidth = Math.max(0.5, 0.7*z);
+    g.strokeStyle = 'rgba(120,80,0,0.5)'; g.lineWidth = Math.max(0.5, 0.7 * z);
     g.beginPath();
     g.moveTo(sx - cw, markY); g.lineTo(sx + cw, markY); g.lineTo(sx, markY + chH); g.closePath();
     g.fill(); g.stroke();
@@ -2515,81 +3104,78 @@ const PLANET = (() => {
     g.restore();
   }
 
-  // Player hauler / parked vessel. opts.tint recolors the hull (NPC ships);
-  // opts.pad===false skips the concrete plinth (ship sits on a painted apron).
-  function drawShip(g, sx, sy, z, opts) {
-    opts = opts || {};
-    const hw=ISO_HW*z*0.85, hh=ISO_HH*z*0.85;
-    const topC  = opts.tint || C.shipTop;
-    const sideC = opts.tint ? darker(opts.tint,0.74) : C.shipSide;
-    const dkC   = opts.tint ? darker(opts.tint,0.52) : C.shipDk;
-    const stripe= opts.tint ? '#F5E6C0' : '#E8552E';
+  // Active player hull on the apron — ALWAYS draws a solid iso lander (never depends
+  // on beauty/hero PNGs). Space beauty shots are side-view hero art and look wrong
+  // (or vanish) on the 2.5:1 pad; procedural clay matches the surface language.
+  function drawPlayerShip(g, sx, sy, z, s) {
+    const hullKey = (s && s.ships && s.activeShipId != null)
+      ? ((s.ships.find(sh => sh.id === s.activeShipId) || {}).hullKey || 'vulture')
+      : 'vulture';
+    // Slightly larger than a tile so the lander reads at default zoom
+    const hw = ISO_HW * z * 1.15, hh = ISO_HH * z * 1.15;
+    const topC = C.shipTop || '#C8D0DC', sideC = C.shipSide || '#7A8494', dkC = C.shipDk || '#3A4050';
+    const baseY = sy;
 
-    // Grounded shadow pool under the hull
-    g.save(); g.globalAlpha=0.22; g.fillStyle='#20201A';
-    g.beginPath(); g.ellipse(sx, sy+3*z, hw*0.95, hh*0.95, 0, 0, Math.PI*2); g.fill(); g.restore();
+    // Grounded shadow (wide so pad ring stays readable under feet)
+    g.save(); g.globalAlpha = 0.32; g.fillStyle = '#101018';
+    g.beginPath(); g.ellipse(sx, sy + 4 * z, hw * 1.15, hh * 1.15, 0, 0, Math.PI * 2); g.fill();
+    g.restore();
 
-    // Concrete pad plinth (skipped when standing on a painted apron)
-    if (opts.pad !== false) isoBox(g, sx, sy, hw, hh, 4*z, C.padTop, C.padL, C.padR, C.ink);
-    const baseY = sy - (opts.pad !== false ? 4*z : 0);
-
-    // Three splayed landing legs
-    g.strokeStyle=dkC; g.lineWidth=Math.max(1,1.5*z);
+    // Landing gear
+    g.strokeStyle = dkC; g.lineWidth = Math.max(1.2, 1.8 * z);
     for (const dx of [-0.62, 0.62, 0]) {
-      const footX = sx + dx*hw*0.78, footY = baseY + (dx===0 ? hh*0.55 : hh*0.18);
-      g.beginPath(); g.moveTo(sx+dx*hw*0.26, baseY-9*z); g.lineTo(footX, footY); g.stroke();
-      g.fillStyle=dkC; g.beginPath(); g.ellipse(footX, footY, 2.2*z, 1.3*z, 0, 0, Math.PI*2); g.fill();
+      const footX = sx + dx * hw * 0.82, footY = baseY + (dx === 0 ? hh * 0.58 : hh * 0.20);
+      g.beginPath(); g.moveTo(sx + dx * hw * 0.28, baseY - 10 * z); g.lineTo(footX, footY); g.stroke();
+      g.fillStyle = dkC; g.beginPath(); g.ellipse(footX, footY, 2.6 * z, 1.5 * z, 0, 0, Math.PI * 2); g.fill();
     }
-
-    // Tail fins (small triangles flanking the base)
+    // Wings
     for (const s2 of [-1, 1]) {
-      g.fillStyle=dkC; g.strokeStyle=C.ink; g.lineWidth=0.5*z;
+      g.fillStyle = sideC; g.strokeStyle = C.ink || '#1a1a22'; g.lineWidth = 0.6 * z;
       g.beginPath();
-      g.moveTo(sx + s2*hw*0.38, baseY-16*z);
-      g.lineTo(sx + s2*hw*0.66, baseY-1*z);
-      g.lineTo(sx + s2*hw*0.30, baseY-2*z);
+      g.moveTo(sx + s2 * hw * 0.36, baseY - 18 * z);
+      g.lineTo(sx + s2 * hw * 0.78, baseY - 0 * z);
+      g.lineTo(sx + s2 * hw * 0.28, baseY - 2 * z);
       g.closePath(); g.fill(); g.stroke();
     }
-
-    // Lower fuselage (wide) + upper stage (narrow) — a tapered hauler
-    isoBox(g, sx, baseY,       hw*0.60, hh*0.60, 20*z, topC, sideC, dkC, C.ink);
-    isoBox(g, sx, baseY-20*z,  hw*0.40, hh*0.40, 12*z, topC, sideC, dkC, C.ink);
-
-    // Warm accent band around the hull
-    g.save(); g.globalAlpha=0.92; g.fillStyle=stripe;
-    g.fillRect(sx-hw*0.42, baseY-14*z, hw*0.84, Math.max(1.5,2.4*z)); g.restore();
-
+    // Hull body + cabin
+    isoBox(g, sx, baseY, hw * 0.62, hh * 0.62, 22 * z, topC, sideC, dkC, C.ink || '#1a1a22');
+    isoBox(g, sx, baseY - 22 * z, hw * 0.42, hh * 0.42, 14 * z, topC, sideC, dkC, C.ink || '#1a1a22');
+    // Faction stripe
+    g.save(); g.globalAlpha = 0.95; g.fillStyle = '#E8552E';
+    g.fillRect(sx - hw * 0.44, baseY - 16 * z, hw * 0.88, Math.max(1.8, 2.8 * z)); g.restore();
     // Nose cone
-    g.fillStyle=topC; g.strokeStyle=C.ink; g.lineWidth=0.6*z;
+    g.fillStyle = topC; g.strokeStyle = C.ink || '#1a1a22'; g.lineWidth = 0.7 * z;
     g.beginPath();
-    g.moveTo(sx, baseY-32*z-9*z);
-    g.lineTo(sx+hw*0.40, baseY-32*z+hh*0.22);
-    g.lineTo(sx-hw*0.40, baseY-32*z+hh*0.22);
+    g.moveTo(sx, baseY - 36 * z - 10 * z);
+    g.lineTo(sx + hw * 0.42, baseY - 36 * z + hh * 0.24);
+    g.lineTo(sx - hw * 0.42, baseY - 36 * z + hh * 0.24);
     g.closePath(); g.fill(); g.stroke();
+    // Cockpit canopy
+    g.fillStyle = '#8EC4E8';
+    g.beginPath(); g.arc(sx, baseY - 32 * z, 6.5 * z, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = C.ink || '#1a1a22'; g.lineWidth = 0.8 * z; g.stroke();
 
-    // Glass cockpit dome
-    g.fillStyle='#7FA6C4';
-    g.beginPath(); g.arc(sx, baseY-29*z, 5.5*z, 0, Math.PI*2); g.fill();
-    g.strokeStyle=C.ink; g.lineWidth=0.7*z; g.stroke();
-    g.globalAlpha=0.5; g.fillStyle='#E8F4FF';
-    g.beginPath(); g.arc(sx-1.6*z, baseY-30.5*z, 2*z, 0, Math.PI*2); g.fill();
-    g.globalAlpha=1;
-
-    // Port/starboard running lights (blink)
-    const blink=0.5+0.5*Math.sin(_frame*3);
-    g.save(); g.globalAlpha=0.45+0.5*blink;
-    g.fillStyle='#40FF60'; g.beginPath(); g.arc(sx+hw*0.42, baseY-7*z, 1.5*z, 0, Math.PI*2); g.fill();
-    g.fillStyle='#FF4040'; g.beginPath(); g.arc(sx-hw*0.42, baseY-7*z, 1.5*z, 0, Math.PI*2); g.fill();
+    // Hull name plate so player can confirm which ship landed
+    const label = (typeof CONFIG !== 'undefined' && CONFIG.hulls && CONFIG.hulls[hullKey])
+      ? CONFIG.hulls[hullKey].name : hullKey;
+    g.save();
+    g.font = `bold ${Math.max(9, 10 * z) | 0}px monospace`;
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    g.fillStyle = 'rgba(8,12,20,0.82)';
+    const tw = g.measureText(label).width + 10 * z;
+    g.fillRect(sx - tw / 2, sy + 12 * z, tw, 13 * z);
+    g.fillStyle = '#9fd8ff';
+    g.fillText(label, sx, sy + 13 * z);
     g.restore();
 
-    // Engine exhaust glow (layered, no shadowBlur)
-    g.save(); g.globalAlpha=0.34+0.16*Math.sin(_frame*2);
-    g.fillStyle='#FF9A3C';
-    g.beginPath(); g.ellipse(sx, baseY+2*z, hw*0.42, hh*0.42, 0, 0, Math.PI*2); g.fill();
-    g.globalAlpha=0.22; g.fillStyle='#FFE0A0';
-    g.beginPath(); g.ellipse(sx, baseY+2*z, hw*0.22, hh*0.22, 0, 0, Math.PI*2); g.fill();
+    // Warm idle thruster glow
+    g.save();
+    g.globalAlpha = 0.28 + 0.14 * Math.sin(_frame * 1.6);
+    g.fillStyle = '#FF9A3C';
+    g.beginPath(); g.ellipse(sx, sy + 6 * z, ISO_HW * z * 0.36, ISO_HH * z * 0.30, 0, 0, Math.PI * 2); g.fill();
     g.restore();
   }
+  function drawShip(g, sx, sy, z, opts) { drawPlayerShip(g, sx, sy, z, null); }
 
   function drawCar(g, sx, sy, heading, z, occupied) {
     const hw = ISO_HW*z*0.85, hh = ISO_HH*z*0.85;
@@ -2686,11 +3272,22 @@ const PLANET = (() => {
         }
         flatTile(b, bx, by, darker(col, 0.74), null);
         const bio1 = biomeA[ty*MAP_W+tx];
-        const tint =
+        const st = def.slabTint || null;
+        let tint =
           (bio1 === B_JUNGLE && slabKey.startsWith('grass')) ? (def.biomeHI ? def.biomeHI[B_JUNGLE] : null)
         : (bio1 === B_MOUNTAIN && slabKey === 'dirt')        ? (def.biomeHI ? def.biomeHI[B_MOUNTAIN] : null)
         : null;
-        ART.drawSlab(b, 'slab_' + set + '_' + slabKey, bx, by, hw0, hh0, tint);
+        let fbk = 'slab_' + set + '_' + slabKey;
+        if (!ART.slabReady(fbk)) fbk = 'slab_mira_' + slabKey;
+        const usingMiraFallback = fbk.indexOf('slab_mira_') === 0 && set !== 'mira';
+        if (st && usingMiraFallback) {
+          if (slabKey.startsWith('grass') && st.grass) tint = st.grass;
+          else if ((slabKey === 'dirt' || slabKey === 'dirt_b') && st.dirt) tint = st.dirt;
+          else if (slabKey === 'water' && st.water) tint = st.water;
+          else if (slabKey === 'stone_path' && st.path) tint = st.path;
+          else if (slabKey.startsWith('soil') && st.dirt) tint = st.dirt;
+        }
+        ART.drawSlab(b, fbk, bx, by, hw0, hh0, tint);
         if (ttype === T_ROAD && col !== def.road) {
           b.save(); b.globalAlpha = 0.42; flatTile(b, bx, by, col, null); b.restore();
         }
@@ -2727,8 +3324,113 @@ const PLANET = (() => {
     return fb;
   }
 
+  // Multi-tile landmark / vista: spans `L.w`×`L.h` tiles, bottom-anchored at
+  // the center cell. Prefer feat_* (oriented) then landmark PNGs; else clay mass.
+  // `soft` = vista overlay (slightly transparent, no hard contact shadow).
+  function drawMultiTileLandmark(g, L, W, H, elevA, soft) {
+    if (!L) return;
+    const z = _cam.z;
+    const I = (x, y) => y * MAP_W + x;
+    const { x: lsx, y: lsy0 } = tileScreen(L.x + 0.5, L.y + 0.5, W, H);
+    const le = (elevA[I(Math.max(0, Math.min(MAP_W - 1, L.x | 0)), Math.max(0, Math.min(MAP_H - 1, L.y | 0)))] || 0) * CLIFF_PX * z;
+    const lsy = lsy0 - le;
+    const tiles = Math.max(L.w || 4, L.h || 4);
+    const sm = L.sizeMul || 1;
+    const lh = tiles * ISO_HW * z * 0.72 * sm;
+    const pack = _pdef.propset || 'mira';
+    // Prefer oriented feature art (peak / cliff_*) when present
+    let lim = null;
+    if (typeof ART !== 'undefined' && ART.get) {
+      if (L.feat) lim = ART.get('feat_' + pack + '_' + L.feat);
+      if (!lim && L.key === 'mountain') lim = ART.get('feat_' + pack + '_peak');
+      if (!lim && L.key === 'volcano') lim = ART.get('feat_' + pack + '_peak') || ART.get('landmark_' + pack + '_volcano');
+      if (!lim) lim = ART.get('landmark_' + pack + '_' + (L.key || 'mesa'));
+    }
+
+    g.save();
+    if (soft) g.globalAlpha = 0.82;
+
+    if (lim && lim.naturalWidth) {
+      const lw = lh * (lim.naturalWidth / Math.max(1, lim.naturalHeight));
+      if (!soft) {
+        g.save(); g.globalAlpha = 0.20; g.fillStyle = '#101018';
+        g.beginPath();
+        g.ellipse(lsx, lsy + 4 * z, lw * 0.42, ISO_HH * z * tiles * 0.22, 0, 0, Math.PI * 2);
+        g.fill(); g.restore();
+      }
+      g.imageSmoothingEnabled = true;
+      g.drawImage(lim, lsx - lw / 2, lsy - lh + 6 * z, lw, lh);
+    } else if (CWE) {
+      CWE.drawLandmarkMass({
+        g, sx: lsx, sy: lsy, z, ISO_HW, ISO_HH, L,
+        ink: C.ink, isoBox,
+      });
+    } else {
+      const hwL = ISO_HW * z * tiles * 0.35 * sm;
+      const hhL = ISO_HH * z * tiles * 0.35 * sm;
+      const bhL = tiles * 6 * z * sm;
+      isoBox(g, lsx, lsy, hwL, hhL, bhL, '#B8B0A4', '#8A8478', '#5C564C', C.ink);
+    }
+    g.restore();
+  }
+
+  // Large multi-tile ground/cliff PLATES (lunar crater bowls, regolith fields)
+  function drawWorldPlate(g, P, W, H, elevA) {
+    if (!P || HEADLESS) return;
+    const z = _cam.z;
+    const I = (x, y) => y * MAP_W + x;
+    const { x: sx, y: sy0 } = tileScreen(P.x + 0.5, P.y + 0.5, W, H);
+    const e = (elevA[I(Math.max(0, Math.min(MAP_W - 1, P.x | 0)), Math.max(0, Math.min(MAP_H - 1, P.y | 0)))] || 0) * CLIFF_PX * z;
+    const sy = sy0 - e;
+    const im = (typeof ART !== 'undefined' && ART.get) ? ART.get(P.key) : null;
+    const sm = P.sizeMul || 1;
+    const tiles = P.w || 4;
+    const hPx = tiles * ISO_HW * z * 0.55 * sm;
+    if (im && im.naturalWidth) {
+      const wPx = hPx * (im.naturalWidth / Math.max(1, im.naturalHeight));
+      g.save();
+      g.globalAlpha = P.kind === 'regolith' ? 0.88 : 0.95;
+      g.imageSmoothingEnabled = true;
+      g.drawImage(im, sx - wPx / 2, sy - hPx * 0.72, wPx, hPx);
+      g.restore();
+    }
+  }
+
+  // Oriented world feature (cliff_s/e/n/w, peak, boulder, plants…)
+  function drawWorldFeature(g, F, W, H, elevA) {
+    if (!F) return;
+    const z = _cam.z;
+    const I = (x, y) => y * MAP_W + x;
+    const { x: sx, y: sy0 } = tileScreen(F.x + 0.5, F.y + 0.5, W, H);
+    const e = (elevA[I(Math.max(0, Math.min(MAP_W - 1, F.x | 0)), Math.max(0, Math.min(MAP_H - 1, F.y | 0)))] || 0) * CLIFF_PX * z;
+    const sy = sy0 - e;
+    const pack = _pdef.propset || 'mira';
+    const key = 'feat_' + pack + '_' + F.key;
+    const im = (typeof ART !== 'undefined' && ART.get) ? ART.get(key) : null;
+    const sm = F.sizeMul || 1;
+    // Size: cliffs/peaks large; plants mid so player still reads
+    const isBig = F.key.startsWith('cliff') || F.key === 'peak' || F.key === 'outcrop';
+    const hPx = (isBig ? 52 : 36) * z * sm;
+    if (im && im.naturalWidth) {
+      const wPx = hPx * (im.naturalWidth / Math.max(1, im.naturalHeight));
+      // contact shadow (hard-body stand-in visual)
+      if (F.collide) {
+        g.save(); g.globalAlpha = 0.18; g.fillStyle = '#101018';
+        g.beginPath();
+        g.ellipse(sx, sy + 3 * z, wPx * 0.38, ISO_HH * z * 0.55, 0, 0, Math.PI * 2);
+        g.fill(); g.restore();
+      }
+      g.imageSmoothingEnabled = true;
+      g.drawImage(im, sx - wPx / 2, sy - hPx + 4 * z, wPx, hPx);
+    } else {
+      // fallback: emoji / box
+      drawEmoji(g, F.key.startsWith('plant') ? '🌿' : '🪨', sx, sy, hPx * 0.7);
+    }
+  }
+
   // ── main world draw ─────────────────────────────────────────────────────────
-  function drawScene(g, W, H, prog, world) {
+  // `s` = live game state (ships / active hull) — required for the pad lander.
+  function drawScene(g, W, H, prog, world, s) {
     const { tiles, biomeA, elevA, tileColors, nodes, cityBuildings, npcCars, npcPeds, HX, HY, CX, CY } = world;
     const I = (x,y) => y*MAP_W+x;
     _pdef = world.def || PLANET_DEFS.mira;   // planet skin for flora/rock/glint lookups
@@ -2759,19 +3461,11 @@ const PLANET = (() => {
     const cityBuildAtPos = {};
     for (const b of (cityBuildings||[])) cityBuildAtPos[`${b.x},${b.y}`] = b;
 
-    // The landing pad IS the spaceport — the player's ship parks on the apron.
+    // The landing pad IS the spaceport — only the player's ACTIVE hull parks here.
+    // (Legacy second docking bay / NPC parked vessels removed.)
     const shipX = HX, shipY = HY + 2;
-    // Parked NPC vessels give the apron a busy-port feel (tinted hulls).
-    // They mirror with the port when def.port.flip is set.
-    const _psgn = (_pdef.port && _pdef.port.flip) ? -1 : 1;
-    const parkedShips = [
-      { x:HX+3*_psgn, y:HY+1, tint:'#B85C7A' },
-      { x:HX-2*_psgn, y:HY+5, tint:'#5C86B8' },
-    ];
-    // Tiles that get a painted landing bullseye (player ship + parked vessels).
     const padDecals = {};
     padDecals[`${shipX},${shipY}`] = 1;
-    for (const p of parkedShips) padDecals[`${p.x},${p.y}`] = 1;
     // Apron approach lights — blinking amber guide dots up the centre lane.
     const apronLightCol = HX;
 
@@ -2793,13 +3487,16 @@ const PLANET = (() => {
     // the zoom animates, drawFlatTexture blits the previous cache scaled — a
     // touch soft for a beat, never janky. First build (no cache yet) runs
     // regardless so landing isn't textureless.
-    // Clay-ground planets (CLAY_GROUND_SPEC.md) skip the PNG tile path — and
-    // therefore the tile-cache machinery — entirely: the ground is flat
-    // procedural color, richness comes from the deco prop layer in pass 2.
+    // Ground modes (ClayWorldEngine):
+    //   diorama — locked 100% procedural ISO clay
+    //   clay    — legacy slab PNGs
+    //   other   — flat PNG terrain stamps
+    const _diorama = CWE ? CWE.isDiorama(_pdef) : (_pdef.ground === 'diorama');
     const _clay = (_pdef.ground === 'clay');
+    const _softGround = CWE ? CWE.isSoftGround(_pdef) : (_clay || _diorama);
     const _thw = ISO_HW*z, _thh = ISO_HH*z;
     const _zoomSettled = (_cam.z === _zoomTgt);
-    if (!_clay && (_zoomSettled || ART._lastCacheHw < 0) &&
+    if (!_softGround && (_zoomSettled || ART._lastCacheHw < 0) &&
         (ART._lastCacheHw !== _thw || ART._lastCacheHh !== _thh)) {
       const count = ART.buildTileCache(_thw, _thh);
       if (count > 0) { ART._lastCacheHw = _thw; ART._lastCacheHh = _thh; }
@@ -2811,7 +3508,7 @@ const PLANET = (() => {
     }
     const _decoAt = world._decoAt;
 
-    // ── FAR MODE (clay planets, zoomed way out) ──────────────────────────────
+    // ── FAR MODE (slab-clay only; diorama fills are cheap enough live) ───────
     // Below the live-slab threshold (tile face < 16px), blit the pre-baked
     // whole-map ground canvas in ONE drawImage — clay slabs and deco props stay
     // visible at every zoom. Farmed tiles and landing-pad rings are dynamic, so
@@ -2837,7 +3534,9 @@ const PLANET = (() => {
           const cd0 = cr0 && SEED_BY[cr0.type];
           const sk = (cr0 && cd0 && cr0.stage >= cd0.grow) ? 'soil_harvest'
                    : cr0 ? 'soil_seedling' : 'soil_tilled';
-          ART.drawSlab(g, 'slab_'+(_pdef.propset||'mira')+'_'+sk, p2.x, p2.y-et, ISO_HW*z, ISO_HH*z);
+          let fk = 'slab_'+(_pdef.propset||'mira')+'_'+sk;
+          if (!ART.slabReady(fk)) fk = 'slab_mira_'+sk;
+          ART.drawSlab(g, fk, p2.x, p2.y-et, ISO_HW*z, ISO_HH*z);
         }
         // landing-pad bullseyes stay visible on the apron
         for (const k in padDecals) {
@@ -2865,56 +3564,64 @@ const PLANET = (() => {
         // tileColors is authoritative for all tiles; sensible earthy fallbacks
         const col = tileColors[I(tx,ty)] || (ttype===T_ROAD ? '#B9AE97' : '#6EA843');
         const thw = ISO_HW*z, thh = ISO_HH*z;
-        if (_clay) {
-          // CLAY SLAB GROUND (CLAY_GROUND_SPEC.md v2): every tile is a 3D clay
-          // diamond slab OBJECT — top face fills the grid diamond, thickness
-          // hangs into the row below (covered by the nearer row except at
-          // cliffs and shorelines, where it reads as depth). The darkened
-          // backing fill is the grout between rounded slab corners — and the
-          // fallback while art loads. Variants are hash-picked but NEVER
-          // rotated (slabs are lit objects; light stays upper-left).
-          const tilledHere = prog.tilled && prog.tilled[`${tx},${ty}`];
+        const tilledHere = prog.tilled && prog.tilled[`${tx},${ty}`];
+        const crHere = prog.crops && prog.crops[`${tx},${ty}`];
+        const cdHere = crHere && SEED_BY[crHere.type];
+        const bioHere = biomeA[I(tx,ty)];
+
+        if (_diorama) {
+          // ── DIORAMA: 100% procedural ISO clay (no slab/tileset PNGs) ──────
+          const cropInfo = crHere ? {
+            ripe: !!(cdHere && crHere.stage >= cdHere.grow),
+            watered: !!crHere.watered,
+          } : null;
+          drawDioramaCell(g, sx, sy, z, col, ttype, tilledHere, cropInfo, bioHere, tx, ty, e);
+          // painted road markings wash (port threshold / centerline)
+          if (ttype === T_ROAD && col !== _pdef.road) {
+            g.save(); g.globalAlpha = 0.38; flatTile(g, sx, sy, col, null); g.restore();
+          }
+        } else if (_clay) {
+          // CLAY SLAB GROUND (CLAY_GROUND_SPEC.md v2) — kept for A/B / other worlds
           let slabKey;
           if (ttype === T_WATER) slabKey = 'water';
           else if (ttype === T_ROAD) slabKey = 'stone_path';
           else if (tilledHere) {
-            const cr0 = prog.crops && prog.crops[`${tx},${ty}`];
-            const cd0 = cr0 && SEED_BY[cr0.type];
-            slabKey = (cr0 && cd0 && cr0.stage >= cd0.grow) ? 'soil_harvest'
-                    : cr0 ? 'soil_seedling' : 'soil_tilled';
+            slabKey = (crHere && cdHere && crHere.stage >= cdHere.grow) ? 'soil_harvest'
+                    : crHere ? 'soil_seedling' : 'soil_tilled';
           } else {
-            const bio0 = biomeA[I(tx,ty)];
-            if (bio0 === B_DESERT || bio0 === B_MOUNTAIN) slabKey = 'dirt';
+            if (bioHere === B_DESERT || bioHere === B_MOUNTAIN) slabKey = hash2(tx+3,ty+9) > 0.55 ? 'dirt_b' : 'dirt';
             else {
-              // material economy: mostly PLAIN slabs, detail variants sparse
               const hv = hash2(tx, ty);
-              slabKey = hv > 0.93 ? 'grass_flowers' : hv > 0.76 ? 'grass_b' : 'grass_a';
+              slabKey = hv > 0.94 ? 'grass_flowers'
+                     : hv > 0.86 ? 'grass_c'
+                     : hv > 0.68 ? 'grass_b' : 'grass_a';
             }
           }
-          const fullKey = 'slab_' + (_pdef.propset || 'mira') + '_' + slabKey;
-          // Far-zoom guard (same rule as the PNG path's thh<8): when a tile is
-          // under ~16px tall the slab detail is sub-pixel and the whole map is
-          // in view (~4800 scaled blits ≈ 80ms) — fall back to flat "map mode".
+          let fullKey = 'slab_' + (_pdef.propset || 'mira') + '_' + slabKey;
+          if (!ART.slabReady(fullKey)) fullKey = 'slab_mira_' + slabKey;
           const has = thh >= 8 && ART.slabReady(fullKey);
           flatTile(g, sx, sy, has ? darker(col, 0.74) : col, null);
           if (has) {
-            // biome re-skin: jungle keeps grass slabs but tints them deep
-            // green; mountain re-tints the dirt slab toward grey rock
-            const bio1 = biomeA[I(tx,ty)];
-            const tint =
-              (bio1 === B_JUNGLE && slabKey.startsWith('grass')) ? (_pdef.biomeHI ? _pdef.biomeHI[B_JUNGLE] : null)
-            : (bio1 === B_MOUNTAIN && slabKey === 'dirt')        ? (_pdef.biomeHI ? _pdef.biomeHI[B_MOUNTAIN] : null)
+            const st = _pdef.slabTint || null;
+            let tint =
+              (bioHere === B_JUNGLE && slabKey.startsWith('grass')) ? (_pdef.biomeHI ? _pdef.biomeHI[B_JUNGLE] : null)
+            : (bioHere === B_MOUNTAIN && slabKey === 'dirt')        ? (_pdef.biomeHI ? _pdef.biomeHI[B_MOUNTAIN] : null)
             : null;
+            const usingMiraFallback = fullKey.indexOf('slab_mira_') === 0 && (_pdef.propset || 'mira') !== 'mira';
+            if (st && usingMiraFallback) {
+              if (slabKey.startsWith('grass') && st.grass) tint = st.grass;
+              else if ((slabKey === 'dirt' || slabKey === 'dirt_b') && st.dirt) tint = st.dirt;
+              else if (slabKey === 'water' && st.water) tint = st.water;
+              else if (slabKey === 'stone_path' && st.path) tint = st.path;
+              else if (slabKey.startsWith('soil') && st.dirt) tint = st.dirt;
+            }
             ART.drawSlab(g, fullKey, sx, sy, thw, thh, tint);
-            // painted road markings (port threshold, centerline, plaza tint)
-            // wash over the cobbles so runway paint survives the slab layer
             if (ttype === T_ROAD && col !== _pdef.road) {
               g.save(); g.globalAlpha = 0.42; flatTile(g, sx, sy, col, null); g.restore();
             }
           }
         } else {
-          // PNG tile path (non-clay planets)
-          // pick PNG terrain key from the planet's tile set; hash gives variety
+          // PNG tile path (non-clay / non-diorama planets)
           const TS = (_pdef.tileset || 'mira') + '_flat_';
           let terrainKey;
           if (ttype === T_WATER) {
@@ -2925,30 +3632,24 @@ const PLANET = (() => {
             const h1 = hash2(tx, ty), h2 = hash2(tx+37, ty+13);
             terrainKey = h2 > 0.88 ? TS + 'wildflowers' : h1 > 0.75 ? TS + 'grass_pebbles' : TS + 'grass_base';
           }
-          // organic textures get a hash-picked 180° variant ('#r' cache entry) for
-          // free variety; structured ones (cobbles, furrows) must stay aligned
           if (!terrainKey.endsWith('path_stone') && hash2(tx*7, ty*11) > 0.5)
             terrainKey += '#r';
           if (thh < 8 || !ART.drawFlatTexture(g, terrainKey, sx, sy, thw, thh)) {
             flatTile(g, sx, sy, col, ttype===T_ROAD ? 'rgba(80,60,30,0.10)' : 'rgba(40,70,20,0.10)');
           } else if (ttype !== T_WATER && ttype !== T_ROAD) {
-            // macro patchiness: a block-level hash tints 4x4-tile regions a touch
-            // warmer or cooler so the meadow reads as one hand-painted surface
-            // instead of a repeating texture stamp
             const mv = hash2((tx>>2)+53, (ty>>2)+101);
             if (mv > 0.45) {
               g.save();
-              g.globalAlpha = (mv - 0.45) * 0.13;               // ≤ ~0.07
+              g.globalAlpha = (mv - 0.45) * 0.13;
               flatTile(g, sx, sy, mv > 0.72 ? '#33701E' : '#E8F5A8', null);
               g.restore();
             }
           }
         }
 
-        // Tilled soil — PNG overlay on tile-art planets. Clay planets skip
-        // this: the soil_tilled/seedling/harvest SLAB above already carries
-        // the farmed state.
-        if (!_clay && prog.tilled && prog.tilled[`${tx},${ty}`]) {
+        // Tilled soil — PNG overlay on tile-art planets only (diorama/clay
+        // already painted farm state in their ground pass).
+        if (!_softGround && prog.tilled && prog.tilled[`${tx},${ty}`]) {
           const hw=ISO_HW*z, hh=ISO_HH*z;
           const cr = prog.crops && prog.crops[`${tx},${ty}`];
           const crDef = cr && SEED_BY[cr.type];
@@ -2956,45 +3657,113 @@ const PLANET = (() => {
           const soilKey = (cr && crDef && cr.stage >= crDef.grow) ? TS2 + 'crop_harvest'
                         : cr ? TS2 + 'soil_seedling'
                         : TS2 + 'soil_tilled';
-          if (_clay || !ART.drawFlatTexture(g, soilKey, sx, sy, hw, hh)) {
+          if (!ART.drawFlatTexture(g, soilKey, sx, sy, hw, hh)) {
             flatTile(g, sx, sy, '#6E4A2C', 'rgba(50,30,15,0.35)');
             g.save(); g.globalAlpha=0.45; g.strokeStyle='#4A3018'; g.lineWidth=Math.max(0.5,0.8*_cam.z);
             for (let f=-1; f<=1; f++){ g.beginPath(); g.moveTo(sx-hw*0.6, sy+f*hh*0.4); g.lineTo(sx+hw*0.6, sy+f*hh*0.4); g.stroke(); }
             g.restore();
           }
         }
-        // (removed: neon night puddles on roads)
-
-        // south cliff face
-        if (ty+1 < MAP_H) {
-          const eS = elevA[I(tx,ty+1)];
-          if (tiles[I(tx,ty)]===T_GRASS && e>eS) {
-            const ch = (e-eS)*CLIFF_PX*_cam.z;
-            const hw=ISO_HW*_cam.z, hh=ISO_HH*_cam.z;
-            const lc = darker(col, 0.72), rc = darker(col, 0.60);
-            g.beginPath(); g.moveTo(sx-hw,sy); g.lineTo(sx,sy+hh); g.lineTo(sx,sy+hh+ch); g.lineTo(sx-hw,sy+ch); g.closePath();
-            g.fillStyle=lc; g.fill(); g.strokeStyle='rgba(61,43,31,0.25)'; g.lineWidth=0.5; g.stroke();
-            g.beginPath(); g.moveTo(sx+hw,sy); g.lineTo(sx,sy+hh); g.lineTo(sx,sy+hh+ch); g.lineTo(sx+hw,sy+ch); g.closePath();
-            g.fillStyle=rc; g.fill(); g.stroke();
+        // South / east cliff faces (the two camera-visible sides of an iso diamond).
+        // Elbow corner = this tile drops BOTH south and east → both quads drawn.
+        // Sandbox uses tall steps (rim→floor or floor→void) so walls read clearly.
+        const isLavaCliff = CWE ? CWE.isLavaWorld(_pdef)
+          : ((_pdef.name || '') === 'Cinder' || ((_pdef.tag || '').indexOf('volcan') >= 0));
+        const solidHere = tiles[I(tx, ty)] !== T_WATER;
+        let cliffS = false, cliffE = false;
+        if (ty + 1 < MAP_H) {
+          const eS = elevA[I(tx, ty + 1)] || 0;
+          if (solidHere && e > eS) {
+            cliffS = true;
+            const ch = (e - eS) * CLIFF_PX * _cam.z;
+            const fall = tiles[I(tx, ty + 1)] === T_WATER && ch > 5;
+            if (_diorama) {
+              drawDioramaCliff(g, sx, sy, z, col, ch, 'S', fall, isLavaCliff);
+            } else {
+              const hw = ISO_HW * _cam.z, hh = ISO_HH * _cam.z;
+              const lc = darker(col, 0.72), rc = darker(col, 0.60);
+              g.beginPath(); g.moveTo(sx - hw, sy); g.lineTo(sx, sy + hh); g.lineTo(sx, sy + hh + ch); g.lineTo(sx - hw, sy + ch); g.closePath();
+              g.fillStyle = lc; g.fill(); g.strokeStyle = 'rgba(61,43,31,0.25)'; g.lineWidth = 0.5; g.stroke();
+              g.beginPath(); g.moveTo(sx + hw, sy); g.lineTo(sx, sy + hh); g.lineTo(sx, sy + hh + ch); g.lineTo(sx + hw, sy + ch); g.closePath();
+              g.fillStyle = rc; g.fill(); g.stroke();
+              g.save(); g.globalAlpha = 0.22; g.strokeStyle = darker(col, 0.45); g.lineWidth = Math.max(0.6, 0.9 * z);
+              for (let k = 1; k < 4; k++) {
+                const yy = sy + hh + ch * (k / 4);
+                g.beginPath(); g.moveTo(sx - hw * (1 - k * 0.08), yy); g.lineTo(sx + hw * (1 - k * 0.08), yy); g.stroke();
+              }
+              g.restore();
+              if (fall && ch > 6) {
+                g.save();
+                g.globalAlpha = 0.35 + 0.15 * Math.sin(_frame * 4 + tx);
+                g.fillStyle = isLavaCliff ? '#FF8C2A' : '#A8E0FF';
+                const fw = hw * 0.22;
+                g.fillRect(sx - fw * 0.5, sy + hh * 0.3, fw, ch + hh * 0.4);
+                g.globalAlpha = 0.5;
+                g.fillStyle = isLavaCliff ? '#FFE080' : '#FFFFFF';
+                g.fillRect(sx - fw * 0.2, sy + hh * 0.3, fw * 0.4, ch + hh * 0.4);
+                g.restore();
+              }
+            }
           }
         }
-        // east cliff face
-        if (tx+1 < MAP_W) {
-          const eE = elevA[I(tx+1,ty)];
-          if (tiles[I(tx,ty)]===T_GRASS && e>eE) {
-            const ch=(e-eE)*CLIFF_PX*_cam.z;
-            const hw=ISO_HW*_cam.z, hh=ISO_HH*_cam.z;
-            const rc = darker(col, 0.58);
-            g.beginPath(); g.moveTo(sx+hw,sy); g.lineTo(sx,sy+hh); g.lineTo(sx,sy+hh+ch); g.lineTo(sx+hw,sy+ch); g.closePath();
-            g.fillStyle=rc; g.fill(); g.strokeStyle='rgba(61,43,31,0.2)'; g.lineWidth=0.5; g.stroke();
+        if (tx + 1 < MAP_W) {
+          const eE = elevA[I(tx + 1, ty)] || 0;
+          if (solidHere && e > eE) {
+            cliffE = true;
+            const ch = (e - eE) * CLIFF_PX * _cam.z;
+            const fall = tiles[I(tx + 1, ty)] === T_WATER && ch > 5;
+            if (_diorama) {
+              drawDioramaCliff(g, sx, sy, z, col, ch, 'E', fall, isLavaCliff);
+            } else {
+              const hw = ISO_HW * _cam.z, hh = ISO_HH * _cam.z;
+              const rc = darker(col, 0.58);
+              g.beginPath(); g.moveTo(sx + hw, sy); g.lineTo(sx, sy + hh); g.lineTo(sx, sy + hh + ch); g.lineTo(sx + hw, sy + ch); g.closePath();
+              g.fillStyle = rc; g.fill(); g.strokeStyle = 'rgba(61,43,31,0.2)'; g.lineWidth = 0.5; g.stroke();
+              if (fall && ch > 6) {
+                g.save();
+                g.globalAlpha = 0.3 + 0.12 * Math.sin(_frame * 3.5 + ty);
+                g.fillStyle = isLavaCliff ? '#FF8C2A' : '#A8E0FF';
+                g.fillRect(sx + hw * 0.15, sy + hh * 0.2, hw * 0.18, ch + hh * 0.3);
+                g.restore();
+              }
+            }
+          }
+        }
+        // Elbow accent: outer corner where both faces meet (classic cliff corner tile)
+        if (cliffS && cliffE && e > 0) {
+          const hw = ISO_HW * z, hh = ISO_HH * z;
+          const ch = Math.min(
+            ty + 1 < MAP_H ? (e - (elevA[I(tx, ty + 1)] || 0)) * CLIFF_PX * z : 0,
+            tx + 1 < MAP_W ? (e - (elevA[I(tx + 1, ty)] || 0)) * CLIFF_PX * z : 0
+          );
+          if (ch > 4) {
+            g.save();
+            g.globalAlpha = 0.35;
+            g.strokeStyle = (_pdef.worldType === 'moon') ? '#C8C4BE' : '#D0B898';
+            g.lineWidth = Math.max(1, 1.4 * z);
+            g.beginPath();
+            g.moveTo(sx, sy + hh);
+            g.lineTo(sx, sy + hh + ch);
+            g.stroke();
+            g.restore();
           }
         }
 
-        // water shimmer — soft sunlight glint
-        if (tiles[I(tx,ty)]===T_WATER) {
+        // water shimmer (extra on non-diorama; diorama already animates water body)
+        if (!_diorama && tiles[I(tx,ty)]===T_WATER) {
           const t2=(_frame*0.6+tx*0.31+ty*0.73) % (Math.PI*2);
           g.save(); g.globalAlpha=0.10+0.07*Math.sin(t2); g.fillStyle=_pdef.glint||'#E8F6FF';
           g.beginPath(); g.ellipse(sx, sy, ISO_HW*_cam.z*0.35, ISO_HH*_cam.z*0.35, 0, 0, Math.PI*2); g.fill(); g.restore();
+        }
+        // shore foam on diorama land adjacent to water
+        if (_diorama && ttype === T_GRASS) {
+          const nearW = [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) => {
+            const nx = tx+dx, ny = ty+dy;
+            return nx>=0&&nx<MAP_W&&ny>=0&&ny<MAP_H && tiles[I(nx,ny)]===T_WATER;
+          });
+          if (nearW && CWE) {
+            CWE.drawShoreFoam({ g, sx, sy, z, ISO_HW, ISO_HH, tx, frame: _frame });
+          }
         }
 
         // Painted landing bullseye under each ship (ground decal).
@@ -3023,21 +3792,28 @@ const PLANET = (() => {
         const sy = sy0 - elPx;
         const key = `${tx},${ty}`;
 
-        // clay deco prop (ground:'clay' planets) — suppressed on tiles the
-        // player has farmed or built on. Live props only above the far-mode
-        // threshold (_thh>=8, matching the slabs); below it the props are
-        // already IN the far bake, so they never vanish — they just stop
-        // being individually drawn.
-        if (_clay && _thh >= 8) {
+        // clay deco props (clay + diorama) — suppressed on farmed/built tiles.
+        // Slab-clay far-bake embeds props below thh<8; diorama draws live always
+        // (fills are cheap) but skips tiny props at very low zoom.
+        // clay deco props (clay + diorama)
+        if (_softGround && (_diorama ? _thh >= 5 : _thh >= 8)) {
           const d = _decoAt[key];
           if (d && !(prog.tilled && prog.tilled[key]) && !buildAtPos[key]) {
-            const pw = (DECO_W[d.key] || 16) * d.s * z;
+            const proc = _pdef.proc;
+            const pw = (CWE && _diorama)
+              ? CWE.decoDisplayW(d.key, d.s, ISO_HW, proc) * z
+              : (DECO_W[d.key] || 16) * d.s * z;
+            const ox = d.fullTile ? 0 : d.ox * ISO_HW * z;
+            const oy = d.fullTile ? 2 * z : (2 * z + d.oy * ISO_HH * z);
+            const flip = d.flip != null ? d.flip
+              : (CWE ? CWE.decoFlip(d.x, d.y, proc) : false);
             ART.drawProp(g, 'prop_'+(_pdef.propset||'mira')+'_'+d.key,
-              sx + d.ox*ISO_HW*z, sy + 2*z + d.oy*ISO_HH*z, pw);
+              sx + ox, sy + oy, pw, 220, flip);
           }
         }
 
         // resource node — with hit shake + "chipped" shrink while being harvested
+        // nodeScale = per-node natural size (big boulders, small pebbles, etc.)
         if (nodeAtPos[key]) {
           const n = nodeAtPos[key];
           const ttl = _hitFx[n.id]||0;
@@ -3045,7 +3821,7 @@ const PLANET = (() => {
           const rem = prog.nodeHits ? prog.nodeHits[n.id] : undefined;
           const need = requiredHits(prog, n.type);
           const scale = (rem!==undefined) ? (0.62 + 0.38*(rem/need)) : 1;
-          const fx = { shake, scale, hx: n.x, hy: n.y };   // hx/hy: stable variant hash
+          const fx = { shake, scale, nodeScale: n.scale || 1, hx: n.x, hy: n.y };
           if (n.type==="tree")   drawTree(g, sx, sy, n.biome, z, fx);
           else if (n.type==="rock")  drawRock(g, sx, sy, n.biome, z, fx);
           else if (n.type==="berry") drawBerry(g, sx, sy, n.biome, z, fx);
@@ -3060,16 +3836,8 @@ const PLANET = (() => {
         // city pre-built structure
         if (cityBuildAtPos[key]) {
           const _cbDef = CITY_BY_KEY[cityBuildAtPos[key].type];
-          // Buildings carry their own targeted accent glows (spires, signs, window
-          // grids). We no longer wrap the WHOLE building in a shadowBlur — that
-          // applied an expensive blurred shadow to every face and every lit window,
-          // dozens of shadowed fills per tower, and was the main city-lag culprit.
-          // Name label only for the building you're next to — keeps the skyline
-          // from being a wall of ~50 labels.
           const _cbNear = Math.hypot(prog.px-tx, prog.py-ty) < 3.5;
           drawBuilding(g, sx, sy, cityBuildAtPos[key].type, z, true, undefined, _cbNear);
-          // Floating holographic sign — ONLY above the interactive building you're
-          // next to (not every shop on screen), so the city isn't a wall of labels.
           const _bCard = BUILDING_CARDS[cityBuildAtPos[key].type];
           if (_cbDef && _bCard && _bCard.key === 'E' && z > 0.6 &&
               Math.hypot(prog.px-tx, prog.py-ty) < 3.2) {
@@ -3080,11 +3848,9 @@ const PLANET = (() => {
             g.save();
             g.font = `bold ${Math.max(8, 9*z)|0}px monospace`;
             g.textAlign = 'center';
-            // Glow pass
             g.shadowColor = _nCol; g.shadowBlur = 10 * z;
             g.fillStyle = _nCol;
             g.fillText(_label, sx, _signY);
-            // Bright white core
             g.shadowBlur = 0; g.globalAlpha = 0.85; g.fillStyle = '#fff';
             g.fillText(_label, sx, _signY);
             g.restore();
@@ -3108,23 +3874,53 @@ const PLANET = (() => {
             drawNPCPed(g, psx, psy0 - pe2, _cam.z, ped.color, ped.legPhase, { trail: _snowTrail });
           }
         }
-        // Planet scenery props (volcanos, snowmen, camels, crystals…)
+        // Planet scenery props (volcanos, snowmen, camels, crystals…) — larger
         for (const p of (world.props||[])) {
           if (p.x === tx && p.y === ty) {
             const { x:psx2, y:psy2 } = tileScreen(p.x, p.y, W, H);
             const pe4 = (elevA[I(p.x,p.y)]||0)*CLIFF_PX*_cam.z;
             const bob2 = p.big ? 0 : Math.sin(_frame*1.2 + p.phase)*0.8*_cam.z;
-            drawEmoji(g, p.e, psx2, psy2 - pe4 - bob2, (p.big ? 44 : 18)*_cam.z);
+            drawEmoji(g, p.e, psx2, psy2 - pe4 - bob2, (p.big ? 72 : 32)*_cam.z);
           }
         }
 
-        // Barnyard animals — wander near the player's Barn
+        // Lunar ground plates first (behind buildings) — craters / regolith / walls
+        for (const P of (world.plates || [])) {
+          if (P.x === tx && P.y === ty) {
+            drawWorldPlate(g, P, W, H, elevA);
+          }
+        }
+
+        // Large vista landscape overlays (no collision) — multi-tile backdrops
+        for (const V of (world.landscapes || [])) {
+          if (V.x === tx && V.y === ty) {
+            drawMultiTileLandmark(g, V, W, H, elevA, true);
+          }
+        }
+
+        // Collidable multi-tile mountain ranges / mesas (6–11 tile footprints)
+        for (const L of (world.landmarks || [])) {
+          if (L.x === tx && L.y === ty) {
+            drawMultiTileLandmark(g, L, W, H, elevA, false);
+          }
+        }
+
+        // Oriented features (4-angle cliffs, peaks, boulders, plants) — sprite
+        // overlay on optional hard-body radius (WORLD_TYPES.md feature packs)
+        for (const F of (world.features || [])) {
+          if (F.x === tx && F.y === ty) {
+            drawWorldFeature(g, F, W, H, elevA);
+          }
+        }
+
+        // Barnyard animals — size varies a bit so the flock isn't clones
         for (const a of _animals) {
           if (Math.floor(a.x) === tx && Math.floor(a.y) === ty) {
             const { x:asx, y:asy0 } = tileScreen(a.x, a.y, W, H);
             const ae = (elevA[I(Math.max(0,Math.min(MAP_W-1,Math.floor(a.x))), Math.max(0,Math.min(MAP_H-1,Math.floor(a.y))))]||0)*CLIFF_PX*_cam.z;
             const abob = Math.abs(Math.sin(_frame*3 + a.phase))*1.2*_cam.z;
-            drawEmoji(g, a.emoji, asx, asy0 - ae - abob, 16*_cam.z);
+            const aSz = (14 + (a.phase % 1) * 8) * _cam.z;
+            drawEmoji(g, a.emoji, asx, asy0 - ae - abob, aSz);
           }
         }
         // Summer carnival: draw circular extra NPC glow near city center
@@ -3144,14 +3940,6 @@ const PLANET = (() => {
           }
         }
 
-        // player's ship on the spaceport pad (the touchdown/launch point)
-        if (tx===shipX && ty===shipY) drawShip(g, sx, sy, z);
-
-        // parked NPC vessels on the apron
-        for (const p of parkedShips) {
-          if (tx===p.x && ty===p.y) drawShip(g, sx, sy, z, {pad:false, tint:p.tint});
-        }
-
         // Rover (car) — depth-sorted at its tile position
         if (Math.floor(prog.car.x)===tx && Math.floor(prog.car.y)===ty) {
           const { x:csx, y:csy0 } = tileScreen(prog.car.x, prog.car.y, W, H);
@@ -3163,9 +3951,17 @@ const PLANET = (() => {
         if (!prog.inCar && Math.floor(prog.px)===tx && Math.floor(prog.py)===ty) {
           const { x:psx, y:psy0 } = tileScreen(prog.px, prog.py, W, H);
           const pe = (elevA[I(Math.floor(prog.px), Math.floor(prog.py))] || 0)*CLIFF_PX*_cam.z;
-          drawPlayer(g, psx, psy0-pe, z, prog.pDir||0);
+          const moving = !!(prog.moveTarget) || Math.hypot(input.ax||0, input.ay||0) > 0.15;
+          drawPlayer(g, psx, psy0-pe, z, prog.pDir||0, moving);
         }
       }
+    }
+
+    // ── Landed player ship (always on top of pad, not depth-culled) ────────────
+    {
+      const se = (elevA[I(shipX, shipY)] || 0) * CLIFF_PX * z;
+      const { x: ssx, y: ssy0 } = tileScreen(shipX + 0.5, shipY + 0.5, W, H);
+      drawPlayerShip(g, ssx, ssy0 - se, z, s);
     }
 
     // ── Tap-to-move destination marker ──────────────────────────────────────────
@@ -3260,6 +4056,11 @@ const PLANET = (() => {
   }
 
   // ── HUD draw ────────────────────────────────────────────────────────────────
+  // SAVE chip: right-aligned on the second row, clear of the resource bar and
+  // biome pill (row 1 left) and the jobs chip (row 1 right). Shared by drawHUD
+  // and hitUI so the drawn box and the tap box can never drift apart.
+  function saveBtnRect(W) { return { x: (W || CONFIG.W) - 66, y: 52, w: 56, h: 28 }; }
+
   function drawHUD(g, W, H, prog, world, s) {
     // resource bar (top-left) — cyberpunk dark panel
     const inv = prog.inv;
@@ -3276,6 +4077,54 @@ const PLANET = (() => {
     g.font='bold 12px sans-serif'; g.textAlign='left';
     let ix=18;
     for (const it of items) { g.fillStyle=it.c; g.fillText(`${it.t}${it.v}`, ix, 33); ix+=54; }
+
+    // SAVE chip — a planet surface is a valid berth (game/save.js saveBerth)
+    const sb = saveBtnRect(W);
+    g.fillStyle='rgba(2,4,16,0.88)';
+    g.beginPath(); if (g.roundRect) g.roundRect(sb.x,sb.y,sb.w,sb.h,4); else g.rect(sb.x,sb.y,sb.w,sb.h); g.fill();
+    g.strokeStyle='rgba(123,216,143,0.45)'; g.lineWidth=0.8;
+    g.beginPath(); if (g.roundRect) g.roundRect(sb.x,sb.y,sb.w,sb.h,4); else g.rect(sb.x,sb.y,sb.w,sb.h); g.stroke();
+    g.fillStyle='#7bd88f'; g.font='bold 9px monospace'; g.textAlign='center';
+    g.fillText('SAVE', sb.x+sb.w/2, sb.y+18);
+    g.textAlign='left';
+
+    // Homestead / city wayfinding (when world has farm rect)
+    if (s && world && world.farm && world.HX != null) {
+      const dxF = ((world.farm.x0 + world.farm.x1) / 2) - prog.px;
+      const dyF = ((world.farm.y0 + world.farm.y1) / 2) - prog.py;
+      const dF = Math.hypot(dxF, dyF);
+      const dxC = (world.CX + 11) - prog.px, dyC = (world.CY + 11) - prog.py;
+      const dC = Math.hypot(dxC, dyC);
+      g.fillStyle = 'rgba(2,4,16,0.82)';
+      g.beginPath(); if (g.roundRect) g.roundRect(10, 52, 168, 28, 4); else g.rect(10, 52, 168, 28); g.fill();
+      g.fillStyle = '#9fd36a'; g.font = 'bold 8px monospace'; g.textAlign = 'left';
+      let hallU = dC;
+      if (world.plaza) {
+        const dxH = world.plaza.x - prog.px, dyH = world.plaza.y - prog.py;
+        hallU = Math.hypot(dxH, dyH);
+      }
+      g.fillText(`🌾 plots ${dF < 3 ? 'HERE' : Math.round(dF) + 'u'}  ·  🏛 hall ${Math.round(hallU)}u`, 18, 70);
+    }
+
+    // Active City Hall quests chip (top-right)
+    if (s && s.questState && (s.questState.active||[]).length) {
+      const act = s.questState.active;
+      const q0 = act[0];
+      let ptxt = q0.title || 'Job';
+      if (q0.type==='export') ptxt = `${q0.progress||0}/${q0.qty} export`;
+      else if (q0.type==='seeds') ptxt = `seeds ${(s.seedBag||{})[q0.crop]||0}/${q0.qty}`;
+      else if (q0.type==='gather') ptxt = `${prog.inv[q0.res]||0}/${q0.qty} ${q0.res}`;
+      const qw = 150, qx = W - qw - 10, qy = 10;
+      g.fillStyle='rgba(2,4,16,0.88)';
+      g.beginPath(); if (g.roundRect) g.roundRect(qx,qy,qw,36,4); else g.rect(qx,qy,qw,36); g.fill();
+      g.strokeStyle='rgba(232,208,106,0.45)'; g.lineWidth=0.8;
+      g.beginPath(); if (g.roundRect) g.roundRect(qx,qy,qw,36,4); else g.rect(qx,qy,qw,36); g.stroke();
+      g.fillStyle='#E8D06A'; g.font='bold 9px monospace'; g.textAlign='left';
+      g.fillText(`📜 ${act.length}/${QUEST_MAX_ACTIVE} JOBS`, qx+8, qy+14);
+      g.fillStyle='#c8d0dc'; g.font='8px monospace';
+      const clip = ptxt.length>22 ? ptxt.slice(0,21)+'…' : ptxt;
+      g.fillText(clip, qx+8, qy+28);
+    }
 
     // ── Season / Weather / Festival HUD block (below resource bar) ───────────────
     {
@@ -3656,7 +4505,12 @@ const PLANET = (() => {
           return { key:c.key, label:`${c.emoji} ${c.name} 🚀`, src:'cargo', exp,
                    price: c.sellEach * (exp ? EXPORT_MULT : 1) };
         }),
-      ].slice(0, 8);
+        // bulk materials from shelter load (low value, anywhere)
+        ...['wood','stone','berry'].filter(k=>((s.planetCargo||{})[k]||0)>0).map(k=>({
+          key:k, label:(k==='wood'?'🪵 Wood':k==='stone'?'⛏ Stone':'🫐 Berry')+' 🚀',
+          src:'cargo', exp:false, price: Math.max(1, (SELL_PRICE[k]||1)), bulk:true,
+        })),
+      ].slice(0, 10);
     } else if (tab==='seeds') {
       // a guild only sells its OWN planet's seeds — fly to find the rest
       items = SEED_TYPES.filter(c=>pdef.crops.includes(c.key))
@@ -3797,6 +4651,8 @@ const PLANET = (() => {
     const inRect = (r)=> r && sx>=r.x && sx<=r.x+r.w && sy>=r.y && sy<=r.y+r.h;
     const ui = computeUI(s, prog, pKey, W, H);
 
+    if (inRect(saveBtnRect(W))){ GAME.saveAtBerth(); return true; }
+
     // Sawmill / Quarry upgrade menu eats all taps while open
     if (prog._bldgOpen){
       const b = computeBldgUI(prog, prog._bldgOpen, W, H);
@@ -3867,8 +4723,10 @@ const PLANET = (() => {
         if (have<=0){ toast('Cargo hold is empty of those', '#888'); return; }
         const earn = row.price*have; s.planetCargo[row.key]=0; s.credits+=earn;
         if (row.exp) questOnExport(s, pKey, row.key, have);
-        toast(row.exp ? `EXPORT! Sold ${have} ${SEED_BY[row.key].name} → +${earn}₡ (×${EXPORT_MULT})`
-                      : `Sold ${have} ${SEED_BY[row.key].name} → +${earn}₡`,
+        const nm = SEED_BY[row.key] ? SEED_BY[row.key].name
+          : (row.key==='wood'?'Wood':row.key==='stone'?'Stone':row.key==='berry'?'Berry':row.key);
+        toast(row.exp ? `EXPORT! Sold ${have} ${nm} → +${earn}₡ (×${EXPORT_MULT})`
+                      : `Sold ${have} ${nm} → +${earn}₡`,
               row.exp ? '#FFD24A' : '#ffd060');
         sfx('buy'); return;
       }
@@ -3986,7 +4844,7 @@ const PLANET = (() => {
     const items = [];
     // planet-side stores: resources are info-only, crops are transferable
     for (const [k,lab] of [['wood','🪵 Wood'],['stone','⛏ Stone'],['berry',`${pdef.berry||'🫐'} Berry`]])
-      if ((prog.inv[k]||0)>0) items.push({ key:k, label:lab, qty:prog.inv[k], kind:'res' });
+      if ((prog.inv[k]||0)>0) items.push({ key:k, label:lab, qty:prog.inv[k], kind:'res', loadable:true });
     for (const c of SEED_TYPES) if ((prog.inv[c.key]||0)>0)
       items.push({ key:c.key, label:`${c.emoji} ${c.name}`, qty:prog.inv[c.key], kind:'crop' });
     const pw = Math.min(330, W-16);
@@ -3999,7 +4857,7 @@ const PLANET = (() => {
     if (!items.length) rows.push({ kind:'empty', x:px+12, y, w:pw-24, h:rh-6 });
     for (const it of items){
       rows.push({ ...it, x:px+12, y, w:pw-24, h:rh-6,
-        btn: it.kind==='crop' ? { x:px+pw-12-96, y:y+5, w:96, h:26 } : null });
+        btn: (it.kind==='crop' || it.kind==='res') ? { x:px+pw-12-96, y:y+5, w:96, h:26 } : null });
       y += rh;
     }
     // sleep is the big button at the bottom
@@ -4054,7 +4912,7 @@ const PLANET = (() => {
     ensureShipState(s);
     if (row.kind==='sleep'){
       prog.harvested={}; prog.cooldowns={};
-      const r = advanceSleep(prog);
+      const r = advanceSleep(prog, s);
       prog._shelterOpen = false;
       toast(`Slept — ${r.season} (sleep ${r.sleep}/${SLEEPS_PER_SEASON}), ${r.weather}. Resources regrown.`, "#c0e0ff");
       sfx('buy'); return;
@@ -4066,6 +4924,16 @@ const PLANET = (() => {
       s.planetCargo[row.key]=(s.planetCargo[row.key]||0)+n;
       const c = SEED_BY[row.key];
       toast(`Loaded ${n} ${c.name} ${c.emoji} into the ship — sell off-world for ×${EXPORT_MULT}!`, '#BBD8FF');
+      sfx('buy');
+    }
+    if (row.kind==='res'){
+      // bulk materials can board as ship cargo (sell at guild as low-value bulk)
+      const n = prog.inv[row.key]||0;
+      if (n<=0) return;
+      prog.inv[row.key]=0;
+      s.planetCargo[row.key]=(s.planetCargo[row.key]||0)+n;
+      const lab = row.key==='wood'?'🪵 Wood':row.key==='stone'?'⛏ Stone':'🫐 Berry';
+      toast(`Loaded ${n} ${lab} as bulk cargo`, '#BBD8FF');
       sfx('buy');
     }
   }
@@ -4223,33 +5091,61 @@ const PLANET = (() => {
     s.credits += q.reward.credits;
     qs.active = qs.active.filter(a=>a.id!==q.id);
     toast(`✅ ${q.title} — reward +${q.reward.credits}₡`, '#a0ffa0'); sfx('buy');
+    // refresh offers if board empty so the hall always has work
+    if (!(qs.offers[pKey]||[]).length) {
+      delete qs.offers[pKey];
+      genQuestOffers(s, pKey);
+      toast('🏛 New jobs posted on the board', '#E8D06A', 2);
+    }
   }
 
-  // ── Cantina — the town's rumor mill. Real trade intel + local color, and a
-  //    small chance the barkeep slips you a free native seed.
+  // ── Cantina — paid drink for a rumor menu (3 picks), once per sleep day.
+  //    Trade tips, free seed, or local color. Cooldown on prog.cantinaDay.
+  const CANTINA_DRINK = 8;
   function cantinaTalk(s, pKey, prog){
     ensureShipState(s);
     const pdef = planetDef(pKey);
+    // once-per-day: use season tick as day id
+    const dayId = (_season.idx * 10) + _season.tick;
+    if (prog.cantinaDay === dayId) {
+      toast("Barkeep: 'You've had enough for today. Sleep it off.'", '#FF8800');
+      return;
+    }
+    if (s.credits < CANTINA_DRINK) {
+      toast(`Need ${CANTINA_DRINK}₡ for a drink and a story`, '#ff9a3c');
+      return;
+    }
+    s.credits -= CANTINA_DRINK;
+    prog.cantinaDay = dayId;
+    // Always roll three rumor types; pick strongest payoff randomly weighted
     const r = Math.random();
-    if (r < 0.30){
-      // actionable trade tip: a foreign crop and where it's from
+    if (r < 0.40){
       const fKey = otherPlanets(pKey)[Math.floor(Math.random()*4)];
       const crop = SEED_BY[planetDef(fKey).crops[Math.floor(Math.random()*planetDef(fKey).crops.length)]];
-      toast(`Barkeep: '${crop.name} ${crop.emoji} from ${planetDef(fKey).name} pays ×${EXPORT_MULT} anywhere else…'`, '#FFB86A');
-    } else if (r < 0.40){
+      toast(`🍺 Barkeep: '${crop.emoji} ${crop.name} from ${planetDef(fKey).name} — sell off-world for ×${EXPORT_MULT}.'`, '#FFB86A', 3.5);
+    } else if (r < 0.62){
       const seed = pdef.crops[Math.floor(Math.random()*pdef.crops.length)];
       s.seedBag[seed] = (s.seedBag[seed]||0)+1;
-      toast(`Barkeep slides you a free ${SEED_BY[seed].name} seed ${SEED_BY[seed].emoji} — 'don't tell the Guild.'`, '#a0ffa0');
+      toast(`🍺 Barkeep slides a free ${SEED_BY[seed].name} seed ${SEED_BY[seed].emoji} under the glass.`, '#a0ffa0', 3);
+    } else if (r < 0.78){
+      // quest hint
+      const offers = (s.questState && s.questState.offers && s.questState.offers[pKey]) || [];
+      if (offers.length) {
+        const o = offers[Math.floor(Math.random()*offers.length)];
+        toast(`🍺 Barkeep: 'City Hall wants "${o.title}". Honest pay.'`, '#E8D06A', 3.2);
+      } else {
+        toast(`🍺 Barkeep: 'Hall's quiet. Sleep and new jobs will post.'`, '#E8D06A', 2.5);
+      }
     } else {
       const LINES = {
-        mira:   ["'Best soil in the system, and the Guild knows it.'","'City Hall pays honest credits for honest work.'","'They say the Nox waved from orbit, once.'"],
-        vesper: ["'Everything down the mineshafts glows. EVERYTHING.'","'Glowcaps only sprout in Vesper dark — off-worlders pay triple.'","'The Vex left claim markers older than the colony.'"],
-        cinder: ["'Mind the lava fields. The bridge crew won't fish you out twice.'","'Emberchili seeds only take in warm ash. Our ash.'","'The volcanos sing at night. You get used to it.'"],
-        dusk:   ["'Cold keeps the icegrapes sweet. And the visitors short.'","'The rigs drill day and night — Krag quotas.'","'Watch the snowmen. I swear one moved.'"],
-        sorn:   ["'Caravans cross the dunes at dusk — the camels know the way.'","'Sun corn drinks light itself. Miracle crop.'","'The oasis wells run deeper than any drill has gone.'"],
+        mira:   ["'Best soil in the system, and the Guild knows it.'","'Build a barn — livestock pays while you sleep.'","'Water once a day. Crops feel it before the next rest.'"],
+        vesper: ["'Everything down the mineshafts glows. EVERYTHING.'","'Glowcaps only sprout in Vesper dark — export them.'","'The Vex left claim markers older than the colony.'"],
+        cinder: ["'Mind the lava fields.'","'Emberchili only takes in warm ash. Ours.'","'Ash yams ship well — Guild abroad pays triple.'"],
+        dusk:   ["'Cold keeps icegrapes sweet.'","'Frostleaf is the quiet money crop.'","'The rigs never sleep. You should, sometimes.'"],
+        sorn:   ["'Caravans cross at dusk.'","'Sun corn drinks light itself.'","'Oasis wells run deeper than any drill.'"],
       };
       const pool = LINES[pKey] || LINES.mira;
-      toast(`Barkeep: ${pool[Math.floor(Math.random()*pool.length)]}`, '#FF8800');
+      toast(`🍺 Barkeep: ${pool[Math.floor(Math.random()*pool.length)]}`, '#FF8800', 3);
     }
     sfx('buy');
   }
@@ -4280,7 +5176,18 @@ const PLANET = (() => {
       if (c.watered){ toast('Already watered', '#888'); return; }
       if (prog.water.fill<=0){ toast('Watering can empty — refill at water or a Well', '#ff9a3c'); return; }
       prog.water.fill--; c.watered=true; c.bonus=true;   // watered = faster growth + bigger harvest
-      toast('Watered — grows faster & yields +1', '#3ec6ff'); sfx('drop');
+      // Day boost: first water also pushes +1 growth stage so farms feel responsive
+      const def = SEED_BY[c.type];
+      if (def && !c.dayBoost && c.stage < def.grow) {
+        c.stage = Math.min(def.grow, c.stage + 1);
+        c.dayBoost = true;
+        toast(c.stage >= def.grow
+          ? 'Watered — ripe! Harvest when ready'
+          : `Watered — grew to stage ${c.stage}/${def.grow} (+sleep bonus pending)`, '#3ec6ff');
+      } else {
+        toast('Watered — grows faster on sleep & yields +1', '#3ec6ff');
+      }
+      sfx('drop');
     } else if (act==='refill'){
       prog.water.fill = prog.water.max; toast('Filled the watering can', '#3ec6ff'); sfx('buy');
     } else if (act==='build'){
@@ -4339,11 +5246,186 @@ const PLANET = (() => {
   // ── PUBLIC API ───────────────────────────────────────────────────────────────
   return {
 
+    // Locked clay diorama engine (null only if build order broke).
+    engine: CWE,
+    engineLayoutV: ENGINE_LAYOUT_V,
+
+    /** Register or replace a world recipe. Preferred path for new clay worlds. */
+    registerWorld(key, recipe) {
+      if (!key) throw new Error("PLANET.registerWorld: key required");
+      const raw = Object.assign({}, recipe);
+      PLANET_DEFS[key] = CWE ? CWE.normalizeRecipe(raw) : raw;
+      return PLANET_DEFS[key];
+    },
+    /** List registered world keys. */
+    worldKeys() { return Object.keys(PLANET_DEFS); },
+    /** Read a normalized recipe (do not mutate). */
+    getRecipe(key) { return PLANET_DEFS[key] || null; },
+
     // Read-only accessor for the generated world — playtest/debug harnesses use
     // this for state-level asserts (tiles/buildings/elev) when pixels can't be
     // trusted (see the automated-pane rasterizer gotcha).
     _debugWorld() { return _worldCache; },
     _debugCam() { return { z: _cam.z, tgt: _zoomTgt, x: _cam.x, y: _cam.y }; },
+
+    // Headless farm → sleep → trade → quest smoke test
+    selfTest() {
+      const fails = [];
+      const check = (c, m) => { if (!c) fails.push("FAIL: " + m); };
+      try {
+        // Locked clay world engine must be present and green
+        check(!!CWE, "ClayWorldEngine loaded");
+        if (CWE) {
+          const ef = CWE.selfTest();
+          for (const f of ef) fails.push(f);
+          check(PLANET_DEFS.mira && PLANET_DEFS.mira.ground === "diorama", "mira is diorama");
+          check(PLANET_DEFS.mira.proc && PLANET_DEFS.mira._engine === CWE.ENGINE_ID, "mira recipe stamped");
+          check(CWE.isDiorama(PLANET_DEFS.mira), "isDiorama(mira)");
+        }
+        const s = {
+          onPlanet: false, currentPlanetName: null, credits: 200,
+          seedBag: { carrot: 5, grain: 3 }, planetCargo: {},
+          questState: { nextId: 1, active: [], offers: {} },
+          planetProgress: {},
+          hp: { shield: 10, shieldMax: 10, armor: 10, armorMax: 10, hull: 10, hullMax: 10 },
+          fuel: 100, fuelMax: 100,
+        };
+        // Moon base world registered
+        check(!!PLANET_DEFS.selene, "selene recipe exists");
+        check(PLANET_DEFS.selene.worldType === "moon", "selene is moon type");
+        check(PLANET_DEFS.selene.ground === "diorama", "selene diorama ground");
+        check(PLANET_DEFS.selene.parentPlanet === "mira", "selene orbits mira");
+
+        this.land(s, "mira");
+        check(s.onPlanet === true, "land mira");
+        check(s.currentPlanetName === "mira", "planet key");
+        const prog = s.planetProgress.mira;
+        check(!!prog, "progress created");
+        check(prog._welcomed === true, "first-land welcome");
+        check((s.seedBag.carrot || 0) >= 2, "starter seeds granted");
+        check((prog.layoutV | 0) >= ENGINE_LAYOUT_V, "layoutV engine-locked");
+        const world = this._debugWorld();
+        check(!!world && world.HX != null, "world gen");
+        check(!!world.farm, "farm rect on world");
+        // Variable node scales present (engine quality bar)
+        if (world && world.nodes && world.nodes.length) {
+          const scales = world.nodes.map(n => n.scale || 1);
+          const lo = Math.min(...scales), hi = Math.max(...scales);
+          check(hi > lo + 0.15, "node scale variety");
+        }
+        // Multi-tile collidable mountain ranges
+        if (world && world.landmarks && world.landmarks.length) {
+          const big = world.landmarks.filter(L => (L.w || 0) >= 6);
+          check(big.length >= 1, "has multi-tile landmarks (≥6 tiles)");
+          const L0 = big[0] || world.landmarks[0];
+          check(L0.collide === true, "landmark collides");
+          check(CWE.landmarkBlocks(L0, L0.x, L0.y) === true, "blocks center of massif");
+          check(CWE.landmarkBlocks(L0, L0.x + 50, L0.y + 50) === false, "clear far from massif");
+        }
+        check(world && world.landscapes && world.landscapes.length >= 1, "vista landscapes present");
+        // Sprite carpet: most open grass should have deco props
+        if (world && world.deco) {
+          check(world.deco.length > 500, "dense deco carpet got " + world.deco.length);
+          const full = world.deco.filter(d => d.fullTile).length;
+          check(full > 300, "full-tile props got " + full);
+        }
+        check(PLANET_DEFS.mira.proc.seamlessSprite === true, "mira seamlessSprite");
+        // Oriented feature packs (cliffs at 4 angles)
+        if (world && world.features) {
+          check(world.features.length >= 8, "features placed got " + world.features.length);
+          const cliffs = world.features.filter(F => (F.key || "").startsWith("cliff_"));
+          check(cliffs.length >= 1, "oriented cliffs present");
+          const angles = new Set(cliffs.map(F => F.angle).filter(Boolean));
+          check(angles.size >= 1, "cliff angles tagged");
+        }
+
+        // Selene moon-base surface smoke
+        s.onPlanet = false;
+        this.land(s, "selene");
+        check(s.onPlanet === true, "land selene");
+        check(s.currentPlanetName === "selene", "selene key");
+        const wS = this._debugWorld();
+        check(!!wS && wS.HX != null, "selene world gen");
+        check(!!wS.farm, "selene farm belt");
+        check((wS.cityBuildings || []).length >= 8, "selene dual-district city has buildings");
+        check((wS.landmarks || []).length >= 1, "selene landmarks");
+        const hotTypes = new Set((wS.cityBuildings || []).map(b => b.type));
+        check(hotTypes.has("city_market") || hotTypes.has("city_hall") || hotTypes.has("hangar"),
+          "selene has port/city structures");
+        s.onPlanet = false;
+        if (world.farm) {
+          const f = world.farm;
+          const farmNodes = (world.nodes || []).filter(n =>
+            n.x >= f.x0 && n.x <= f.x1 && n.y >= f.y0 && n.y <= f.y1);
+          check(farmNodes.length === 0, "no resource nodes in farm belt");
+          let grass = 0, water = 0;
+          for (let y = f.y0; y <= f.y1; y++) for (let x = f.x0; x <= f.x1; x++) {
+            const tt = world.tiles[y * MAP_W + x];
+            if (tt === T_GRASS) grass++;
+            if (tt === T_WATER) water++;
+          }
+          check(grass > 20, "farm belt mostly grass, grass=" + grass);
+          check(water === 0, "farm belt has no water");
+        }
+        const tilledN = Object.keys(prog.tilled || {}).length;
+        check(tilledN >= 4, "pre-tilled starter plots, got " + tilledN);
+        check(Array.isArray(world.landmarks) && world.landmarks.length >= 3,
+          "landmarks spawned, got " + ((world.landmarks && world.landmarks.length) || 0));
+        // free seeds, till+plant near pad
+        const tx = (world.HX + 2) | 0, ty = (world.HY + 2) | 0;
+        // force tilled/planted via direct state (tool path needs free tile)
+        prog.tilled[`${tx},${ty}`] = true;
+        prog.crops[`${tx},${ty}`] = { type: "carrot", stage: 0, watered: false };
+        prog.water = prog.water || { fill: 8, max: 8 };
+        prog.water.fill = 8;
+        // water day boost
+        doToolAction(prog, world, "water", tx, ty, s);
+        const c0 = prog.crops[`${tx},${ty}`];
+        check(c0 && c0.watered, "watered");
+        check(c0.stage >= 1, "dayBoost stage >= 1, got " + (c0 && c0.stage));
+        // sleep to ripen
+        advanceSleep(prog, s);
+        advanceSleep(prog, s);
+        check(prog.crops[`${tx},${ty}`].stage >= SEED_BY.carrot.grow, "ripe after sleep");
+        // harvest manually
+        const def = SEED_BY.carrot;
+        const yld = def.yield + (prog.crops[`${tx},${ty}`].bonus ? 1 : 0);
+        delete prog.crops[`${tx},${ty}`];
+        prog.inv.carrot = (prog.inv.carrot || 0) + yld;
+        check(prog.inv.carrot > 0, "harvest to inv");
+        // load ship
+        shelterTransact(s, prog, "mira", { kind: "crop", key: "carrot" });
+        check((s.planetCargo.carrot || 0) > 0, "cargo loaded");
+        // export sell on vesper
+        this.launch(s);
+        // force leave
+        s.onPlanet = false; s.currentPlanetName = null;
+        this.land(s, "vesper");
+        const pV = s.planetProgress.vesper;
+        const have = s.planetCargo.carrot;
+        marketTransact(s, pV, "vesper", {
+          tab: "sell", src: "cargo", key: "carrot", price: SEED_BY.carrot.sellEach * EXPORT_MULT, exp: true,
+        });
+        check((s.planetCargo.carrot || 0) === 0, "cargo sold");
+        check(s.credits > 200, "export credits earned");
+        // quests
+        this.land(s, "mira"); // re-land
+        const offers = genQuestOffers(s, "mira");
+        check(offers.length >= 3, "hall offers");
+        // barn income
+        const pM = s.planetProgress.mira;
+        pM.buildings = pM.buildings || [];
+        pM.buildings.push({ x: 10, y: 10, type: "barn", level: 0 });
+        const cr0 = s.credits;
+        advanceSleep(pM, s);
+        check(s.credits > cr0, "barn income on sleep");
+        s.onPlanet = false;
+      } catch (e) {
+        fails.push("FAIL: PLANET.selfTest threw: " + (e && e.message));
+      }
+      return fails;
+    },
+
 
     land(s, planetName) {
       const pKey = toKey(planetName);
@@ -4358,6 +5440,15 @@ const PLANET = (() => {
       s.onPlanet = true;
       s.currentPlanetName = pKey;
       const prog = getProgress(s, pKey);
+      // Layout version: bump when pad/city/slab rules change so existing saves
+      // reseed once and pick up the fixed landing experience.
+      // Reseed when ClayWorldEngine.LAYOUT_V advances (locked gen shape changes).
+      if ((prog.layoutV | 0) < ENGINE_LAYOUT_V) {
+        prog.worldSeed = 1 + ((Math.random() * 0x7ffffffe) | 0);
+        prog.layoutV = ENGINE_LAYOUT_V;
+        _worldCache = null;
+        _farBake = null;
+      }
       // one-time migration: fold old per-planet credits/seeds into the ship-wide pools
       migrateEconomy(s, prog);
       // Always touch down standing beside the ship, facing out, ready to launch
@@ -4380,6 +5471,30 @@ const PLANET = (() => {
       // full repair + refuel on landing — breathable atmo, crew patches the ship
       if (s.hp) { s.hp.shield = s.hp.shieldMax; s.hp.armor = s.hp.armorMax; s.hp.hull = s.hp.hullMax; }
       if (s.fuelMax) s.fuel = s.fuelMax;
+      // First visit: free native seeds + pre-tilled starter plots in the homestead
+      ensureShipState(s);
+      if (!prog._welcomed) {
+        prog._welcomed = true;
+        const native = _pd.crops || [];
+        for (const sk of native) {
+          if ((s.seedBag[sk] || 0) < 2) s.seedBag[sk] = (s.seedBag[sk] || 0) + 2;
+        }
+        // Pre-till a small 3×2 bed near pad (farm belt center-ish)
+        const w0 = getWorld(prog.worldSeed, pKey);
+        const fx0 = (w0.farm ? w0.farm.x0 + 4 : (w0.HX || 14) + 2);
+        const fy0 = (w0.farm ? Math.floor((w0.farm.y0 + w0.farm.y1) / 2) : (w0.HY || 56) - 6);
+        for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 3; dx++) {
+          const tx = fx0 + dx, ty = fy0 + dy;
+          if (tileFree(prog, w0, tx, ty)) prog.tilled[`${tx},${ty}`] = true;
+        }
+        if (typeof toast === 'function') {
+          toast('◎ Homestead ready — tilled beds N of the pad. Seeds in your bag.', '#9fd36a', 3.5);
+          setTimeout(() => {
+            if (typeof toast === 'function')
+              toast('Plant → Water → Sleep at Shelter/Hotel → Harvest → load ship for export', '#57e6ff', 4);
+          }, 1200);
+        }
+      }
     },
 
     launch(s) {
@@ -4789,7 +5904,7 @@ const PLANET = (() => {
             if ((s.credits|0) < ROOM_COST){ toast(`Hotel: a room is ${ROOM_COST}cr — you're short`, '#ff9a3c'); sfx('drop'); return; }
             s.credits -= ROOM_COST;
             prog.harvested={}; prog.cooldowns={};                 // same night-passes reset as the Shelter
-            const r = advanceSleep(prog);
+            const r = advanceSleep(prog, s);
             toast(`Rented a room (${ROOM_COST}cr) — ${r.season} (sleep ${r.sleep}/${SLEEPS_PER_SEASON}), ${r.weather}. Resources regrown.`, '#c0e0ff');
             sfx('buy');
           }
@@ -4983,30 +6098,52 @@ const PLANET = (() => {
       sky.addColorStop(1, skyHor);
       g.fillStyle=sky; g.fillRect(0,0,W,H);
 
-      // Warm sun + glow (upper-left)
-      const sunX=W*0.20, sunY=H*0.12;
-      const sunG = g.createRadialGradient(sunX, sunY, 0, sunX, sunY, H*0.45);
-      sunG.addColorStop(0, 'rgba(255,247,214,0.55)');
-      sunG.addColorStop(0.35, 'rgba(255,242,196,0.15)');
-      sunG.addColorStop(1, 'rgba(255,242,196,0)');
-      g.fillStyle=sunG; g.fillRect(0,0,W,H);
-      g.save(); g.globalAlpha=0.92; g.fillStyle='#FFF7DC';
-      g.beginPath(); g.arc(sunX, sunY, 15, 0, Math.PI*2); g.fill(); g.restore();
-
-      // Drifting clouds (smoke-grey over Cinder, snow-white over Dusk…)
-      if (!_clouds){ _clouds=[]; for(let i=0;i<6;i++) _clouds.push([Math.random()*1.2, 0.05+Math.random()*0.20, 0.6+Math.random()*0.9, 0.4+Math.random()*0.6]); }
-      g.save(); g.fillStyle=(pdef2.sky&&pdef2.sky.cloud)||'#ffffff';
-      for (const cl of _clouds){
-        const cx = (((cl[0] + _frame*0.004*cl[3]) % 1.2) - 0.1)*W, cy = cl[1]*H, s = cl[2];
-        g.globalAlpha = 0.30 + 0.28*cl[3];
-        for (const [ox,oy,r] of [[0,0,26],[22,4,20],[-20,5,18],[8,-9,15]]){
-          g.beginPath(); g.ellipse(cx+ox*s, cy+oy*s, r*s, r*s*0.58, 0,0,Math.PI*2); g.fill();
+      const isMoonSky = pdef2.worldType === 'moon';
+      if (isMoonSky) {
+        // Harsh vacuum: black sky, hard stars, tiny harsh sun, no clouds
+        g.fillStyle = '#000000'; g.fillRect(0, 0, W, H);
+        g.save();
+        for (let i = 0; i < 90; i++) {
+          const sx = ((i * 97 + 13) % 1000) / 1000 * W;
+          const sy = ((i * 53 + 29) % 1000) / 1000 * H * 0.72;
+          const a = 0.35 + ((i * 17) % 50) / 100;
+          g.globalAlpha = a;
+          g.fillStyle = '#E8ECF0';
+          const r = (i % 7 === 0) ? 1.4 : 0.7;
+          g.fillRect(sx, sy, r, r);
         }
-      }
-      g.restore(); g.globalAlpha=1;
+        g.restore();
+        // Tiny harsh sun (no warm bloom)
+        g.save(); g.globalAlpha = 0.95; g.fillStyle = '#FFFFFF';
+        g.beginPath(); g.arc(W * 0.18, H * 0.1, 6, 0, Math.PI * 2); g.fill();
+        g.globalAlpha = 0.25; g.beginPath(); g.arc(W * 0.18, H * 0.1, 14, 0, Math.PI * 2); g.fill();
+        g.restore();
+      } else {
+        // Warm sun + glow (upper-left)
+        const sunX=W*0.20, sunY=H*0.12;
+        const sunG = g.createRadialGradient(sunX, sunY, 0, sunX, sunY, H*0.45);
+        sunG.addColorStop(0, 'rgba(255,247,214,0.55)');
+        sunG.addColorStop(0.35, 'rgba(255,242,196,0.15)');
+        sunG.addColorStop(1, 'rgba(255,242,196,0)');
+        g.fillStyle=sunG; g.fillRect(0,0,W,H);
+        g.save(); g.globalAlpha=0.92; g.fillStyle='#FFF7DC';
+        g.beginPath(); g.arc(sunX, sunY, 15, 0, Math.PI*2); g.fill(); g.restore();
 
-      // world tiles, nodes, buildings, player
-      drawScene(g, W, H, prog, world);
+        // Drifting clouds
+        if (!_clouds){ _clouds=[]; for(let i=0;i<6;i++) _clouds.push([Math.random()*1.2, 0.05+Math.random()*0.20, 0.6+Math.random()*0.9, 0.4+Math.random()*0.6]); }
+        g.save(); g.fillStyle=(pdef2.sky&&pdef2.sky.cloud)||'#ffffff';
+        for (const cl of _clouds){
+          const cx = (((cl[0] + _frame*0.004*cl[3]) % 1.2) - 0.1)*W, cy = cl[1]*H, s = cl[2];
+          g.globalAlpha = 0.30 + 0.28*cl[3];
+          for (const [ox,oy,r] of [[0,0,26],[22,4,20],[-20,5,18],[8,-9,15]]){
+            g.beginPath(); g.ellipse(cx+ox*s, cy+oy*s, r*s, r*s*0.58, 0,0,Math.PI*2); g.fill();
+          }
+        }
+        g.restore(); g.globalAlpha=1;
+      }
+
+      // world tiles, nodes, buildings, player, landed ship
+      drawScene(g, W, H, prog, world, s);
 
       // Lightning flash — brief white-blue-white full-screen illuminate
       if (_lightning.alpha > 0) {
@@ -5170,6 +6307,9 @@ const PLANET = (() => {
         }
         g.restore();
       }
+
     },
   };
 })();
+// Expose for headless harness (Node eval does not hoist top-level const)
+if (typeof globalThis !== "undefined") globalThis.PLANET = PLANET;

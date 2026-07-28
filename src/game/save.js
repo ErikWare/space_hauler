@@ -266,6 +266,20 @@ Object.assign(GAME, {
       s.nextQuestId = 1 + s.quests.reduce((m, q) => Math.max(m, q.id || 0), 0);
       s.activeQuestId = s.quests.some(q => q.id === data.activeQuestId) ? data.activeQuestId : null;
     }
+    // Guided onboarding ore marks are session fields (not in the save blob).
+    // Re-seed them after quests restore so a mid-rung load still has a target.
+    if (this.ensureTutorOreField) this.ensureTutorOreField();
+    // Wing lead + survey bodies for specials are session-only — respawn if needed.
+    if (s.quests) {
+      const sp = s.quests.find(q => q.kind === "tutor"
+        && (q.action === "special_scout" || q.action === "special_end")
+        && !q.survived && !q.trapSprung);
+      if (sp) {
+        const st = this._questStation ? this._questStation(sp) : this.homeStationObj();
+        if (st && this._spawnTutorWing && !s.tutorWing) this._spawnTutorWing(sp, st);
+        if (this._spawnTutorObjectives) this._spawnTutorObjectives(sp);
+      }
+    }
     // ---- mercenary contract completion list (absent in pre-merc saves → empty) ----
     if (Array.isArray(data.mercCompleted)) s.mercCompleted = data.mercCompleted.slice();
     // ---- territory objectives (absent in older saves → fresh counters; restoring
@@ -419,14 +433,19 @@ Object.assign(GAME, {
     return true;
   },
   clearSave() {   // clears the ACTIVE slot only (its meta card too)
-    const store = this._saveStore(); if (!store) return;
+    return this.clearSaveSlot(this._activeSlot || 1);
+  },
+  // Wipe a specific save slot + its title meta card. Returns true if something was removed.
+  clearSaveSlot(n) {
+    const store = this._saveStore(); if (!store) return false;
     try {
-      const n = this._activeSlot || 1;
-      store.removeItem(saveSlotKey(n));
+      const key = saveSlotKey(n);
+      const had = store.getItem(key) != null;
+      store.removeItem(key);
       const meta = this.readSlotsMeta();
-      delete meta[n];
-      store.setItem(SAVE_META_KEY, JSON.stringify(meta));
-    } catch (e) { console.warn("clear save failed:", e); }
+      if (meta[n]) { delete meta[n]; store.setItem(SAVE_META_KEY, JSON.stringify(meta)); }
+      return had;
+    } catch (e) { console.warn("clear save slot failed:", e); return false; }
   },
 
   // SAVE / MENU buttons in the loadout (main dock) header

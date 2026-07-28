@@ -255,23 +255,28 @@
     return { x: (wx - (c.x || 0)) * z + (c.offX || 0), y: (wy - (c.y || 0)) * z + (c.offY || 0) };
   }
 
-  function drawNPCShip(ctx, npc, camera) {
+  // opts.skipHull: the caller already blitted a sprite (e.g. the drone art in
+  // world/rendering.js) — draw just the hull bar over it instead of the diamond.
+  function drawNPCShip(ctx, npc, camera, opts) {
     if (!ctx || !npc) return;
+    opts = opts || {};
     var z = (camera && camera.zoom) || 1;
     var p = project(camera, npc.x, npc.y);
     var s = 9 * z;
     ctx.save && ctx.save();
-    // diamond body
-    ctx.fillStyle = npc.color || "#9aa7b8";
-    ctx.strokeStyle = "#0d1017";
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y - s);
-    ctx.lineTo(p.x + s, p.y);
-    ctx.lineTo(p.x, p.y + s);
-    ctx.lineTo(p.x - s, p.y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    if (!opts.skipHull) {
+      // diamond body (procedural fallback when no sprite is loaded)
+      ctx.fillStyle = npc.color || "#9aa7b8";
+      ctx.strokeStyle = "#0d1017";
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - s);
+      ctx.lineTo(p.x + s, p.y);
+      ctx.lineTo(p.x, p.y + s);
+      ctx.lineTo(p.x - s, p.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
     // hull bar
     var hp = npc.hp || {};
     var barW = 20 * z;

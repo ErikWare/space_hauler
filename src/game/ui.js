@@ -2045,23 +2045,36 @@ Object.assign(GAME, {
   // Q toggles engine mode, thrust direction is automatic.
   gameButtons() {
     const W = CONFIG.W, H = CONFIG.H;
-    const tw = 36, tg = 4, ty = H - 36, tx0 = W - (tw * 4 + tg * 3) - 10;
-    const k = Math.min(W / 390, H / 700);   // mute tracks the k-scaled SEC badge above it
+    const k = Math.min(W / 390, H / 700);
+    // ── TOP ship strip (under SHD/ARM/HULL/FUEL vitals) ─────────────────────
+    // Engine icon + thrust pills share one row (no label over FUEL text).
+    const shipY = 72 * k;
+    const thrW = 28, thrG = 3, thrH = 20;
+    const engW = 22;
+    const thrX0 = 10 + engW + 4;   // after engine glyph chip
+    // ── Station action row (DOCK / FUEL / WARP) when near a berth ──────────
+    const stY = 96 * k;
+    // ── Bottom: tools left · quest left · radio right ──────────────────────
     return {
-      // dropped below the top HUD strip using its own k-scaling, so the fuel bar
-      // can't grow into these on aspect ratios where k > 1 (old fixed y:70 could)
-      dock:    { x: 12, y: 88 * k, w: 84, h: 26 },
-      fuel:    { x: 100, y: 88 * k, w: 76, h: 26 },
-      mute:    { x: W - 48 * k, y: 178 * k, w: 36 * k, h: 22 * k },   // speaker toggle under SEC
-      // MAP opens the galaxy map, which carries the live empire region count in
-      // its own header — the old EMPIRE chip was a second button to the same place.
-      map:     { x: 12, y: H - 96, w: 64, h: 22 },
-      scan:    { x: 12, y: H - 122, w: 84, h: 22 },   // auto-scan nearest enemy
-      survey:  { x: 12, y: H - 148, w: 84, h: 22 },   // region sensor sweep (game/scan.js)
-      thrust25:  { x: tx0,                  y: ty, w: tw, h: 22 },
-      thrust50:  { x: tx0 + (tw + tg),      y: ty, w: tw, h: 22 },
-      thrust75:  { x: tx0 + (tw + tg) * 2,  y: ty, w: tw, h: 22 },
-      thrust100: { x: tx0 + (tw + tg) * 3,  y: ty, w: tw, h: 22 },
+      dock:    { x: 12,  y: stY, w: 72, h: 26 },
+      fuel:    { x: 90,  y: stY, w: 68, h: 26 },
+      warp:    { x: 164, y: stY, w: 68, h: 26 },
+      // Ship identity (short) sits right of thrust pills
+      shipName: { x: thrX0 + (thrW + thrG) * 4 + 6, y: shipY, w: 88, h: thrH },
+      // Engine icon + thrust % on one row
+      thrustIcon: { x: 10, y: shipY, w: engW, h: thrH },
+      thrust25:  { x: thrX0,                     y: shipY, w: thrW, h: thrH },
+      thrust50:  { x: thrX0 + (thrW + thrG),     y: shipY, w: thrW, h: thrH },
+      thrust75:  { x: thrX0 + (thrW + thrG) * 2, y: shipY, w: thrW, h: thrH },
+      thrust100: { x: thrX0 + (thrW + thrG) * 3, y: shipY, w: thrW, h: thrH },
+      // Mute below SEC badge (SEC draws at ~y 170*k)
+      mute:    { x: W - 48 * k, y: 196 * k, w: 36 * k, h: 22 * k },
+      map:     { x: 12, y: H - 120, w: 64, h: 22 },
+      scan:    { x: 12, y: H - 146, w: 84, h: 22 },
+      survey:  { x: 12, y: H - 172, w: 84, h: 22 },
+      quest:   { x: 10, y: H - 52, w: 168, h: 40 },
+      // Taller radio so more lines stay on-screen above the footer controls
+      radio:   { x: W - 186, y: H - 118, w: 176, h: 108 },
     };
   },
   setThrustPower(v) {
@@ -2081,12 +2094,26 @@ Object.assign(GAME, {
     if (hit(gb.thrust50))  { this.setThrustPower(0.50); return true; }
     if (hit(gb.thrust75))  { this.setThrustPower(0.75); return true; }
     if (hit(gb.thrust100)) { this.setThrustPower(1.00); return true; }
-    if (s.atStation) { if (hit(gb.dock)) { input.dock = true; return true; } if (hit(gb.fuel)) { input.refuel = true; return true; } }
-    else if (s.atOutpost && hit(gb.dock)) { input.dock = true; return true; }   // owned outpost → dock menu
-    else if (s.nearPlanetName && hit(gb.dock)) { input.landEdge = true; input.closeMenu = true; return true; }  // planet → land
+    if (s.stationUI || s.atStation || s.docked) {
+      if (hit(gb.dock)) {
+        if (s.atStation || s.docked) input.dock = true;
+        else toast("Closer to the berth to dock", "#7fdfff", 1.6);
+        return true;
+      }
+      if (hit(gb.fuel)) {
+        if (s.atStation || s.docked) input.refuel = true;
+        else toast("Dock to refuel", "#7fdfff", 1.6);
+        return true;
+      }
+    } else if (s.atOutpost && hit(gb.dock)) { input.dock = true; return true; }
+    else if (s.nearPlanetName && hit(gb.dock)) { input.landEdge = true; input.closeMenu = true; return true; }
     if (ForgeHUD.skillTap(x, y) >= 0) return true;
+    // WARP on the same stationUI row as DOCK/FUEL
     const near = this.nearestStationInfo();
-    if ((s.atStation || near.dist <= 200) && ForgeHUD.hitWarpButton(x, y)) { input.warpToggle = true; return true; }
+    const actionR = (CONFIG.stationActionR != null) ? CONFIG.stationActionR : 200;
+    if ((s.stationUI || s.atStation || s.docked || (near.station && near.station.discovered && near.dist <= actionR)) && (
+      ForgeHUD.hitWarpButton(x, y) || (gb.warp && hit(gb.warp))
+    )) { input.warpToggle = true; return true; }
     return false;
   },
   // route a click while a dock/warp overlay is up (gear/store/warp tabs are DOM — handle themselves)
@@ -2148,7 +2175,9 @@ Object.assign(GAME, {
       minimap: this.buildMinimap(),
       weapon: w ? { type: w.weapon.type, ammo: w.ammo } : null,
       proximity: near.station && near.dist < 1400 ? near.proximity : null,
-      docked: s.atStation, stationDist: near.dist,
+      docked: !!(s.atStation || s.docked),
+      stationDist: near.dist,
+      stationUI: !!(s.stationUI || s.atStation || s.docked),
       skills: skills,
       toasts: toasts,
       inNebula: mods.inNebula, nebulaColor: mods.color,
@@ -2205,25 +2234,51 @@ Object.assign(GAME, {
       g.fillStyle = "rgba(255,80,80,0.12)";
       g.beginPath(); g.roundRect(gb.scan.x, gb.scan.y, gb.scan.w, gb.scan.h, 8); g.fill();
     }
-    // speaker toggle (needs a bigger glyph than btn's 10px, so drawn by hand)
+    // Global audio mute — sits under SEC badge (not overlapping SEC text)
     const mu = gb.mute;
     g.fillStyle = "rgba(20,29,43,0.9)"; g.strokeStyle = "#333f50"; g.lineWidth = 1;
     g.beginPath(); g.roundRect(mu.x, mu.y, mu.w, mu.h, 6); g.fill(); g.stroke();
-    g.font = `${Math.max(11, mu.h * 0.6) | 0}px monospace`; g.textAlign = "center";
+    g.font = `${Math.max(11, mu.h * 0.55) | 0}px monospace`; g.textAlign = "center";
+    g.textBaseline = "middle";
     g.fillStyle = s.audioMuted ? "#7f8ea6" : "#8fd0ff";
-    g.fillText(s.audioMuted ? "🔇" : "🔊", mu.x + mu.w / 2, mu.y + mu.h * 0.72);
-    g.textAlign = "left";
-    if (s.atStation) { btn(gb.dock, "◈ DOCK", true, "#0d1017"); btn(gb.fuel, "⛽ FUEL", false, "#7bd88f"); }
-    else if (s.atOutpost) btn(gb.dock, "◈ DOCK", true, "#0d1017");
-    else if (s.nearPlanetName) btn(gb.dock, "◈ LAND", true, "#0d1017");  // planet landing button
+    g.fillText(s.audioMuted ? "🔇" : "🔊", mu.x + mu.w / 2, mu.y + mu.h / 2 + 1);
+    g.textAlign = "left"; g.textBaseline = "alphabetic";
+    // Station actions — DOCK / FUEL / WARP share stationUI (same range as warp).
+    // DOCK only latches when inside dockR (atStation); button still shows with WARP.
+    if (s.stationUI || s.atStation || s.docked) {
+      btn(gb.dock, "◈ DOCK", !!(s.atStation || s.docked), "#0d1017");
+      btn(gb.fuel, "⛽ FUEL", false, "#7bd88f");
+    } else if (s.atOutpost) btn(gb.dock, "◈ DOCK", true, "#0d1017");
+    else if (s.nearPlanetName) btn(gb.dock, "◈ LAND", true, "#0d1017");
+    // Ship strip: engine glyph + thrust pills + short hull chip (one row)
+    const sh = this.activeShip && this.activeShip();
+    const ic = gb.thrustIcon;
+    if (ic) {
+      g.fillStyle = "rgba(13,16,23,0.9)";
+      g.strokeStyle = "#57d1c9"; g.lineWidth = 1;
+      g.beginPath(); g.roundRect(ic.x, ic.y, ic.w, ic.h, 5); g.fill(); g.stroke();
+      g.font = `${Math.max(11, 12)}px monospace`;
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillStyle = "#7fdfff";
+      g.fillText("🚀", ic.x + ic.w / 2, ic.y + ic.h / 2 + 1);
+      g.textBaseline = "alphabetic"; g.textAlign = "left";
+    }
     const tp = s.thrustPower || 0.75;
-    g.fillStyle = "#7f8ea6"; g.font = "bold 8px monospace"; g.textAlign = "right";
-    g.fillText("THRUST", gb.thrust25.x - 4, gb.thrust25.y + 14);
-    g.textAlign = "left";
-    btn(gb.thrust25,  "25%",  tp === 0.25, tp === 0.25 ? "#0d1017" : "#9aa7b8");
-    btn(gb.thrust50,  "50%",  tp === 0.50, tp === 0.50 ? "#0d1017" : "#9aa7b8");
-    btn(gb.thrust75,  "75%",  tp === 0.75, tp === 0.75 ? "#0d1017" : "#9aa7b8");
-    btn(gb.thrust100, "100%", tp === 1.00, tp === 1.00 ? "#0d1017" : "#9aa7b8");
+    btn(gb.thrust25,  "25",  tp === 0.25, tp === 0.25 ? "#0d1017" : "#9aa7b8");
+    btn(gb.thrust50,  "50",  tp === 0.50, tp === 0.50 ? "#0d1017" : "#9aa7b8");
+    btn(gb.thrust75,  "75",  tp === 0.75, tp === 0.75 ? "#0d1017" : "#9aa7b8");
+    btn(gb.thrust100, "100", tp === 1.00, tp === 1.00 ? "#0d1017" : "#9aa7b8");
+    const sn = gb.shipName;
+    if (sn && sh) {
+      g.fillStyle = "rgba(13,16,23,0.88)";
+      g.strokeStyle = "#3a6a8a"; g.lineWidth = 1;
+      g.beginPath(); g.roundRect(sn.x, sn.y, sn.w, sn.h, 5); g.fill(); g.stroke();
+      g.fillStyle = "#8fd0ff";
+      g.font = "bold 8px monospace"; g.textAlign = "left"; g.textBaseline = "middle";
+      const hull = (sh.hullKey || "ship").toUpperCase();
+      g.fillText("⬡ " + hull, sn.x + 5, sn.y + sn.h / 2);
+      g.textBaseline = "alphabetic";
+    }
     // Weapon range ring — drawn in world space so player can see their effective reach
     if (!s.atStation && !s.atOutpost && !s.docked) this.drawWeaponRangeRing(g);
     // Decay out-of-range indicator

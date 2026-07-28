@@ -170,9 +170,20 @@ Object.assign(GAME, {
           u: CONFIG.pRingIn + rnd() * (CONFIG.pRingOut - CONFIG.pRingIn), s: 3 + rnd() * 8 });
       }
       const moons = [];
+      // Named landable moons (surface keys in PLANET_DEFS). Mira's first moon
+      // is Selene — the orbital moon-base world.
+      const named = (def.moonNames || []);
       for (let m = 0; m < def.moons; m++) {
         const ma = rnd() * TAU, md = def.r * 2.5 + rnd() * def.r * 1.5;
-        moons.push({ x: x + Math.cos(ma) * md, y: y + Math.sin(ma) * md, r: 60 + rnd() * 80 });
+        const mx = x + Math.cos(ma) * md, my = y + Math.sin(ma) * md;
+        const nm = named[m] || null;
+        moons.push({
+          x: mx, y: my, r: 70 + rnd() * 70,
+          ox: mx, oy: my,              // stable art hash anchors
+          name: nm ? nm.name : (def.name + " Moon " + (m + 1)),
+          landKey: nm ? nm.landKey : null,  // if set → press L to land surface
+          parent: def.name,
+        });
       }
       planets.push({ name: def.name, type: def.type, x, y, r: def.r, dots, moons,
         orbit: def.orbit, stationIdx: def.stationIdx, faction: def.faction });

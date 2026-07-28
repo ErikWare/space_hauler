@@ -294,4 +294,77 @@ Object.assign(GAME, {
     }
     return n;
   },
+
+
+  stationMercSelfTest() {
+    const fails = [];
+    const check = (c, m) => { if (!c) fails.push("FAIL: " + m); };
+    try {
+      check(STATION_MERC_POOL.length === 100, "pool size " + STATION_MERC_POOL.length);
+      const ids = new Set(STATION_MERC_POOL.map(sp => sp.id));
+      check(ids.size === 100, "unique pool ids");
+      for (let sid = 0; sid < 10; sid++)
+        for (let r = 1; r <= 10; r++)
+          check(ids.has("st" + sid + "_r" + r), "missing st" + sid + "_r" + r);
+      check(Object.keys(STATION_FIXERS).length === 10, "10 fixers");
+
+      this.init();
+      const s = this.state;
+      this._vnSave().seen.onb_done = true;
+      s.mercCompleted = [];
+      const sts = ForgeWorld.getStations();
+
+      this.generateStationQuests(sts[0], s);
+      let stOffers = (s.stationQuests[sts[0].id] || []).filter(q => q.kind === "merc" && q.mercStationId != null);
+      check(stOffers.length === 1, "one station offer got " + stOffers.length);
+      check(stOffers[0] && stOffers[0].mercRank === 1, "first rank is 1");
+
+      s.mercCompleted.push(stOffers[0].mercSpecId);
+      this.generateStationQuests(sts[0], s);
+      stOffers = (s.stationQuests[sts[0].id] || []).filter(q => q.kind === "merc" && q.mercStationId != null);
+      check(stOffers[0] && stOffers[0].mercRank === 2, "rank 2 after complete r1");
+
+      // Escort refuse R7
+      s.mercCompleted = [];
+      for (let r = 1; r < 7; r++) s.mercCompleted.push("st" + sts[0].id + "_r" + r);
+      check(this.escortCap() === 1, "starter wing 1");
+      this.generateStationQuests(sts[0], s);
+      const r7 = (s.stationQuests[sts[0].id] || []).find(q => q.kind === "merc" && q.mercRank === 7);
+      check(!!r7, "r7 offered");
+      if (r7) check(!this.acceptQuest(r7), "r7 refused on wing 1");
+
+      // Free Warbarge for wing 3
+      const hull = CONFIG.hulls.krag_warbarge;
+      const nSlots = this.hullEquipSlots ? this.hullEquipSlots(hull) : 4;
+      s.ships.push({ id: 99, hullKey: "krag_warbarge", name: hull.name, slots: new Array(nSlots).fill(null) });
+      s.activeShipId = 99;
+      ForgeEquipment.initEquipment(nSlots);
+      this.recomputeDerived();
+      if (this.enforceEscortCap) this.enforceEscortCap(s);
+      check(this.escortCap() >= 3, "warbarge wing " + this.escortCap());
+      this.generateStationQuests(sts[0], s);
+      const r7b = (s.stationQuests[sts[0].id] || []).find(q => q.kind === "merc" && q.mercRank === 7);
+      if (r7b) {
+        check(this.acceptQuest(r7b), "r7 accept wing 3");
+        this.setActiveQuest(r7b.id);
+        const anchors = this._questBoostAnchors(r7b);
+        if (anchors.length) {
+          s.x = anchors[0].x + 80; s.y = anchors[0].y;
+          this.updateQuests(1 / 60);
+          const recs = r7b.boosts[anchors[0].regionId];
+          check(!!recs && recs.length >= (r7b.boostMin || 1), "merc boost on approach");
+          check(r7b._beats && r7b._beats.approached, "approach beat fired");
+        }
+        this.abandonQuest(r7b);
+      }
+
+      s.mercCompleted = [];
+      for (let sid = 0; sid < 10; sid++) s.mercCompleted.push("st" + sid + "_r10");
+      check(this.stationMercCrowns() === 10, "10 crowns");
+      this.init();
+    } catch (e) {
+      fails.push("FAIL: stationMercSelfTest threw: " + (e && e.message));
+    }
+    return fails;
+  },
 });

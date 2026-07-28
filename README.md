@@ -34,8 +34,12 @@ The committed `game.html` is the playable build; rebuild it after touching anyth
 | `game.html` | The playable build (committed — this is what gets hosted) |
 | `index.html` | Redirect → `game.html` for GitHub Pages |
 | `src/` | Game source: nine Forge engine modules + game systems, concatenated in load order by `build.py` |
+| `src/game/clay_world_engine.js` | **Locked** procedural ISO clay world engine (recipes + paint) — see `CLAY_WORLD_ENGINE.md` |
 | `sprites/` | Runtime art (PNGs fetched by `game.html`) + the AI sprite-generation pipeline (`pipeline.py`) |
-| `sprites/mira/` | Planet-surface tile/building/prop art for the Mira planet engine |
+| `sprites/mira/` | Clay buildings / props / nodes for Mira (floor is procedural diorama, not tilesets) |
+| `CLAY_WORLD_ENGINE.md` | Contract for authoring many clay-diorama planets |
+| `WORLD_TYPES.md` | Earth / ice / lava / desert / moon art packs, scale ratios, lore hooks |
+| `.grok/skills/procedural-planet-creation/` | Skill: end-to-end procedural planet/moon creation (Selene-grade) |
 | `*.md` | Design specs, roadmap, and the development ledger |
 
 Missing sprite PNGs are never fatal — every draw site falls back to procedural canvas art (`src/game/sprites.js` gates `GAMEPLAY_SPRITES`).

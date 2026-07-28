@@ -441,4 +441,102 @@ Object.assign(GAME, {
     else if (vn.seen[fac + "_comp_beat4"] && !vn.seen[fac + "_a3q1"]) this._storyMaybeGrantAct3Q(1);
     else if (vn.seen[fac + "_a3q1"] && !vn.seen[fac + "_a3q2"])   this._storyMaybeGrantAct3Q(2);
   },
+
+  // Force a story quest objective complete for headless campaign advance
+  _storyForceComplete(q) {
+    if (!q) return;
+    if (q.kind === "chain" && q.tiers) for (const t of q.tiers) t.done = true;
+    else if (q.kind === "multi" && q.nodes) for (const n of q.nodes) n.done = true;
+    else if (q.action === "scan") q.scanT = (typeof QUESTS !== "undefined" ? QUESTS.scanHold : 3) + 1;
+    else if (q.action === "collect" || (QUEST_GODO[q.action] && QUEST_GODO[q.action].mech === "collect"))
+      q.collected = true;
+    else if (QUEST_GODO[q.action] && QUEST_GODO[q.action].mech === "hold") {
+      q.needClear = false;
+      q.holdT = (q.holdDur || 1) + 1;
+    } else if (q.action === "bounty" || (QUEST_GODO[q.action] && QUEST_GODO[q.action].mech === "bounty")) {
+      const o = this.outpostById(q.outpostId);
+      if (o && o.guardRecs && o.guardRecs[0]) { o.guardRecs[0].alive = false; o.guardRecs[0].frac = 0; }
+      if (o && o._ships) for (const sh of o._ships) if (sh._guardIdx === 0) { sh.hp.hull = 0; sh.state = "DEAD"; }
+    } else if (q.action === "defeat") {
+      // clear site guards
+      const site = this.siteById(q.siteId);
+      if (site && site.guardRecs) for (const r of site.guardRecs) { r.alive = false; r.frac = 0; }
+    } else {
+      q.collected = true; q.holdT = 99; q.scanT = 99;
+    }
+    q.status = "ready";
+  },
+
+  storyCampaignSelfTest() {
+    const fails = [];
+    const check = (c, m) => { if (!c) fails.push("FAIL: " + m); };
+    try {
+      for (const fac of (CONFIG.factions || ["krag", "vex", "nox"])) {
+        this.init();
+        const s = this.state;
+        s.playerFaction = fac;
+        s.mercenary = true;
+        this._vnSave().seen.onb_done = true;
+        this._vnSave().seen[fac + "_act0"] = true;
+        this._vnSave().seen[fac + "_act1"] = true;
+        this._vnSave().seen[fac + "_comp_intro"] = true;
+        this._vnSave().seen[fac + "_act2"] = true;
+        // Clear any open holds
+        s.quests = [];
+        s.activeQuestId = null;
+
+        // Grant a2q1
+        check(this._storyMaybeGrantAct2Q(1), fac + ": grant a2q1");
+        let q = s.quests.find(x => x.kind === "story");
+        check(!!q, fac + ": story quest in log after a2q1 grant");
+        check(s.quests.filter(x => x.kind === "story").length === 1, fac + ": only one story");
+        if (!q) continue;
+
+        // Advance a2q1 → beat2 → a2q2 via turn-in chain with forced completes
+        const advance = (label) => {
+          q = s.quests.find(x => x.kind === "story");
+          check(!!q, fac + ": missing story at " + label);
+          if (!q) return false;
+          s.docked = true;
+          s.dockStationId = q.stationId;
+          this._storyForceComplete(q);
+          check(this.questObjectiveDone(q), fac + ": force complete " + label);
+          const ok = this.turnInQuest(q);
+          check(ok, fac + ": turn-in " + label);
+          return ok;
+        };
+
+        // a2q1 turn-in marks seen and fires beat2 (may not grant next headless)
+        advance("a2q1");
+        check(!!this._vnSave().seen[fac + "_a2q1"], fac + ": a2q1 seen");
+        // Simulate companion beat closes by granting next
+        this._vnSave().seen[fac + "_comp_beat2"] = true;
+        check(this._storyMaybeGrantAct2Q(2), fac + ": grant a2q2");
+        advance("a2q2");
+        this._vnSave().seen[fac + "_comp_beat3"] = true;
+        check(this._storyMaybeGrantAct2Q(3), fac + ": grant a2q3");
+        advance("a2q3");
+        this._vnSave().seen[fac + "_comp_beat4"] = true;
+        check(this._storyMaybeGrantAct3Q(1), fac + ": grant a3q1");
+        advance("a3q1");
+        // a3q1 turn-in auto-grants a3q2 via storyQuestTurnedIn
+        check(!!s.quests.find(x => x.kind === "story"), fac + ": a3q2 auto-granted after a3q1");
+        check(!!this._vnSave().seen[fac + "_a3q1"], fac + ": a3q1 seen");
+        advance("a3q2");
+        check(!!this._vnSave().seen[fac + "_a3q2"], fac + ": a3q2 seen after turn-in");
+
+        // Double-story refused
+        s.quests = [];
+        this._vnSave().seen[fac + "_a2q1"] = false;
+        // reset seen for a2 to re-grant? might fail if a2q2 flags set - just try grant while holding
+        this._vnSave().seen = { onb_done: true, [fac + "_act2"]: true, [fac + "_comp_beat4"]: true };
+        check(this._storyMaybeGrantAct2Q(1), fac + ": re-grant a2q1 clean");
+        check(!this._storyMaybeGrantAct2Q(1), fac + ": second simultaneous story grant blocked");
+      }
+      this.init();
+    } catch (e) {
+      fails.push("FAIL: storyCampaignSelfTest threw: " + (e && e.message));
+    }
+    return fails;
+  },
 });

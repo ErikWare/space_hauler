@@ -1,0 +1,12 @@
+{
+  "appId": "com.spacehauler.game",
+  "appName": "Space Hauler",
+  "webDir": "mobile/www",
+  "backgroundColor": "#05070d",
+  "ios": {
+    "backgroundColor": "#05070d",
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "limitsNavigationsToAppBoundDomains": true
+  }
+}

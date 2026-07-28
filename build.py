@@ -110,10 +110,15 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
 =============================================================================
 -->
 <style>
-  html,body{margin:0;height:100%;background:#05070d;overflow:hidden}
-  #stage{width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
-  /* canvas fills the viewport in any orientation (aspect set live in main.js boot) */
-  canvas#game{background:#05070d;display:block;touch-action:none}
+  html,body{margin:0;height:100%;background:#05070d;overflow:hidden;
+    user-select:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;
+    -webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+  #stage{width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;
+    user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+  /* canvas fills the viewport; block iOS long-press copy / text selection while thrusting */
+  canvas#game{background:#05070d;display:block;touch-action:none;
+    user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+    -webkit-user-drag:none;outline:none}
 
   /* ---- iPhone safe area ----------------------------------------------------
      env() is CSS-only, so this hidden probe is how main.js fit() reads the notch
@@ -709,7 +714,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   .titlePortraitCard{width:132px;padding:10px 8px}
   .titlePortraitCard .tpFace{width:96px;height:128px;object-fit:cover;border-radius:8px;border:1px solid #2a3a52;background:#0a1018}
   .titlePortraitCard:hover .tpFace{border-color:#57d1c9}
-  .titleCard{display:flex;flex-direction:column;align-items:center;gap:8px;width:176px;padding:14px 12px;
+  .titleCard{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;width:176px;padding:14px 12px;
     border:1px solid #2a3a52;border-radius:12px;background:rgba(10,16,26,.85);cursor:pointer;text-align:center}
   .titleCard:hover{border-color:#57d1c9;box-shadow:0 0 16px rgba(87,209,201,.35)}
   .titleCard img{width:64px;height:64px}
@@ -719,6 +724,27 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   .titleCard.empty{cursor:default;opacity:.55}
   .titleCard.empty:hover{border-color:#2a3a52;box-shadow:none}
   .tsSlotLbl{font-size:10px;font-weight:700;letter-spacing:2px;color:#57d1c9}
+  .tsTrash{position:absolute;top:6px;right:6px;width:28px;height:28px;padding:0;border:1px solid #3a4558;
+    border-radius:6px;background:rgba(13,16,23,.9);color:#ff8a8a;font-size:14px;line-height:26px;cursor:pointer;z-index:2}
+  .tsTrash:hover{border-color:#ff6b6b;background:rgba(40,12,16,.95);box-shadow:0 0 10px rgba(255,80,80,.35)}
+
+  /* ---- RADIO LOG expand (scrollable history; GAME.openRadioLog) ---- */
+  #radioLogPanel{position:fixed;inset:0;display:none;align-items:flex-end;justify-content:center;z-index:35;
+    background:rgba(3,5,10,.72);padding:12px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
+    user-select:none;-webkit-user-select:none}
+  #radioLogPanel.show{display:flex}
+  #radioLogBox{width:min(96vw,420px);max-height:min(70vh,520px);display:flex;flex-direction:column;
+    background:rgba(8,12,20,.96);border:1px solid #1c5a54;border-radius:14px;
+    box-shadow:0 0 40px rgba(0,0,0,.55);overflow:hidden}
+  #radioLogHead{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #1c3a52}
+  #radioLogHead h2{margin:0;font-size:13px;letter-spacing:1.5px;color:#8fd0ff;flex:1}
+  #radioLogBody{flex:1;overflow:auto;padding:10px 12px;min-height:180px;touch-action:pan-y;
+    -webkit-overflow-scrolling:touch;user-select:text;-webkit-user-select:text}
+  .rlLine{font-size:11px;line-height:1.45;color:#e8edf4;padding:4px 0;border-bottom:1px solid rgba(42,58,82,.35);
+    word-wrap:break-word;white-space:pre-wrap}
+  .rlLine .rlTag{color:#57e6ff;font-weight:700;margin-right:6px;letter-spacing:.5px}
+  #radioLogClose{padding:8px 14px;border-radius:8px;border:1px solid #2a3a52;background:#16202f;color:#e8edf4;
+    font-family:inherit;font-size:11px;font-weight:700;cursor:pointer}
   .tsRow{display:flex;justify-content:space-between;gap:12px;width:100%;font-size:10px}
   .tsRow span{color:#7f8ea6}
   .tsRow b{color:#dff4fd}
@@ -1157,6 +1183,17 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
       <div id="titleSlotRow"></div>
       <button class="ghBtn" id="titleSlotBack">&#9666; BACK</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== RADIO LOG expand (scrollable history; GAME.openRadioLog) ===== -->
+<div id="radioLogPanel">
+  <div id="radioLogBox">
+    <div id="radioLogHead">
+      <h2>◎ COCKPIT RADIO</h2>
+      <button type="button" class="ghBtn" id="radioLogClose">CLOSE</button>
+    </div>
+    <div id="radioLogBody"></div>
   </div>
 </div>
 

@@ -163,10 +163,17 @@
     return { x: W - 12 * k - w, y: 168 * k, w: w, h: h };
   }
 
-  // Warp-gate button, bottom-left, sitting just above the thrust-mode pill.
-  function warpRect() { return { x: 12 * k, y: H - 68 * k, w: 64 * k, h: 22 * k }; }
-  // Only shown when docked or within 200 units of a station (build request).
-  function warpVisible(s) { return !!(s && (s.docked || (s.stationDist != null && s.stationDist <= 200))); }
+  // Warp-gate button — station action row (top-left), sits next to DOCK/FUEL.
+  // Matches gameButtons().warp layout in game/ui.js (x:164, y:96*k, w:68, h:26).
+  function warpRect() { return { x: 164, y: 96 * k, w: 68, h: 26 }; }
+  // Same gate as DOCK/FUEL (stationUI / stationActionR) so all three appear together.
+  function warpVisible(s) {
+    if (!s) return false;
+    if (s.stationUI || s.docked) return true;
+    var r = 200;
+    try { if (typeof CONFIG !== "undefined" && CONFIG.stationActionR != null) r = CONFIG.stationActionR; } catch (e) {}
+    return s.stationDist != null && s.stationDist <= r;
+  }
   function hitWarpButton(x, y) {
     var r = warpRect();
     return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
@@ -590,15 +597,15 @@
     }
   }
 
-  // Warp-gate button (bottom-left) — visible near/at a station; opens the warp UI.
+  // Warp-gate button (station row, next to FUEL) — visible near/at a station.
   function drawWarpButton(s) {
     if (!warpVisible(s)) return;
     var r = warpRect();
-    rrect(ctx, r.x, r.y, r.w, r.h, 8 * k);
-    ctx.fillStyle = COL.slot;
+    rrect(ctx, r.x, r.y, r.w, r.h, 8);
+    ctx.fillStyle = "rgba(20,29,43,0.92)";
     ctx.fill();
     ctx.strokeStyle = COL.charge0;
-    ctx.lineWidth = 1.5 * k;
+    ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.lineWidth = 1;
     ctx.fillStyle = COL.ink;
@@ -653,16 +660,19 @@
     ctx.fill();
   }
 
+  // Only forceHud toasts paint on-canvas (rare). Routine chatter is radio-only.
   function drawToasts(s) {
-    (s.toasts || []).forEach(function (t, i) {
+    var list = (s.toasts || []).filter(function (t) { return t.forceHud; });
+    list.forEach(function (t, i) {
       var alpha = Math.max(0, 1 - (t.age || 0) / 3);
       if (alpha <= 0) return;
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = COL.rUnique;
+      ctx.fillStyle = t.col || COL.rUnique;
       ctx.font = font(11, true);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(t.text, W / 2, (96 + i * 16) * k);
+      // Sit under the top vitals strip, not over the center of the ship view
+      ctx.fillText(t.text, W / 2, (118 + i * 16) * k);
       ctx.globalAlpha = 1;
     });
   }
@@ -759,7 +769,7 @@
           rocks: [{ x: -200, y: 50, color: "#aa8855" }],
           range: 900
         },
-        toasts: [{ text: "+1 Shield Booster", age: 0.5 }],
+        toasts: [{ text: "+1 Shield Booster", age: 0.5, forceHud: true }],
         flash: { hull: 0.5, shield: 0.3 },
         t: 1.25
       };
@@ -860,8 +870,8 @@
       check(wTexts.indexOf("WARP") !== -1, "warp button should show within 200 units of a station");
       check(wTexts.indexOf("UNKNOWN SIGNAL") !== -1, "undiscovered proximity should read UNKNOWN SIGNAL");
       check(ops.some(function (o) { return o[0] === "strokeRect" && Math.round(o[1][2]) === 378; }), "nebula border tint strokeRect expected");
-      // hitWarpButton at button center (k=1): warpRect x=12,y=632,w=64,h=22 → center (44,643).
-      check(hitWarpButton(44, 643) === true, "hitWarpButton should hit the warp button center");
+      // hitWarpButton at button center (k=1): warpRect x=164,y=96,w=68,h=26 → center (198,109).
+      check(hitWarpButton(198, 109) === true, "hitWarpButton should hit the warp button center");
       check(hitWarpButton(300, 300) === false, "hitWarpButton should miss away from the button");
 
       // Discovered proximity shows the station name; friendly rep pip must not throw.
