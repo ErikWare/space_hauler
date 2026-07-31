@@ -7550,12 +7550,33 @@ function toast(text, col, life, opts) {
   const inBattle = typeof GAME !== "undefined" && GAME.state && GAME.state.playMode === "battle";
   toasts.push({ text: text, age: 0, col, life, forceHud: forceHud && !asCrit });
   if (toasts.length > (inBattle ? 5 : 8)) toasts.shift();
+  // Docked: the opaque dock panels cover the canvas, so canvas toasts/radio are
+  // invisible — every refusal ("pick a match first", warp/refuel denials) read
+  // as a dead click. Mirror the message into a small DOM pill above the panels.
+  if (typeof document !== "undefined" && typeof GAME !== "undefined" && GAME.state && GAME.state.docked)
+    dockToast(text, col, life);
   if (asCrit && typeof GAME !== "undefined" && GAME.critNotify) {
     try { GAME.critNotify(text, col, o.channel || "dispatch"); } catch (e) { /* soft */ }
     return;
   }
   if (!forceHud && !inBattle && typeof GAME !== "undefined" && GAME.radioFeed)
     try { GAME.radioFeed(text, col); } catch (e) { /* soft */ }
+}
+// One lazily-built fixed pill (z above every dock panel/modal, pointer-events
+// none so it can never block a tap). Shows the LATEST toast while docked.
+function dockToast(text, col, life) {
+  let el = document.getElementById("dockToast");
+  if (!el) {
+    el = document.createElement("div"); el.id = "dockToast";
+    el.style.cssText = "position:fixed;left:50%;bottom:14%;transform:translateX(-50%);z-index:300;" +
+      "padding:9px 16px;border-radius:9px;background:rgba(10,16,28,.94);border:1px solid #2a3a52;" +
+      "font:700 12px ui-monospace,Menlo,monospace;letter-spacing:.5px;pointer-events:none;" +
+      "opacity:0;transition:opacity .18s ease;max-width:80vw;text-align:center";
+    document.body.appendChild(el);
+  }
+  el.textContent = text; el.style.color = col || "#e8edf4"; el.style.opacity = "1";
+  clearTimeout(dockToast._t);
+  dockToast._t = setTimeout(() => { el.style.opacity = "0"; }, Math.min((life || 3), 3.2) * 1000);
 }
 function stepToasts(dt) {
   for (let i = toasts.length - 1; i >= 0; i--) {
@@ -13767,7 +13788,16 @@ Object.assign(GAME, {
     box.appendChild(acts);
     modal.appendChild(box);
     modal.classList.add("show");
-    modal.addEventListener("click", (e) => { if (e.target === modal) this._ghCloseModal(); }, { once: true });
+    this._ghWireBackdrop(modal);
+  },
+  // Backdrop tap closes — wired ONCE, persistent. ({once:true} here was a trap:
+  // any tap INSIDE the box consumed the listener doing nothing, and every
+  // backdrop tap after that was dead — a fullscreen invisible click-eater
+  // sitting over the dock tabs until the player found the CLOSE button.)
+  _ghWireBackdrop(modal) {
+    if (modal._backdropWired) return;
+    modal._backdropWired = true;
+    modal.addEventListener("click", (e) => { if (e.target === modal) this._ghCloseModal(); });
   },
   _ghCloseModal() {
     if (HEADLESS || typeof document === "undefined") return;
@@ -13859,7 +13889,7 @@ Object.assign(GAME, {
     box.appendChild(acts);
     modal.appendChild(box);
     modal.classList.add("show");
-    modal.addEventListener("click", (e) => { if (e.target === modal) this._ghCloseModal(); }, { once: true });
+    this._ghWireBackdrop(modal);
   },
   // ---- stat delta preview: swap ONE slot on a copy and diff the derivation ----
   _loShipDeltas(ship, nextSlots) {
@@ -21136,8 +21166,10 @@ Object.assign(GAME, {
       this.renderShipsPanel();
     }
     sp._tick++;
-    // background income (drone arrivals etc.) can flip affordability mid-visit
-    if (sp._tick % 20 === 1 && sp._lastCred !== Math.round(s.credits)) this.renderShipsPanel();
+    // background income (drone arrivals etc.) can flip affordability mid-visit —
+    // but never rebuild under a held finger (kills the in-flight tap's click)
+    if (sp._tick % 20 === 1 && sp._lastCred !== Math.round(s.credits)
+        && !(this.uiPointerHeld && this.uiPointerHeld())) this.renderShipsPanel();
   },
   _spHullKeys() { return Object.keys(CONFIG.hulls); },
   _spPageKey() {
@@ -25623,7 +25655,11 @@ Object.assign(GAME, {
     if (!show) { fl._shown = false; return; }
     if (!fl._shown) { fl._shown = true; fl._tick = 0; this.renderFleetPanel(); }
     fl._tick++;
-    if (fl._tick % 20 === 1) this.renderFleetPanel();   // ~3Hz: live trade progress/hp
+    // ~3Hz live trade progress/hp — but NEVER rebuild under a held finger: a tap
+    // whose press/release straddles a rebuild targets a destroyed node and its
+    // click never fires (reads as "the button ignored me"). Next tick catches up.
+    if (fl._tick % 20 === 1 && !(this.uiPointerHeld && this.uiPointerHeld()))
+      this.renderFleetPanel();
   },
   renderFleetPanel() {
     const fl = this._flDOM(); if (!fl) return;
@@ -47938,6 +47974,14 @@ Object.assign(GAME, {
     const s = this.state;
     if (s.titleOpen) return;     // boot menu up — the sim (and its clocks) wait for NEW GAME / LOAD GAME
     if (s.victoryOpen) return;   // EMPIRE ESTABLISHED — world frozen under the victory overlay
+    // Menu-exit clicks are TOP priority — consumed before any warp/overlay
+    // early-return below can starve them. (Launch ▸ / Escape only set this flag;
+    // if an early return fires first the tap silently does nothing and the
+    // player is stuck in the menu. On-planet the surface engine owns the flag.)
+    if (input.closeMenu && !s.onPlanet) {
+      input.closeMenu = false;
+      if (s.galaxyMapOpen) this.closeGalaxyMap(); else if (s.docked) this.closeDock();
+    }
     const inBattle = s.playMode === "battle";
     if (input.warpToggle) {
       input.warpToggle = false;
@@ -48005,7 +48049,10 @@ Object.assign(GAME, {
       else if (this.radioSay)
         this.radioSay("local", "Local net — near " + s.nearBodyLabel + ". [L] to land.", "#57d1c9");
     }
-    if (s.nearLandKey && input.landEdge) {
+    // Landing while BERTHED is forbidden: it left s.docked true on the surface,
+    // where PLANET.tick swallows every menu input — the dock overlay stayed up
+    // over the planet and Launch/Escape were dead (hard player lockout).
+    if (s.nearLandKey && input.landEdge && !s.docked) {
       input.landEdge = false;
       PLANET.land(s, s.nearLandKey);
       return;
@@ -48028,7 +48075,8 @@ Object.assign(GAME, {
         else if (s.atOutpost) this.openOutpostDock(s.atOutpost);   // owned platform → gear/store/fortify
       }
     }
-    if (input.closeMenu) { input.closeMenu = false; if (s.galaxyMapOpen) this.closeGalaxyMap(); else if (s.docked) this.closeDock(); }
+    // (input.closeMenu is consumed at the very top of update — never here, so a
+    // warp/planet early-return can't starve an exit tap.)
     // Phase 6: the open map pauses pilot input (no thrust / taps / tractor /
     // skills / fire) while the world keeps ticking underneath.
     if (s.galaxyMapOpen) {
@@ -50558,6 +50606,14 @@ if (HEADLESS) {
     return { x: (e.clientX - r.left - ins.l) / sw * CONFIG.W,
              y: (e.clientY - r.top - ins.t) / sh * CONFIG.H };
   };
+  // Held-pointer flag (window-wide, capture phase — sees DOM-panel taps too).
+  // Live dock panels (fleet/ships) check this before their periodic re-render:
+  // rebuilding a button between a tap's press and release kills its click.
+  const heldPtrs = new Set();
+  addEventListener("pointerdown", e => heldPtrs.add(e.pointerId), true);
+  const dropHeld = e => heldPtrs.delete(e.pointerId);
+  addEventListener("pointerup", dropHeld, true); addEventListener("pointercancel", dropHeld, true);
+  GAME.uiPointerHeld = () => heldPtrs.size > 0;
   const ptrs = new Map();
   let aimPtr = null, aimId = null, pinch0 = 0, pending = null, mapPtr = null, flyPending = null;
   const MOVE_THRESH = 12, HOLD_MS = 180;

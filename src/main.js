@@ -297,6 +297,14 @@ Object.assign(GAME, {
     const s = this.state;
     if (s.titleOpen) return;     // boot menu up — the sim (and its clocks) wait for NEW GAME / LOAD GAME
     if (s.victoryOpen) return;   // EMPIRE ESTABLISHED — world frozen under the victory overlay
+    // Menu-exit clicks are TOP priority — consumed before any warp/overlay
+    // early-return below can starve them. (Launch ▸ / Escape only set this flag;
+    // if an early return fires first the tap silently does nothing and the
+    // player is stuck in the menu. On-planet the surface engine owns the flag.)
+    if (input.closeMenu && !s.onPlanet) {
+      input.closeMenu = false;
+      if (s.galaxyMapOpen) this.closeGalaxyMap(); else if (s.docked) this.closeDock();
+    }
     const inBattle = s.playMode === "battle";
     if (input.warpToggle) {
       input.warpToggle = false;
@@ -364,7 +372,10 @@ Object.assign(GAME, {
       else if (this.radioSay)
         this.radioSay("local", "Local net — near " + s.nearBodyLabel + ". [L] to land.", "#57d1c9");
     }
-    if (s.nearLandKey && input.landEdge) {
+    // Landing while BERTHED is forbidden: it left s.docked true on the surface,
+    // where PLANET.tick swallows every menu input — the dock overlay stayed up
+    // over the planet and Launch/Escape were dead (hard player lockout).
+    if (s.nearLandKey && input.landEdge && !s.docked) {
       input.landEdge = false;
       PLANET.land(s, s.nearLandKey);
       return;
@@ -387,7 +398,8 @@ Object.assign(GAME, {
         else if (s.atOutpost) this.openOutpostDock(s.atOutpost);   // owned platform → gear/store/fortify
       }
     }
-    if (input.closeMenu) { input.closeMenu = false; if (s.galaxyMapOpen) this.closeGalaxyMap(); else if (s.docked) this.closeDock(); }
+    // (input.closeMenu is consumed at the very top of update — never here, so a
+    // warp/planet early-return can't starve an exit tap.)
     // Phase 6: the open map pauses pilot input (no thrust / taps / tractor /
     // skills / fire) while the world keeps ticking underneath.
     if (s.galaxyMapOpen) {
@@ -2917,6 +2929,14 @@ if (HEADLESS) {
     return { x: (e.clientX - r.left - ins.l) / sw * CONFIG.W,
              y: (e.clientY - r.top - ins.t) / sh * CONFIG.H };
   };
+  // Held-pointer flag (window-wide, capture phase — sees DOM-panel taps too).
+  // Live dock panels (fleet/ships) check this before their periodic re-render:
+  // rebuilding a button between a tap's press and release kills its click.
+  const heldPtrs = new Set();
+  addEventListener("pointerdown", e => heldPtrs.add(e.pointerId), true);
+  const dropHeld = e => heldPtrs.delete(e.pointerId);
+  addEventListener("pointerup", dropHeld, true); addEventListener("pointercancel", dropHeld, true);
+  GAME.uiPointerHeld = () => heldPtrs.size > 0;
   const ptrs = new Map();
   let aimPtr = null, aimId = null, pinch0 = 0, pending = null, mapPtr = null, flyPending = null;
   const MOVE_THRESH = 12, HOLD_MS = 180;

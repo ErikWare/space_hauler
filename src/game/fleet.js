@@ -592,7 +592,11 @@ Object.assign(GAME, {
     if (!show) { fl._shown = false; return; }
     if (!fl._shown) { fl._shown = true; fl._tick = 0; this.renderFleetPanel(); }
     fl._tick++;
-    if (fl._tick % 20 === 1) this.renderFleetPanel();   // ~3Hz: live trade progress/hp
+    // ~3Hz live trade progress/hp — but NEVER rebuild under a held finger: a tap
+    // whose press/release straddles a rebuild targets a destroyed node and its
+    // click never fires (reads as "the button ignored me"). Next tick catches up.
+    if (fl._tick % 20 === 1 && !(this.uiPointerHeld && this.uiPointerHeld()))
+      this.renderFleetPanel();
   },
   renderFleetPanel() {
     const fl = this._flDOM(); if (!fl) return;

@@ -30,6 +30,18 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8163"],
       "port": 8163
+    },
+    {
+      "name": "scapelabs-dashboard",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "SL_DB_PATH=/private/tmp/claude-501/-Users-dstrading-game-dev-space-hauler/706885a0-fa88-4a17-89b5-397b799fd0ba/scratchpad/smoke.db",
+        "SL_SESSION_SECRET=dev-preview-secret",
+        "SL_INSECURE_COOKIES=1",
+        "/Users/dstrading/zeroscape/.venv/bin/python3.12",
+        "-m", "scapelabs_frontend.app"
+      ],
+      "port": 5050
     }
   ]
 }

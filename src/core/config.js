@@ -776,12 +776,33 @@ function toast(text, col, life, opts) {
   const inBattle = typeof GAME !== "undefined" && GAME.state && GAME.state.playMode === "battle";
   toasts.push({ text: text, age: 0, col, life, forceHud: forceHud && !asCrit });
   if (toasts.length > (inBattle ? 5 : 8)) toasts.shift();
+  // Docked: the opaque dock panels cover the canvas, so canvas toasts/radio are
+  // invisible — every refusal ("pick a match first", warp/refuel denials) read
+  // as a dead click. Mirror the message into a small DOM pill above the panels.
+  if (typeof document !== "undefined" && typeof GAME !== "undefined" && GAME.state && GAME.state.docked)
+    dockToast(text, col, life);
   if (asCrit && typeof GAME !== "undefined" && GAME.critNotify) {
     try { GAME.critNotify(text, col, o.channel || "dispatch"); } catch (e) { /* soft */ }
     return;
   }
   if (!forceHud && !inBattle && typeof GAME !== "undefined" && GAME.radioFeed)
     try { GAME.radioFeed(text, col); } catch (e) { /* soft */ }
+}
+// One lazily-built fixed pill (z above every dock panel/modal, pointer-events
+// none so it can never block a tap). Shows the LATEST toast while docked.
+function dockToast(text, col, life) {
+  let el = document.getElementById("dockToast");
+  if (!el) {
+    el = document.createElement("div"); el.id = "dockToast";
+    el.style.cssText = "position:fixed;left:50%;bottom:14%;transform:translateX(-50%);z-index:300;" +
+      "padding:9px 16px;border-radius:9px;background:rgba(10,16,28,.94);border:1px solid #2a3a52;" +
+      "font:700 12px ui-monospace,Menlo,monospace;letter-spacing:.5px;pointer-events:none;" +
+      "opacity:0;transition:opacity .18s ease;max-width:80vw;text-align:center";
+    document.body.appendChild(el);
+  }
+  el.textContent = text; el.style.color = col || "#e8edf4"; el.style.opacity = "1";
+  clearTimeout(dockToast._t);
+  dockToast._t = setTimeout(() => { el.style.opacity = "0"; }, Math.min((life || 3), 3.2) * 1000);
 }
 function stepToasts(dt) {
   for (let i = toasts.length - 1; i >= 0; i--) {

@@ -700,7 +700,16 @@ Object.assign(GAME, {
     box.appendChild(acts);
     modal.appendChild(box);
     modal.classList.add("show");
-    modal.addEventListener("click", (e) => { if (e.target === modal) this._ghCloseModal(); }, { once: true });
+    this._ghWireBackdrop(modal);
+  },
+  // Backdrop tap closes — wired ONCE, persistent. ({once:true} here was a trap:
+  // any tap INSIDE the box consumed the listener doing nothing, and every
+  // backdrop tap after that was dead — a fullscreen invisible click-eater
+  // sitting over the dock tabs until the player found the CLOSE button.)
+  _ghWireBackdrop(modal) {
+    if (modal._backdropWired) return;
+    modal._backdropWired = true;
+    modal.addEventListener("click", (e) => { if (e.target === modal) this._ghCloseModal(); });
   },
   _ghCloseModal() {
     if (HEADLESS || typeof document === "undefined") return;
@@ -792,7 +801,7 @@ Object.assign(GAME, {
     box.appendChild(acts);
     modal.appendChild(box);
     modal.classList.add("show");
-    modal.addEventListener("click", (e) => { if (e.target === modal) this._ghCloseModal(); }, { once: true });
+    this._ghWireBackdrop(modal);
   },
   // ---- stat delta preview: swap ONE slot on a copy and diff the derivation ----
   _loShipDeltas(ship, nextSlots) {

@@ -84,8 +84,10 @@ Object.assign(GAME, {
       this.renderShipsPanel();
     }
     sp._tick++;
-    // background income (drone arrivals etc.) can flip affordability mid-visit
-    if (sp._tick % 20 === 1 && sp._lastCred !== Math.round(s.credits)) this.renderShipsPanel();
+    // background income (drone arrivals etc.) can flip affordability mid-visit —
+    // but never rebuild under a held finger (kills the in-flight tap's click)
+    if (sp._tick % 20 === 1 && sp._lastCred !== Math.round(s.credits)
+        && !(this.uiPointerHeld && this.uiPointerHeld())) this.renderShipsPanel();
   },
   _spHullKeys() { return Object.keys(CONFIG.hulls); },
   _spPageKey() {
