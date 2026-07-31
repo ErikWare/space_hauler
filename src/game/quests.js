@@ -507,9 +507,9 @@ Object.assign(GAME, {
     const s = this.state, ch = s && s._wingChat;
     if (!ch || s.docked || s.onPlanet) return;
     const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
-    // Sit just above the lower-left quest box so banter stays with the job.
+    // Above the quest tracker (itself above SURVEY) — under ship, clear of tools.
     const gb = this.gameButtons && this.gameButtons();
-    const qbox = (gb && gb.quest) || { x: 10, y: CONFIG.H - 52, w: 168, h: 40 };
+    const qbox = (gb && gb.quest) || { x: 10, y: CONFIG.H - 218, w: 168, h: 40 };
     const maxW = Math.min(Math.max(qbox.w + 40, 220), CONFIG.W - 20);
     const x = qbox.x;
     g.font = `${Math.max(8, 9 * k) | 0}px monospace`;
@@ -589,6 +589,7 @@ Object.assign(GAME, {
     }
   },
   // SCAN button hook — start a sensor lock on the active survey body if in range.
+  // Reach is generous (body radius + active scan range) so the button reads as hot.
   tryTutorObjectiveScan() {
     const s = this.state;
     const q = this.activeQuest();
@@ -597,12 +598,12 @@ Object.assign(GAME, {
     if (q.phase !== "escort" || q.survived || q.trapSprung) return false;
     const wp = q.waypoints && q.waypoints[q.wpIndex];
     if (!wp || wp.done) return false;
-    const reach = (wp.r || 90) + 380;
+    const reach = this._tutorScanReach(wp);
     if (this.dist(s.x, s.y, wp.x, wp.y) > reach) {
       this.wingChatCd("scan_far", "Get closer to the " + (wp.kindLabel || "mark") + " before you hit SCAN.", "#ffb45e", 4);
       return false;
     }
-    if (q.scanning) {
+    if (q.scanning || q.scanArmed) {
       this.wingChatCd("scan_busy", "Already sweeping — hold still.", "#ffb45e", 3);
       return true;
     }
@@ -610,9 +611,47 @@ Object.assign(GAME, {
     q.scanning = true;
     q.scanT = 0;
     if (typeof sfx === "function") sfx("grab");
-    if (typeof toast === "function") toast("⊙ SCAN — locking " + (wp.label || "target") + "…", "#57e6ff", 1.8);
+    if (typeof toast === "function") toast("⊕ SCAN — locking " + (wp.label || "target") + "…", "#ff8a3c", 1.8);
     this.wingChat("scan_start_" + (wp.kind || "x"), this._tutorScanStartLine(wp));
+    // Hostile response: sensors light them up — they warp in and attack mid-sweep.
+    this._spawnMarkSkirmish(q, wp);
     return true;
+  },
+  _tutorScanReach(wp) {
+    const base = (wp && wp.r) || 90;
+    const scan = (this.activeScanRange && this.activeScanRange())
+      || ((this.state && this.state.derived && this.state.derived.scanRange) || 1250);
+    // Body + most of combat scan range — you don't need to kiss the rock
+    return base + Math.min(720, scan * 0.55);
+  },
+  // Small attack wave when a survey mark is scanned — with warp-in FX.
+  _spawnMarkSkirmish(q, wp) {
+    const s = this.state;
+    if (!q || !wp || wp.skirmishSpawned) return;
+    wp.skirmishSpawned = true;
+    const fac = s.playerFaction === "vex" ? "krag" : (s.playerFaction === "krag" ? "vex" : "krag");
+    const n = 2 + ((rnd() * 2) | 0); // 2–3 hulls
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rnd() * 0.4;
+      const d = 420 + rnd() * 280;
+      const x = wp.x + Math.cos(a) * d, y = wp.y + Math.sin(a) * d;
+      try {
+        const ship = ForgeFaction.generateAlienShip(fac, i === 0 ? "elite" : "normal",
+          { rng: rnd, x, y, groupId: "tutor_skirmish_" + q.id + "_" + (q.wpIndex | 0), orbitRadius: 200 });
+        ship._tutorSkirmish = true;
+        ship._questId = q.id;
+        ship._warpIn = { t: 0, dur: 0.85 + rnd() * 0.25 };
+        ship.aggro = true;
+        ship.state = "IDLE"; // held until warp finishes (updateAliens flips to COMBAT)
+        s.aliens.push(ship);
+      } catch (e) { /* soft — headless / missing faction kit */ }
+    }
+    if (typeof toast === "function")
+      toast("△ CONTACTS WARPING IN", "#ff8a8a", 2.2);
+    if (this.radioSay)
+      this.radioSay("traffic", "Traffic — unregistered burn signatures on the mark. Weapons free.", "#ff8a8a");
+    this.wingChatCd("skirmish_" + (q.wpIndex | 0),
+      "They felt the sweep. Hold the lock — I will keep them off your bow.", "#ff6b6b", 10);
   },
   _tutorScanStartLine(wp) {
     const k = (wp && wp.kind) || "rock";
@@ -729,6 +768,7 @@ Object.assign(GAME, {
     g.textAlign = "left";
   },
   // Scripted no-win fleet — high tier, many hulls, tagged so we can cull them.
+  // Staggered warp-in so the board floods with orange portals, not a teleport.
   _spawnNoWinAmbush(q) {
     const s = this.state;
     if (!q || q.ambushSpawned) return;
@@ -745,8 +785,9 @@ Object.assign(GAME, {
           { rng: rnd, x, y, groupId: "tutor_ambush_" + q.id, orbitRadius: 280 });
         ship._tutorAmbush = true;
         ship._questId = q.id;
+        ship._warpIn = { t: -i * 0.12, dur: 0.95 }; // staggered portals
         ship.aggro = true;
-        if (ship.state !== "DEAD") ship.state = "ATTACK";
+        ship.state = "IDLE";
         s.aliens.push(ship);
       } catch (e) { /* soft — headless / missing faction kit */ }
     }
@@ -1243,7 +1284,7 @@ Object.assign(GAME, {
         this._specialAllMarksDone(q);
         return;
       }
-      const reach = (wp.r || 90) + 380;
+      const reach = this._tutorScanReach(wp);
       const near = this.dist(s.x, s.y, wp.x, wp.y) < reach;
       q.nearObj = near && !wp.done;
 
@@ -1252,13 +1293,17 @@ Object.assign(GAME, {
       }
 
       // Scan only advances after the player armed it with the SCAN button.
-      if (q.scanArmed && near && !wp.done) {
+      // Grace: once armed, allow a slightly larger bubble so jostling mid-fight
+      // doesn't cancel a 90%-complete sweep.
+      const holdReach = reach * 1.2;
+      const stillNear = this.dist(s.x, s.y, wp.x, wp.y) < holdReach;
+      if (q.scanArmed && stillNear && !wp.done) {
         q.scanning = true;
         q.scanT = Math.min(hold, (q.scanT || 0) + dt);
         if (q.scanT >= hold) {
           this._finishTutorMark(q, wp, wing);
         }
-      } else if (q.scanArmed && !near) {
+      } else if (q.scanArmed && !stillNear) {
         // Left the bubble — drop the lock
         q.scanArmed = false;
         q.scanning = false;
@@ -1376,9 +1421,12 @@ Object.assign(GAME, {
           && !q.survived && !q.trapSprung) {
         this._tickSpecialMission(q, dt);
       } else if (q.action === "scan" && q.scanT < QUESTS.scanHold) {
+        // Hold near the site; active orange SCAN pulse speeds the channel.
         const t = this.siteById(q.siteId);
-        if (t && this.dist(s.x, s.y, t.x, t.y) < QUESTS.scanR) {
-          q.scanT = Math.min(QUESTS.scanHold, q.scanT + dt);
+        const scanR = Math.max(QUESTS.scanR, (this.activeScanRange && this.activeScanRange() * 0.45) || 700);
+        if (t && this.dist(s.x, s.y, t.x, t.y) < scanR) {
+          const pulsing = !!(s.scanPulse);
+          q.scanT = Math.min(QUESTS.scanHold, q.scanT + dt * (pulsing ? 1.6 : 1));
           if (q.scanT >= QUESTS.scanHold) { toast("⊚ survey complete", "#57e6ff"); sfx("grab"); }
         }
       } else if (q.action === "collect" && !q.collected) {
@@ -1624,9 +1672,9 @@ Object.assign(GAME, {
     const s = this.state, q = this.activeQuest();
     if (!q || s.docked) return;
     const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
-    // Lower-left — where WARP used to sit. Mirrors radio on the lower-right.
+    // Lower-left above SURVEY/SCAN/MAP — critical progress without covering tools.
     const gb = this.gameButtons && this.gameButtons();
-    const box = (gb && gb.quest) || { x: 10, y: CONFIG.H - 52, w: 168, h: 40 };
+    const box = (gb && gb.quest) || { x: 10, y: CONFIG.H - 218, w: 168, h: 40 };
     const x = box.x, y = box.y, w = box.w, h = box.h;
     const ready = this.questCanTurnIn(q);
     const skipReady = ready && !this.questObjectiveDone(q);
@@ -1675,6 +1723,7 @@ Object.assign(GAME, {
           x: +w.x, y: +w.y, done: !!w.done, label: w.label || null,
           kind: w.kind || null, kindLabel: w.kindLabel || null,
           art: w.art || null, r: w.r != null ? +w.r : null, rot: w.rot != null ? +w.rot : null,
+          skirmishSpawned: !!w.skirmishSpawned,
         }))
         : null,
       homeX: q.homeX != null ? +q.homeX : null, homeY: q.homeY != null ? +q.homeY : null,

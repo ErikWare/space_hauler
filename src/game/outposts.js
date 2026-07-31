@@ -13,6 +13,9 @@
 // station's round rings) with support struts, a raised hub tower, rim lights,
 // a stubby solar fin, and an amber beacon. Neutral grey; the ownership ring +
 // orbiting drones (drawOutposts) carry the faction colour on top.
+// Civ pads that always ship as real art — the last-resort deck for an owner
+// with no pad of its own (battle "player"/"rival"; see drawOutposts).
+const OUTPOST_CIV_PADS = ["outpost_vex", "outpost_krag", "outpost_nox"];
 SPRITES.define("outpost", { w: 128, h: 128, brief: "hex outpost deck + hub tower",
   bake(g, w, h) {
     const cx = 64, cy = 74, rx = 44, ry = 19, hubY = cy - 22, P = ry / rx, rot = 0.12;
@@ -59,7 +62,16 @@ SPRITES.define("outpost", { w: 128, h: 128, brief: "hex outpost deck + hub tower
 });
 
 Object.assign(GAME, {
-  outpostById(id) { return this.state.outposts.find(o => o.id === id); },
+  outpostById(id) {
+    const s = this.state;
+    // Invalidate cache when outpost list mutates length
+    if (!s._outpostById || s._outpostByIdN !== (s.outposts || []).length) {
+      s._outpostById = new Map();
+      for (const o of s.outposts || []) s._outpostById.set(o.id, o);
+      s._outpostByIdN = (s.outposts || []).length;
+    }
+    return s._outpostById.get(id);
+  },
   outpostFactionCol(o) {
     if (o.owner === "player") return "#22cccc";   // player faction cyan
     return { vex: "#4ad2ff", krag: "#ffb040", nox: "#b06cff" }[o.owner] || "#9aa7b8";
@@ -180,8 +192,12 @@ Object.assign(GAME, {
     toast("★ OUTPOST " + this.regionLabel(region) + " CAPTURED  +" + spoils + "cr", "#22cccc"); AUDIO.play("capture");
     toast("tap outpost to station a guard drone", "#9aa7b8");
     s.capturedOutpostCount = (s.capturedOutpostCount || 0) + 1;   // lifetime unlock stat
-    if (this.onOutpostCaptured) this.onOutpostCaptured(o);   // faction politics news wire
-    this.saveGame();   // auto-save: an outpost capture is progress worth keeping
+    // Faction politics news wire is campaign-only — battle regions have
+    // player/rival controllers the POLITICS msg tables don't know.
+    if (s.playMode !== "battle" && this.onOutpostCaptured) this.onOutpostCaptured(o);
+    if (typeof this.onBattleOutpostCaptured === "function") this.onBattleOutpostCaptured(o);
+    // Battle sessions never write campaign saves
+    if (s.playMode !== "battle") this.saveGame();
   },
   // Battering the platform's hull to 0 doesn't destroy it — it flips it. Same
   // spoils/news-wire path as a guards-down capture, plus an explicit headline.
@@ -245,6 +261,7 @@ Object.assign(GAME, {
     if (!o || o.owner !== "player") return { ok: false, reason: "not yours" };
     if (!d) return { ok: false, reason: "no such drone" };
     if (d.role === "trade") { toast("drone is mid trade run"); sfx("warn"); return { ok: false, reason: "on a trade run" }; }
+    if (d.role === "claim") { toast("claim the trade payout first"); sfx("warn"); return { ok: false, reason: "awaiting claim" }; }
     if (!o.stationedDrones) o.stationedDrones = [];
     if (o.stationedDrones.length >= CONFIG.outpostStationedMax) { toast(`outpost berths full (${CONFIG.outpostStationedMax})`); sfx("warn"); return { ok: false, reason: "berths full" }; }
     s.playerFleet.splice(fleetIdx, 1);
@@ -277,6 +294,7 @@ Object.assign(GAME, {
     if (!berthed) return { ok: false, reason: "no drone in that berth" };
     if (!swap) return { ok: false, reason: "no such drone" };
     if (swap.role === "trade") { toast("drone is mid trade run"); sfx("warn"); return { ok: false, reason: "on a trade run" }; }
+    if (swap.role === "claim") { toast("claim the trade payout first"); sfx("warn"); return { ok: false, reason: "awaiting claim" }; }
     // splice both out first so indices don't invalidate, then place the swaps
     s.playerFleet.splice(fleetIdx, 1);
     o.stationedDrones.splice(berthIdx, 1);
@@ -291,46 +309,77 @@ Object.assign(GAME, {
     toast("drones swapped — berth held, companion recalled", "#22cccc"); sfx("drop");
     return { ok: true };
   },
-  // Stationed-drone defense AI: enemies inside outpostDefendR launch the wing
-  // (companion combat behavior, tethered to the platform); a cleared perimeter
-  // sends them home to re-station. Runs only while the player is near enough
-  // for the local sim to be live (same streaming philosophy as the guards).
+  // Stationed-drone defense AI.
+  // Campaign + battle control: enemies (or P2) inside outpostDefendR launch the
+  // wing; cleared perimeter returns them home. Battle S&D sorties are owned by
+  // battle_control.js (global 30s timer from full outposts) — berthed drones
+  // stay as fortification backlog, not free-roaming hunters.
   updateOutpostDefense(o, dt) {
     const s = this.state, drones = o.stationedDrones;
     if (!drones || !drones.length) return;
     const R = CONFIG.outpostDefendR;
+    const control = s.playMode === "battle" && typeof this.isBattleControl === "function" && this.isBattleControl();
+    const p2 = s.battle && s.battle.p2;
+
+    // Threat: aliens near, or P2 inside the perimeter on control maps
     let threat = false;
-    for (const al of s.aliens) {
-      if (al.state === "DEAD" || al.hp.hull <= 0) continue;
-      if (this.dist(o.x, o.y, al.x, al.y) < R) { threat = true; break; }
+    if (control && p2 && !p2.dead && p2.hp && p2.hp.hull > 0
+        && this.dist(o.x, o.y, p2.x, p2.y) < R) threat = true;
+    if (!threat) {
+      for (const al of s.aliens) {
+        if (al.state === "DEAD" || al.hp.hull <= 0) continue;
+        if (this.dist(o.x, o.y, al.x, al.y) < R) { threat = true; break; }
+      }
     }
+
     for (let di = 0; di < drones.length; di++) {
       const d = drones[di];
-      if (d.state === "trade") continue;   // mid-flight freighter — the trade sim owns it (and recalls it home when the outpost is under attack)
+      if (d.state === "trade") continue;
       d.wcd = Math.max(0, (d.wcd || 0) - dt);
-      if (threat && d.state !== "defend") { d.state = "defend"; d.targetAlienId = null; }
-      else if (!threat && d.state === "defend") { d.state = "return"; d.targetAlienId = null; }
+      if (threat && d.state !== "defend") {
+        d.state = "defend";
+        d.targetAlienId = null;
+      } else if (!threat && d.state === "defend") {
+        d.state = "return"; d.targetAlienId = null;
+      }
 
       if (d.state === "defend") {
-        let tgt = d.targetAlienId != null ? s.aliens.find(a => a.id === d.targetAlienId && a.state !== "DEAD" && a.hp.hull > 0) : null;
-        if (tgt && this.dist(o.x, o.y, tgt.x, tgt.y) > R * 1.5) tgt = null;   // never chase past the perimeter
+        let tgt = null;
+        if (d.targetAlienId === "battle_p2" && p2 && !p2.dead && p2.hp && p2.hp.hull > 0)
+          tgt = p2;
+        else if (d.targetAlienId != null)
+          tgt = s.aliens.find(a => a.id === d.targetAlienId && a.state !== "DEAD" && a.hp.hull > 0);
+
+        if (tgt && this.dist(o.x, o.y, tgt.x, tgt.y) > R * 1.5) tgt = null;
+
         if (!tgt) {
-          let bd = R;
-          for (const al of s.aliens) {
-            if (al.state === "DEAD" || al.hp.hull <= 0) continue;
-            const ad = this.dist(o.x, o.y, al.x, al.y);
-            if (ad < bd) { bd = ad; tgt = al; }
+          if (control && p2 && !p2.dead && p2.hp && p2.hp.hull > 0
+              && this.dist(o.x, o.y, p2.x, p2.y) < R) {
+            tgt = p2; d.targetAlienId = "battle_p2";
+          } else {
+            let bd = R;
+            for (const al of s.aliens) {
+              if (al.state === "DEAD" || al.hp.hull <= 0) continue;
+              const ad = this.dist(o.x, o.y, al.x, al.y);
+              if (ad < bd) { bd = ad; tgt = al; }
+            }
+            d.targetAlienId = tgt ? tgt.id : null;
           }
-          d.targetAlienId = tgt ? tgt.id : null;
         }
+
         if (tgt) {
-          const ws = d.loadout.filter(m => m.type === "weapon");
+          const ws = (d.loadout || []).filter(m => m.type === "weapon");
           if (ws.length && d.wcd <= 0 && this.dist(d.x, d.y, tgt.x, tgt.y) <= FLEET.fireRange) {
-            const dmg = ws.reduce((a, w) => a + w.dmg, 0);   // w.dmg already baked with drone-skill boost (reapplyDroneStats)
+            const dmg = ws.reduce((a, w) => a + w.dmg, 0);
             ForgeCombat.applyDamage(tgt, dmg, dmg, dmg);
             d.wcd = 1 / (ws[0].fireRate || 1);
             burst(tgt.x, tgt.y, "#22cccc", 3);
-            if (tgt.hp.hull <= 0) this.onAlienKilled(tgt);
+            if (tgt.kind === "battlePilot") {
+              if (tgt.hp && tgt.hp.hull <= 0) {
+                tgt.dead = true; tgt.state = "DEAD";
+                if (this.isBattleMatch && this.isBattleMatch()) this.endBattleMatch("p2_down");
+              }
+            } else if (tgt.hp.hull <= 0) this.onAlienKilled(tgt);
           }
           this._outpostDroneMove(d, tgt.x, tgt.y, FLEET.standoff, dt);
         } else this._outpostDroneMove(d, o.x, o.y, 40, dt);
@@ -339,10 +388,9 @@ Object.assign(GAME, {
         if (this.dist(d.x, d.y, o.x, o.y) < 40) { d.state = "stationed"; d.vx = d.vy = 0; d.targetAlienId = null; }
       } else {
         d.state = "stationed";
-        // parked: slow orbit for the renderer + loadout repair ticks
         const a = s.t * 0.5 + di / CONFIG.outpostStationedMax * TAU;
         d.x = o.x + Math.cos(a) * 60; d.y = o.y + Math.sin(a) * 60; d.vx = d.vy = 0;
-        for (const m of d.loadout) {
+        for (const m of d.loadout || []) {
           if (m.type === "repair") d.hp = Math.min(d.maxHp, d.hp + m.amount * dt);
           else if (m.type === "utility") d.shield = Math.min(d.maxShield, d.shield + m.amount * dt);
         }
@@ -386,6 +434,8 @@ Object.assign(GAME, {
   _ownedOutposts() { return this.state.outposts.filter(o => o.owner === "player"); },
   _scheduleReclaim(dt) {
     const s = this.state, C = CONFIG, owned = this._ownedOutposts();
+    // Battle arenas: no faction reconquest waves — P2 is the threat
+    if (s.playMode === "battle") { s._reclaimT = null; return; }
     if (owned.length <= C.reclaimFreeHolds) { s._reclaimT = null; return; }
     if (s._reclaimT == null) {
       const heat = Math.min(1, (owned.length - C.reclaimFreeHolds) / (C.reclaimHeavyHolds - C.reclaimFreeHolds));
@@ -492,19 +542,51 @@ Object.assign(GAME, {
         o.capturable = true;
         toast("outpost defenses down — dock to capture", "#ffd24a"); sfx("sell");
       }
-      // turret auto-fire: enemy platforms shoot the player; captured platforms
-      // shoot the nearest hostile ship instead (only while the local sim is live)
+      // Turret: hitscan laser (instant damage + short beam flash). Replaces the
+      // old slow red ball that never felt like a weapon.
       o.turretCooldown = Math.max(0, o.turretCooldown - dt * 1000);
       if (o.turretCooldown <= 0) {
-        if (o.owner !== "player") {
-          if (d < o.turretRange) {
+        if (!s.outpostShots) s.outpostShots = [];
+        if (o.owner !== "player" && o.owner !== "rival") {
+          if (d < o.turretRange && s.invuln <= 0) {
             o.turretCooldown = o.turretFireRate;
-            if (!s.outpostShots) s.outpostShots = [];
-            const ang = Math.atan2(s.y - o.y, s.x - o.x);
-            s.outpostShots.push({ x: o.x, y: o.y, vx: Math.cos(ang) * 180, vy: Math.sin(ang) * 180, dmg: o.turretDmg, life: 4000 });
+            // Prefer tank drones if they sit in the beam corridor, else the ship.
+            let beamTgt = { x: s.x, y: s.y, kind: "player" };
+            let bestDrone = null, bd = o.turretRange;
+            for (const dr of (s.playerFleet || [])) {
+              if ((dr.role !== "escort" && dr.role !== "tank") || (dr.hp || 0) <= 0) continue;
+              const dd = this.dist(o.x, o.y, dr.x, dr.y);
+              if (dd < bd) {
+                // tanks are preferred even a bit farther
+                const score = dd / (dr.role === "tank" ? 1.35 : 1);
+                if (score < bd) { bd = score; bestDrone = dr; }
+              }
+            }
+            if (bestDrone && this.dist(o.x, o.y, bestDrone.x, bestDrone.y) < o.turretRange) {
+              beamTgt = { x: bestDrone.x, y: bestDrone.y, kind: "drone", drone: bestDrone };
+            }
+            s.outpostShots.push({
+              type: "laser", friendly: false,
+              x0: o.x, y0: o.y, x1: beamTgt.x, y1: beamTgt.y,
+              x: beamTgt.x, y: beamTgt.y, // for legacy culls
+              dmg: o.turretDmg, life: 140,
+            });
+            if (beamTgt.kind === "drone" && beamTgt.drone) {
+              if (this.damageFleetDrone && this.damageFleetDrone(beamTgt.drone, o.turretDmg))
+                this.destroyFleetDrone(beamTgt.drone);
+            } else if (s.invuln <= 0) {
+              this.damageShip(o.turretDmg);
+            }
+            if (typeof sfx === "function") sfx("grab");
           }
-        } else if (d < streamR) {
+        } else if (o.owner === "player" && d < streamR) {
           let tgt = null, td = o.turretRange;
+          // Prefer enemy pilot in battle control
+          const p2 = s.battle && s.battle.p2;
+          if (p2 && !p2.dead && p2.hp && p2.hp.hull > 0) {
+            const pd = this.dist(o.x, o.y, p2.x, p2.y);
+            if (pd < td) { td = pd; tgt = p2; }
+          }
           for (const al of s.aliens) {
             if (al.state === "DEAD" || al.hp.hull <= 0) continue;
             const ad = this.dist(o.x, o.y, al.x, al.y);
@@ -512,17 +594,41 @@ Object.assign(GAME, {
           }
           if (tgt) {
             o.turretCooldown = o.turretFireRate;
-            if (!s.outpostShots) s.outpostShots = [];
-            const ang = Math.atan2(tgt.y - o.y, tgt.x - o.x);
-            s.outpostShots.push({ x: o.x, y: o.y, vx: Math.cos(ang) * 180, vy: Math.sin(ang) * 180, dmg: o.turretDmg, life: 4000, friendly: true });
+            s.outpostShots.push({
+              type: "laser", friendly: true,
+              x0: o.x, y0: o.y, x1: tgt.x, y1: tgt.y,
+              x: tgt.x, y: tgt.y,
+              dmg: o.turretDmg, life: 140,
+            });
+            ForgeCombat.applyDamage(tgt, o.turretDmg, o.turretDmg * 0.85, o.turretDmg * 0.7);
+            if (typeof burst === "function") burst(tgt.x, tgt.y, "#ffd24a", 5);
+            if (tgt.kind === "battlePilot" && tgt.hp && tgt.hp.hull <= 0) {
+              tgt.dead = true; tgt.state = "DEAD";
+              if (this.isBattleMatch && this.isBattleMatch()) this.endBattleMatch("p2_down");
+            }
+          }
+        } else if (o.owner === "rival") {
+          // Rival-held: fire on the player
+          if (d < o.turretRange && s.invuln <= 0) {
+            o.turretCooldown = o.turretFireRate;
+            s.outpostShots.push({
+              type: "laser", friendly: false,
+              x0: o.x, y0: o.y, x1: s.x, y1: s.y,
+              x: s.x, y: s.y, dmg: o.turretDmg, life: 140,
+            });
+            this.damageShip(o.turretDmg);
+            if (typeof sfx === "function") sfx("grab");
           }
         }
       }
       // shield regen
       if (o.shield < o.shieldMax) o.shield = Math.min(o.shieldMax, o.shield + o.shieldRegen * dt / 1000);
-      // FORTIFY-stationed drones defend the perimeter (streamed like the guards)
-      if (o.owner === "player" && o.stationedDrones && o.stationedDrones.length && d < streamR + 1500)
-        this.updateOutpostDefense(o, dt);
+      // FORTIFY-stationed drones: campaign streams when near; battle CONTROL always
+      // sim-live so sorties hunt the enemy pilot across the map.
+      if (o.owner === "player" && o.stationedDrones && o.stationedDrones.length) {
+        const always = s.playMode === "battle" && typeof this.isBattleControl === "function" && this.isBattleControl();
+        if (always || d < streamR + 1500) this.updateOutpostDefense(o, dt);
+      }
 
       const docked = d < C.outpostDockR;
       if (docked) {
@@ -530,7 +636,8 @@ Object.assign(GAME, {
         else if (s.tows.length && (o.owner === "player" || !o.provoked)) this._outpostTurnIn(o);
         if (o.owner === "player") s.atOutpost = o.id;   // DOCK opens the outpost menu
       }
-      this._tickReclaim(o, dt);
+      // Faction reclaim waves are campaign-only (battle uses P2 + S&D pressure)
+      if (s.playMode !== "battle") this._tickReclaim(o, dt);
     }
   },
 
@@ -555,6 +662,19 @@ Object.assign(GAME, {
           const fk = "outpost_" + s.playerFaction;
           if (!ART.ready || ART.has(fk)) oKey = fk;
           else ART.warnMissing(fk, "outpost_player");
+        }
+        // Battle has no playerFaction and its "rival" owner has no pad art, so
+        // both sides fell through to the flat procedural deck. Any civ pad reads
+        // fine — the ownership ring below already says whose it is.
+        if (ART.ready && !ART.has(oKey)) {
+          const fk = "outpost_" + o.faction;
+          if (ART.has(fk)) oKey = fk;
+          else {
+            let hsh = 0;
+            const idStr = String(o.id);
+            for (let i = 0; i < idStr.length; i++) hsh = (hsh * 31 + idStr.charCodeAt(i)) | 0;
+            oKey = OUTPOST_CIV_PADS[Math.abs(hsh) % OUTPOST_CIV_PADS.length];
+          }
         }
         if (!ART.draw(g, oKey, pt.x, pt.y, oW, 0) &&
             !(o.owner !== "player" && ART.draw(g, "outpost_enemy", pt.x, pt.y, oW, 0)))
@@ -615,11 +735,15 @@ Object.assign(GAME, {
     const s = this.state;
     if (!s.outposts) return;
     // global under-attack alert
+    // Banner band sits BELOW the mini-map (which reaches ~162k) — at y92/110
+    // this text ran under the minimap disc and the station action row. Now
+    // k-scaled too, so it tracks the rest of the HUD on large screens.
+    const bk = Math.min(CONFIG.W / 390, CONFIG.H / 700);
     const hit = s.outposts.find(o => o.underAttack && o.owner === "player");
     if (hit) { const pulse = 0.6 + 0.4 * Math.sin(s.t * 5);
       g.font = "bold 13px monospace"; g.textAlign = "center";
       g.fillStyle = `rgba(255,80,96,${pulse})`;
-      g.fillText("⚠ " + this.regionLabel(this.regionGet(hit.regionId)) + " UNDER ATTACK ⚠", CONFIG.W / 2, 92);
+      g.fillText("⚠ " + this.regionLabel(this.regionGet(hit.regionId)) + " UNDER ATTACK ⚠", CONFIG.W / 2, 178 * bk);
       g.textAlign = "left"; }
     // proximity banner for the nearest outpost
     let best = null, bd = 1600;
@@ -629,14 +753,16 @@ Object.assign(GAME, {
     const col = this.outpostFactionCol(best), docked = bd < CONFIG.outpostDockR;
     const label = "OUTPOST " + this.regionLabel(this.regionGet(best.regionId)) +
       (best.owner === "player" ? " — YOURS" : " — " + (best.owner || "").toUpperCase());
+    // Keep these short — the line is centred and the mute button sits at the
+    // right edge of the same band.
     const sub = best.owner === "player"
-        ? (docked ? "DOCK: gear · store · fortify — tap platform: guard drone (" + best.droneGuards.length + "/" + CONFIG.outpostDroneMax + ")" : "your territory")
+        ? (docked ? "DOCK · gear/store/fortify · guards " + best.droneGuards.length + "/" + CONFIG.outpostDroneMax : "your territory")
       : best.capturable ? "DEFENSES DOWN — dock to capture"
       : docked ? "turn-in active — drop tows to sell"
-      : "dock to trade · attack the platform or guards to contest";
+      : "dock to trade · attack to contest";
     g.font = "bold 12px monospace"; g.textAlign = "center";
-    g.fillStyle = col; g.fillText("◆ " + label, CONFIG.W / 2, 110);
-    g.font = "10px monospace"; g.fillStyle = "#9aa7b8"; g.fillText(sub, CONFIG.W / 2, 124);
+    g.fillStyle = col; g.fillText("◆ " + label, CONFIG.W / 2, 196 * bk);
+    g.font = "10px monospace"; g.fillStyle = "#9aa7b8"; g.fillText(sub, CONFIG.W / 2, 210 * bk);
     g.textAlign = "left";
   },
 });

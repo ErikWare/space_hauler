@@ -26,22 +26,26 @@ const SITE_DEFS = {
                 "asteroid_chunk_4", "asteroid_chunk_5", "asteroid_chunk_6"],
     pieceW: [300, 240, 170, 260, 250, 140],
     tumble: true,             // loose rocks spin; wreck/derelict pieces hang dead
-    guards: [1, 2], guardFaction: "nox", guardTier: "normal",   // light pirate opportunists
+    // Heavy body packs — no more lone pickets. Scan the site to unlock the cache.
+    guards: [3, 5], guardFaction: "nox", guardTier: "normal",
+    hpMult: 1.35, lootN: [2, 4],
   },
   shipwreck: {
     label: "shipwreck", glyph: "✕", col: "#8a5f4a", mapCol: "#d08a5e",
     pieceKeys: ["wreck_bow", "wreck_hull", "wreck_stern", "wreck_debris"],
     pieceW: [330, 330, 320, 290],
     tumble: false,
-    guards: [2, 3], guardFaction: "nox", guardTier: "rare",     // territorial scavengers
+    guards: [4, 6], guardFaction: "nox", guardTier: "rare",
+    hpMult: 1.55, lootN: [3, 5],
   },
   alien_derelict: {
     label: "alien derelict", glyph: "✦", col: "#7a6a9e", mapCol: "#c084ff",
     pieceKeys: ["alien_body", "alien_wing", "alien_glyph", "alien_conduit"],
     pieceW: [520, 380, 170, 200],
     tumble: false,
-    guards: [1, 2], guardFaction: "nox", guardTier: "elite",    // heaviest hull, renamed
+    guards: [3, 5], guardFaction: "nox", guardTier: "elite",
     guardName: "Ancient Sentinel", guardColor: "#c084ff",
+    hpMult: 1.85, lootN: [4, 6],
   },
 };
 
@@ -186,7 +190,7 @@ Object.assign(GAME, {
       place(sc.key, sc.w * (0.8 + rng() * 0.5), true, true);
     }
     for (const p of site.pieces) site.r = Math.max(site.r, Math.hypot(p.dx, p.dy) + p.w / 2);
-    // baseline garrison: 1-3 persistent guard records (streamed like outposts)
+    // garrison packs — 3–6 hulls depending on theme (was 1–3)
     const n = def.guards[0] + ((rng() * (def.guards[1] - def.guards[0] + 1)) | 0);
     for (let i = 0; i < n; i++) site.guardRecs.push({ frac: 1, alive: true });
     // base emplacement: a fixed heavy-weapon platform on the two guarded themes
@@ -194,6 +198,11 @@ Object.assign(GAME, {
     // launch homing torpedoes). Resource clusters spawn none. Co-located with the
     // centrepiece (pieces[0], at the anchor) so the chunk shields the platform.
     site.emplacement = this._makeEmplacement(site);
+    // SCAN the heavy body to unlock a loot cache (not free on discover)
+    site.lootScanned = false;
+    site.scanArmed = false;
+    site.scanT = 0;
+    site.scanHold = 3.2;
   },
 
   // Build the stationary weapon platform for a site, or null if its theme is
@@ -213,7 +222,10 @@ Object.assign(GAME, {
     if (roll >= (CONFIG.empChanceByDanger[dl] || 0)) return null;
     const C = CONFIG, m = dangerEnemyMult(site.dangerLevel || 1).hp;
     const dmgM = dangerEnemyMult(site.dangerLevel || 1).dmg;
-    const hullMax = Math.round(C.empHpBase * m), armorMax = Math.round(C.empHpBase * 0.55 * m);
+    // Heavier platforms — fortresses should feel like bosses, not pop-tarts
+    const body = 1.45;
+    const hullMax = Math.round(C.empHpBase * m * body);
+    const armorMax = Math.round(C.empHpBase * 0.65 * m * body);
     // Two clay looks per weapon so ~100 armed sites don't read identically.
     // Bit 5 of the region hash — the theme picker already spent the low bits
     // (h % 3), so a different bit keeps look and theme uncorrelated.
@@ -242,13 +254,28 @@ Object.assign(GAME, {
     for (let i = 0; i < t.guardRecs.length; i++) {
       const rec = t.guardRecs[i];
       if (!rec.alive) continue;
-      const ship = ForgeFaction.generateAlienShip(def.guardFaction, def.guardTier,
+      // Pack mix: leader is top tier; wingmen step down one tier for variety
+      let tier = def.guardTier || "normal";
+      if (i > 0 && tier === "elite") tier = "unique";
+      else if (i > 2 && tier === "unique") tier = "rare";
+      else if (i > 0 && tier === "rare" && i % 2 === 1) tier = "normal";
+      const ship = ForgeFaction.generateAlienShip(def.guardFaction, tier,
         { rng: rnd, x: t.x, y: t.y, groupId: t.id, isLeader: i === 0, orbitRadius: t.r + 150 });
       if (def.guardName) {
         ship.name = def.guardName + (t.guardRecs.length > 1 ? " " + (i + 1) : "");
         ship.color = def.guardColor;
       }
       applyDangerToShip(ship, dl);   // scale full pools first, then the saved frac
+      // Theme HP bump — heavy bodies hit harder to clear
+      const hm = def.hpMult || 1;
+      if (hm !== 1 && ship.hp) {
+        ship.hp.shieldMax = Math.round(ship.hp.shieldMax * hm);
+        ship.hp.armorMax = Math.round(ship.hp.armorMax * hm);
+        ship.hp.hullMax = Math.round(ship.hp.hullMax * hm);
+        ship.hp.shield = ship.hp.shieldMax;
+        ship.hp.armor = ship.hp.armorMax;
+        ship.hp.hull = ship.hp.hullMax;
+      }
       const a = i / t.guardRecs.length * TAU + 0.4;
       ship.x = t.x + Math.cos(a) * (t.r + 130); ship.y = t.y + Math.sin(a) * (t.r + 130);
       ship.hp.shield *= rec.frac; ship.hp.armor *= rec.frac; ship.hp.hull *= rec.frac;
@@ -284,10 +311,14 @@ Object.assign(GAME, {
         const def = SITE_DEFS[t.type];
         // a fortified site is the exception — say so, the player is about to be shot at
         const fort = t.emplacement && !t.emplacement.destroyed;
-        toast(def.glyph + " " + def.label + " sighted — " +
-          this.regionLabel(this.regionGet(t.regionId)) + (fort ? "  ⚠ FORTIFIED" : ""),
-          fort ? "#ff9a3c" : def.mapCol);
+        const msg = def.glyph + " " + def.label + " sighted — " +
+          this.regionLabel(this.regionGet(t.regionId)) + (fort ? " · FORTIFIED" : "") +
+          (t.lootScanned ? "" : " · SCAN to unlock cache");
+        if (this.critNotify) this.critNotify(msg, fort ? "#ff9a3c" : (def.mapCol || "#c8a96e"), "local");
+        else toast(msg, fort ? "#ff9a3c" : def.mapCol);
       }
+      // Site survey channel — hold SCAN on the heavy body to unlock the loot cache
+      this._tickSiteScan(t, dt, d);
       if (d < t.r + C.shipR + 4) this._collideSite(t);   // solid pieces block the ship
       // enemies: after their AI has moved them this frame (updateAliens runs
       // first), push any that ended up inside a piece back out, and mark the site's
@@ -775,8 +806,8 @@ Object.assign(GAME, {
     }
   },
 
-  // Screen-space klaxon while any nearby platform charges its laser, plus a live
-  // count of inbound torpedoes — the "unmissable" LOCKED-ON warning.
+  // Combat telegraph for emplacement lock/torps — mid-screen, not over vitals.
+  // Also pushes a one-shot crit/radio line when lock starts.
   drawEmpAlert(g) {
     if (HEADLESS) return;
     const s = this.state, C = CONFIG, W = CONFIG.W;
@@ -786,21 +817,22 @@ Object.assign(GAME, {
       if (emp && !emp.destroyed && emp.locking) { locking = emp; break; }
     }
     const torps = (s.empTorpedoes || []).length;
+    if (locking && !s._empLockLatch) {
+      s._empLockLatch = true;
+      if (this.critNotify)
+        this.critNotify("Emplacement locking on — break line of sight!", "#ff3b3b", "traffic");
+    }
+    if (!locking) s._empLockLatch = false;
     if (!locking && !torps) return;
     const H = CONFIG.H, k = Math.min(W / 390, H / 700);
-    // Vertical placement is a FRACTION of height, not k-scaled: the toast stack and
-    // the trader/route alert lines own the k-scaled band up top, and this has to
-    // stay clear of them at every aspect ratio.
-    let y = H * 0.30;
+    let y = H * 0.42;   // clear of top vitals / under the ship band
     g.save(); g.textAlign = "center";
     if (locking) {
       const frac = Math.min(1, locking.lockT / C.empLaserLockMs);
       const pulse = 0.55 + 0.45 * Math.abs(Math.sin(s.t * 12));
-      g.fillStyle = hexA("#ff2b2b", 0.16 * pulse);   // edge wash — unmissable in peripheral vision
-      g.fillRect(0, 0, W, 10 * k); g.fillRect(0, H - 10 * k, W, 10 * k);
-      g.fillStyle = "rgba(5,7,13,0.55)"; g.fillRect(0, y - 13 * k, W, 26 * k);
-      g.fillStyle = hexA("#ff3b3b", pulse); g.font = `bold ${13 * k | 0}px monospace`;
-      g.fillText("⚠ LOCKED ON — BREAK LINE OF SIGHT", W / 2, y);
+      g.fillStyle = "rgba(5,7,13,0.55)"; g.fillRect(W * 0.15, y - 13 * k, W * 0.7, 26 * k);
+      g.fillStyle = hexA("#ff3b3b", pulse); g.font = `bold ${12 * k | 0}px monospace`;
+      g.fillText("⚠ LOCKED ON — BREAK LOS", W / 2, y);
       g.fillStyle = "#1c2430"; g.fillRect(W / 2 - 70 * k, y + 6 * k, 140 * k, 5 * k);
       g.fillStyle = "#ff2b2b"; g.fillRect(W / 2 - 70 * k, y + 6 * k, 140 * k * frac, 5 * k);
       y += 26 * k;
@@ -811,6 +843,130 @@ Object.assign(GAME, {
       g.fillText("◈ " + torps + " TORPEDO" + (torps > 1 ? "ES" : "") + " INBOUND", W / 2, y);
     }
     g.textAlign = "left"; g.restore();
+  },
+
+  // ---- SCAN a heavy body to unlock its loot cache ---------------------------
+  // SCAN button arms this when the player is on a discovered, unscanned site.
+  trySiteScan() {
+    const s = this.state;
+    if (!s || s.docked || s.dead) return false;
+    let best = null, bd = 1e9;
+    const reach = (this.activeScanRange && this.activeScanRange() * 0.5) || 700;
+    for (const t of (s.sites || [])) {
+      if (!t.discovered || t.lootScanned) continue;
+      const d = this.dist(s.x, s.y, t.x, t.y);
+      const maxD = (t.r || 120) + reach;
+      if (d < maxD && d < bd) { bd = d; best = t; }
+    }
+    if (!best) return false;
+    if (best.scanArmed) {
+      if (this.critNotify)
+        this.critNotify("Already sweeping the body — hold position.", "#ffb45e", "local");
+      return true;
+    }
+    best.scanArmed = true;
+    best.scanT = 0;
+    if (this.beginActiveScanPulse) this.beginActiveScanPulse(true);
+    const def = SITE_DEFS[best.type] || {};
+    if (typeof toast === "function")
+      toast("⊕ SCAN — surveying " + (def.label || "site") + "…", "#ff8a3c", 1.8);
+    if (this.radioSay)
+      this.radioSay("local", "Local net — deep scan on " + (def.label || "heavy body") + ". Hold the window.", "#c8a96e");
+    return true;
+  },
+  _tickSiteScan(t, dt, d) {
+    if (!t || t.lootScanned) return;
+    const hold = t.scanHold || 3.2;
+    const reach = (t.r || 120) + ((this.activeScanRange && this.activeScanRange() * 0.55) || 750);
+    if (t.scanArmed) {
+      if (d <= reach * 1.15) {
+        t.scanT = Math.min(hold, (t.scanT || 0) + dt);
+        if (t.scanT >= hold) this._finishSiteScan(t);
+      } else {
+        t.scanArmed = false;
+        t.scanT = 0;
+        if (this.critNotify)
+          this.critNotify("Scan lock broken — get back on the body and SCAN.", "#ff8a8a", "local");
+      }
+    }
+  },
+  _finishSiteScan(t) {
+    const s = this.state;
+    if (!t || t.lootScanned) return;
+    t.lootScanned = true;
+    t.scanArmed = false;
+    t.scanT = 0;
+    const def = SITE_DEFS[t.type] || {};
+    const nRange = def.lootN || [2, 4];
+    const n = nRange[0] + ((rnd() * (nRange[1] - nRange[0] + 1)) | 0);
+    const dl = t.dangerLevel || getDangerLevel(t.x, t.y);
+    // Loot cache box at the anchor + scatter of recoverable orbs
+    if (!s.siteLoot) s.siteLoot = [];
+    s.siteLoot.push({
+      id: "loot_" + t.id, siteId: t.id,
+      x: t.x, y: t.y, r: 28,
+      opened: false, n, dangerLevel: dl,
+      t: 0,
+    });
+    // Immediate visible orbs so the player sees the payout land
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + rnd() * 0.4;
+      const dist = 40 + rnd() * 50;
+      const lx = t.x + Math.cos(a) * dist, ly = t.y + Math.sin(a) * dist;
+      if (rnd() < 0.45) {
+        // ore chunk
+        const oreType = (CONFIG.rings && CONFIG.rings[(rnd() * CONFIG.rings.length) | 0]) || { type: "copper", col: "#c8d4e0" };
+        s.loot.push({
+          x: lx, y: ly, vx: (rnd() - 0.5) * 20, vy: (rnd() - 0.5) * 20,
+          ore: oreType.type, t: 0, _siteLoot: t.id,
+        });
+      } else {
+        // gear
+        try {
+          const bases = ["laser", "cannon", "missile", "shield_extender", "armor_plate", "fuel_cell"];
+          const base = bases[(rnd() * bases.length) | 0];
+          const tier = rollDangerTier ? rollDangerTier(dl, rnd) : "normal";
+          const item = ForgeItemSystem.generateItem(base, tier, { ilvl: Math.max(1, dl), rng: rnd });
+          s.loot.push({
+            x: lx, y: ly, vx: (rnd() - 0.5) * 20, vy: (rnd() - 0.5) * 20,
+            item, t: 0, _siteLoot: t.id,
+          });
+        } catch (e) {
+          s.loot.push({
+            x: lx, y: ly, vx: 0, vy: 0,
+            credits: 40 + ((rnd() * 80 * dl) | 0), t: 0, _siteLoot: t.id,
+          });
+        }
+      }
+    }
+    if (typeof sfx === "function") sfx("sell");
+    if (typeof burst === "function") burst(t.x, t.y, "#ffd24a", 18);
+    if (this.critNotify)
+      this.critNotify("Cache unlocked — " + n + " containers at the " + (def.label || "site") + ".", "#ffd24a", "local");
+    else if (typeof toast === "function")
+      toast("★ CACHE UNLOCKED — " + n + " containers", "#ffd24a", 2.8);
+  },
+  // World draw: glowing cache marker on scanned sites until looted dry
+  drawSiteLoot(g) {
+    if (HEADLESS) return;
+    const s = this.state;
+    if (!s.sites) return;
+    const z = s.cam.zoom;
+    for (const t of s.sites) {
+      if (!t.discovered || !t.lootScanned) continue;
+      // Soft beacon at site center while any site-tagged loot remains nearby
+      const has = (s.loot || []).some(L => L._siteLoot === t.id);
+      if (!has) continue;
+      const p = this.SF(t.x, t.y);
+      const pulse = 0.5 + 0.5 * Math.sin((s.t || 0) * 3.2);
+      g.strokeStyle = `rgba(255,210,74,${0.35 + 0.4 * pulse})`;
+      g.lineWidth = 2;
+      g.beginPath(); g.arc(p.x, p.y, Math.max(12, 18 * z) + 4 * pulse, 0, TAU); g.stroke();
+      g.font = `bold ${Math.max(8, 9 * z) | 0}px monospace`;
+      g.textAlign = "center"; g.fillStyle = "#ffd27a";
+      g.fillText("★ CACHE", p.x, p.y - Math.max(16, 20 * z));
+      g.textAlign = "left";
+    }
   },
 
   // ---- selfTest (build.py --check wires this in) --------------------------
@@ -855,7 +1011,7 @@ Object.assign(GAME, {
         const themed = t.pieces.filter(p => !p.scatter), scatter = t.pieces.filter(p => p.scatter);
         check(themed.length >= 3 && themed.length <= 5, t.id + " has " + themed.length + " theme pieces");
         check(scatter.length >= 2 && scatter.length <= 4, t.id + " has " + scatter.length + " scatter pieces");
-        check(t.guardRecs.length >= 1 && t.guardRecs.length <= 3, t.id + " has " + t.guardRecs.length + " defenders");
+        check(t.guardRecs.length >= 3 && t.guardRecs.length <= 6, t.id + " has " + t.guardRecs.length + " defenders");
         for (const p of themed) check(def.pieceKeys.includes(p.key), t.id + " off-theme piece '" + p.key + "'");
       }
 
@@ -1013,18 +1169,21 @@ Object.assign(GAME, {
       check(Math.abs(rest.hp.hull - ve.hp.hullMax * 0.5) < 1 && rest.hp.armor === 0, "emplacement damage must survive a save round-trip");
 
       // 9. flank avoidance: an alien tagged with a chunk to route around has its
-      //    pursuit velocity deflected off the straight line to the player
+      //    pursuit velocity deflected more than open dogfight steering alone.
       const al = { x: 200, y: 0, vx: 0, vy: 0, angle: 0, state: "COMBAT", speed: 1,
         orbitRadius: 0, preferredRange: 200, retreatHull: 0, _fireCd: 0, _fireCdMax: 1000,
+        _strafeT: 0, _orbitSign: 1, _rangePhase: 0, _jitter: 0,
         hp: { shield: 0, shieldMax: 0, armor: 0, armorMax: 0, hull: 100, hullMax: 100 },
         _avoid: [{ x: 300, y: 0, r: 120 }] };   // chunk dead ahead on the path to (1000,0)
       ForgeFaction.updateAlienAI(al, { x: 1000, y: 0 }, [al], 1 / 60);
       check(Math.abs(al.vy) > 1, "avoidance must deflect pursuit off the straight line");
       const al2 = { x: 200, y: 0, vx: 0, vy: 0, angle: 0, state: "COMBAT", speed: 1,
         orbitRadius: 0, preferredRange: 200, retreatHull: 0, _fireCd: 0, _fireCdMax: 1000,
+        _strafeT: 0, _orbitSign: 1, _rangePhase: 0, _jitter: 0,
         hp: { shield: 0, shieldMax: 0, armor: 0, armorMax: 0, hull: 100, hullMax: 100 } };   // no _avoid
       ForgeFaction.updateAlienAI(al2, { x: 1000, y: 0 }, [al2], 1 / 60);
-      check(Math.abs(al2.vy) < 1e-6, "no _avoid → pursuit is unchanged (straight line)");
+      check(Math.abs(al.vy) > Math.abs(al2.vy) + 0.5,
+        "avoidance must deflect more than open dogfight strafe");
 
       // 10. cover shakes pursuit: sight blocked AT RANGE for guardLoseSightT drops a
       //     guard back to dormant; clear sight, or a close hug, keeps it hunting

@@ -41,9 +41,11 @@
   var CLASS_BY_TIER = { normal: "fighter", rare: "raider", unique: "gunship", elite: "carrier" };
   var HULLR_BY_CLASS = { fighter: 12, raider: 16, gunship: 21, carrier: 28 };
 
-  var BASE_SPEED = 120;   // world units/s at speedMul 1.0, thrust 100
+  var BASE_SPEED = 95;    // world units/s at speedMul 1.0 — slightly slower, readable dogfights
+  var TURN_RATE = 2.15;   // rad/s — smooth banking, not snap-to-player
   var SCATTER_TIME = 3;   // seconds followers scatter after their leader dies
   var DEFAULT_FIRE_MS = 1200;
+  var SOFT_RETREAT = 0.22; // all factions peel when hull drops below this (if no faction override)
 
   /* Three factions. base.* are the ship-theme stats from the build request; the
    * loadout() decides which item bases roll into each ship (same catalog the player
@@ -56,19 +58,19 @@
       key: "vex", name: "Vex", weapon: "laser", color: "#4ad2ff", dmgMul: 0.7,
       base: { shield: 50, armor: 15, hull: 25, scanRange: 700, speedMul: 1.4, armorRes: 0.0, shieldRegen: 3, armorRepair: 0 },
       ranks: { normal: "Vex Scout", rare: "Vex Hunter", unique: "Vex Adept", elite: "Vex Commander" },
-      behavior: "kite", priority: "lowShield", preferredRange: 450, retreatHull: 0
+      behavior: "kite", priority: "lowShield", preferredRange: 480, retreatHull: 0.18
     },
     krag: {
       key: "krag", name: "Krag", weapon: "cannon", color: "#ffb040", dmgMul: 1.25, // "high damage" = the damage rig
-      base: { shield: 40, armor: 140, hull: 80, scanRange: 500, speedMul: 0.7, armorRes: 0.1, shieldRegen: 0, armorRepair: 3 },
+      base: { shield: 40, armor: 140, hull: 80, scanRange: 500, speedMul: 0.65, armorRes: 0.1, shieldRegen: 0, armorRepair: 3 },
       ranks: { normal: "Krag Grunt", rare: "Krag Enforcer", unique: "Krag Breaker", elite: "Krag Warlord" },
-      behavior: "advance", priority: "lowArmor", preferredRange: 250, retreatHull: 0
+      behavior: "advance", priority: "lowArmor", preferredRange: 280, retreatHull: 0.20
     },
     nox: {
       key: "nox", name: "Nox", weapon: "missile", color: "#57d1c9", dmgMul: 1.0, missileAmmo: 40, // the ammo rig
-      base: { shield: 80, armor: 80, hull: 100, scanRange: 450, speedMul: 1.0, armorRes: 0.1, shieldRegen: 4, armorRepair: 0 },
+      base: { shield: 80, armor: 80, hull: 100, scanRange: 450, speedMul: 0.9, armorRes: 0.1, shieldRegen: 4, armorRepair: 0 },
       ranks: { normal: "Nox Drone", rare: "Nox Striker", unique: "Nox Warden", elite: "Nox Overlord" },
-      behavior: "hold", priority: null, preferredRange: 300, retreatHull: 0.30
+      behavior: "hold", priority: null, preferredRange: 340, retreatHull: 0.30
     }
   };
 
@@ -295,29 +297,100 @@
     return { vx: bx / bl * speed, vy: by / bl * speed };
   }
 
+  // Smooth bank toward wantAngle (rad). Guns track independently of nose.
+  function smoothTurn(alien, wantAngle, delta) {
+    var a = alien.angle || 0;
+    var da = wantAngle - a;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    var max = TURN_RATE * (delta || 0);
+    if (Math.abs(da) <= max) alien.angle = wantAngle;
+    else alien.angle = a + (da > 0 ? 1 : -1) * max;
+  }
+
   function steerTo(alien, tx, ty, speed, delta) {
     var dx = tx - alien.x, dy = ty - alien.y, d = Math.hypot(dx, dy) || 1;
     alien.vx = dx / d * speed; alien.vy = dy / d * speed;
     var av = avoidBlend(alien, alien.vx, alien.vy, speed);
     if (av) { alien.vx = av.vx; alien.vy = av.vy; }
     alien.x += alien.vx * delta; alien.y += alien.vy * delta;
-    if (d > 1) alien.angle = Math.atan2(dy, dx);
+    // Face travel direction (smooth) — not locked to the player.
+    if (d > 1) smoothTurn(alien, Math.atan2(alien.vy, alien.vx), delta);
   }
 
-  // Maintain a preferred distance from the player: close in if too far, back off if
-  // too close (kiting), orbit tangentially inside the dead-band. Always faces player.
+  // Dogfight band: close in / peel out / strafe. Breathes range so fights aren't
+  // a single clockwise carousel. Nose follows velocity; weapons free-track.
   function holdRange(alien, px, py, desired, speed, delta) {
+    if (alien._strafeT == null) {
+      alien._strafeT = 0;
+      alien._orbitSign = (alien._jitter || 0) >= 0 ? 1 : -1;
+      alien._rangePhase = Math.abs(alien._jitter || 0.3) * 6;
+    }
+    alien._strafeT += delta;
+    if (alien._strafeT > 3.2 + Math.abs(alien._jitter || 0) * 2) {
+      alien._strafeT = 0;
+      if (Math.random() < 0.6) alien._orbitSign *= -1;
+    }
+    alien._rangePhase = (alien._rangePhase || 0) + delta * 0.85;
+    var breath = Math.sin(alien._rangePhase) * desired * 0.24;
+    var want = desired + breath;
+    if (alien.behavior === "kite") want *= 1.12;
+    else if (alien.behavior === "advance") want *= 0.82;
+
     var dx = alien.x - px, dy = alien.y - py, d = Math.hypot(dx, dy) || 1;
-    var ux = dx / d, uy = dy / d;
-    var err = d - desired, mx, my;
-    if (Math.abs(err) > 20) { var rdir = err > 0 ? -1 : 1; mx = ux * rdir; my = uy * rdir; }
-    else { mx = -uy; my = ux; }                              // tangential orbit
+    var ux = dx / d, uy = dy / d; // unit from target → alien
+    var err = d - want, sign = alien._orbitSign || 1;
+    var mx, my;
+    if (err > 50) {
+      // Too far — close on a diagonal (not a straight rush)
+      mx = -ux * 0.72 + (-uy) * sign * 0.55;
+      my = -uy * 0.72 + ux * sign * 0.55;
+    } else if (err < -50) {
+      // Too close — peel out while strafing
+      mx = ux * 0.8 + (-uy) * sign * 0.52;
+      my = uy * 0.8 + ux * sign * 0.52;
+    } else {
+      // In band — mostly lateral, slight radial correction
+      mx = -uy * sign + ux * (err * 0.012);
+      my = ux * sign + uy * (err * 0.012);
+    }
     var m = Math.hypot(mx, my) || 1;
     alien.vx = mx / m * speed; alien.vy = my / m * speed;
     var av = avoidBlend(alien, alien.vx, alien.vy, speed);
     if (av) { alien.vx = av.vx; alien.vy = av.vy; }
     alien.x += alien.vx * delta; alien.y += alien.vy * delta;
-    alien.angle = Math.atan2(py - alien.y, px - alien.x);
+    var spd = Math.hypot(alien.vx, alien.vy);
+    if (spd > 8) smoothTurn(alien, Math.atan2(alien.vy, alien.vx), delta);
+  }
+
+  // Pick player or escort drone. Tank drones pull more heat; closer = higher score.
+  function pickCombatTarget(alien, player) {
+    var best = { kind: "player", x: player.x || 0, y: player.y || 0, ref: player, drone: null };
+    var bestS = 1 / Math.max(80, dist(alien, best));
+    var fleet = player && player.fleet;
+    if (!fleet || !fleet.length) return best;
+    for (var i = 0; i < fleet.length; i++) {
+      var d = fleet[i];
+      if (!d || (d.hp != null && d.hp <= 0)) continue;
+      var threat = d.role === "tank" ? 2.6 : 1.35;
+      var s = threat / Math.max(60, dist(alien, d));
+      if (s > bestS) {
+        bestS = s;
+        best = { kind: "drone", x: d.x, y: d.y, ref: d, drone: d };
+      }
+    }
+    return best;
+  }
+
+  function hitDrone(drone, amount) {
+    if (!drone || amount <= 0) return false;
+    var left = amount;
+    if ((drone.shield || 0) > 0) {
+      var take = Math.min(drone.shield, left);
+      drone.shield -= take; left -= take;
+    }
+    if (left > 0) drone.hp = Math.max(0, (drone.hp || 0) - left);
+    return (drone.hp || 0) <= 0;
   }
 
   function findLeaderAlive(allAliens, gid) {
@@ -337,18 +410,32 @@
     return best;
   }
 
-  function tryFire(alien, target) {
+  // Guns free-track — range check only, no facing requirement.
+  function tryFire(alien, target, player) {
     var Combat = CB();
-    if (!Combat || alien._fireCd > 0) return { fired: false, shot: null };
+    if (!Combat || alien._fireCd > 0) return { fired: false, shot: null, killedDrone: false };
     var w = alien.weapon, range = (w && w.weapon && w.weapon.range) || 0;
-    if (!target || dist(alien, target) > range) return { fired: false, shot: null };
-    var shot = Combat.fireWeapon(w, target, [target], { x: alien.x, y: alien.y, weaponDmg: alien.weaponDmg, fireRate: alien.fireRate });
-    if (shot && shot.ok) { alien._fireCd = alien._fireCdMax; return { fired: true, shot: shot }; }
-    return { fired: false, shot: shot };
+    if (!target || dist(alien, target) > range) return { fired: false, shot: null, killedDrone: false };
+
+    // Drone hulls are flat shield/hp — not the 3-layer player model.
+    if (target.kind === "drone" && target.drone) {
+      var base = alien.weaponDmg != null ? alien.weaponDmg : 10;
+      var mult = 0.85;
+      var killed = hitDrone(target.drone, base * mult);
+      alien._fireCd = alien._fireCdMax;
+      return { fired: true, shot: { ok: true, hit: true, damage: base * mult, drone: true }, killedDrone: killed };
+    }
+
+    var shot = Combat.fireWeapon(w, target.ref || target, [target.ref || target], {
+      x: alien.x, y: alien.y, weaponDmg: alien.weaponDmg, fireRate: alien.fireRate
+    });
+    if (shot && shot.ok) { alien._fireCd = alien._fireCdMax; return { fired: true, shot: shot, killedDrone: false }; }
+    return { fired: false, shot: shot, killedDrone: false };
   }
 
   // Advance one alien: regen, state machine, movement, and (in COMBAT) firing.
   // delta is seconds. Mutates alien; returns { state, fired, shot, scattering? }.
+  // playerState may include .fleet: [{x,y,hp,shield,role,id}] escort/tank drones.
   function updateAlienAI(alien, playerState, allAliens, delta) {
     if (!alien) return null;
     delta = delta || 0;
@@ -376,36 +463,43 @@
       return { state: alien.state, scattering: true, fired: false, shot: null };
     }
 
-    var fired = false, shot = null;
-    var dp = dist(alien, player);
+    var fired = false, shot = null, killedDrone = false;
+    var tgt = pickCombatTarget(alien, player);
+    var dp = dist(alien, tgt);
     var desired = alien.orbitRadius || alien.preferredRange;
+    var retreatAt = (alien.retreatHull != null && alien.retreatHull > 0) ? alien.retreatHull : SOFT_RETREAT;
 
     switch (alien.state) {
       case "IDLE":
         break;                                   // dormant until activateGroup wakes it
       case "ALERT":
         alien.state = "APPROACH";
-        steerTo(alien, player.x, player.y, speed, delta);
+        steerTo(alien, tgt.x, tgt.y, speed, delta);
         break;
       case "APPROACH":
-        if (dp <= desired + 80) alien.state = "COMBAT";
-        else steerTo(alien, player.x, player.y, speed, delta);
+        if (dp <= desired + 100) alien.state = "COMBAT";
+        else steerTo(alien, tgt.x, tgt.y, speed * 1.05, delta);
         break;
       case "COMBAT":
-        if (alien.retreatHull > 0 && alien.hp.hull / alien.hp.hullMax < alien.retreatHull) { alien.state = "RETREAT"; break; }
-        holdRange(alien, player.x, player.y, desired, speed, delta);
-        var r = tryFire(alien, player);
-        fired = r.fired; shot = r.shot;
+        if (alien.hp.hull / alien.hp.hullMax < retreatAt) { alien.state = "RETREAT"; break; }
+        holdRange(alien, tgt.x, tgt.y, desired, speed, delta);
+        var r = tryFire(alien, tgt, player);
+        fired = r.fired; shot = r.shot; killedDrone = !!r.killedDrone;
         break;
       case "RETREAT":
-        if (alien.hp.hull / alien.hp.hullMax >= alien.retreatHull + 0.10) { alien.state = "COMBAT"; break; }
+        // Stay away until hull recovers above the threshold + buffer, or run long enough
+        if (alien.hp.hull / alien.hp.hullMax >= retreatAt + 0.12) { alien.state = "COMBAT"; break; }
         var nb = nearestNebula(alien, player);
-        if (nb) steerTo(alien, nb.x, nb.y, speed, delta);
-        else { var fa = Math.atan2(alien.y - player.y, alien.x - player.x); steerTo(alien, alien.x + Math.cos(fa) * 400, alien.y + Math.sin(fa) * 400, speed, delta); }
+        if (nb) steerTo(alien, nb.x, nb.y, speed * 1.1, delta);
+        else {
+          // Hard peel from the threat (player), not the last drone — keep the board readable
+          var fa = Math.atan2(alien.y - player.y, alien.x - player.x);
+          steerTo(alien, alien.x + Math.cos(fa) * 450, alien.y + Math.sin(fa) * 450, speed * 1.15, delta);
+        }
         break;
       default: break;
     }
-    return { state: alien.state, fired: fired, shot: shot };
+    return { state: alien.state, fired: fired, shot: shot, killedDrone: killedDrone };
   }
 
   /* ── loot ────────────────────────────────────────────────────────────────── */

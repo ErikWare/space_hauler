@@ -1,0 +1,18 @@
+{
+  "at": "2026-07-29T18:49:06.131Z",
+  "passed": [
+    "missile + laser both armed",
+    "independent CDs: laser fires faster than missile",
+    "even duel with drones roughly balanced across hulls",
+    "pilot-only even match within tolerance",
+    "P2 drones present in even duel (n=2)",
+    "duel sim with P2 drones runs without crash",
+    "equal resource grunt war stable",
+    "resource exhaustion shifts pressure correctly",
+    "control load ok (1ms / 10s sim)",
+    "duel load ok (0ms / 10s sim)",
+    "scan emits single orange ring"
+  ],
+  "warnings": [],
+  "failures": []
+}

@@ -1,12 +1,10 @@
 /*=== HARNESS:TITLE ==========================================================*/
-// Title screen — the boot landing (no more autoload). Three DOM pages inside
-// #titlePanel over the opening_scene hero art: HOME (NEW GAME / LOAD GAME),
-// FACTIONS (Krag / Vex / Nox cards → pick spawns the run at that faction's
-// home port), and SLOTS (the 3 save-slot cards, doubling as the overwrite
-// picker when a new game finds every slot full). The world sim idles while
-// s.titleOpen is up (update() early-outs, saveGame refuses). All DOM access is
-// HEADLESS-guarded; the state helpers (_spawnAtStation, factionHomeStation)
-// are pure and selfTest-covered.
+// Title screen — the boot landing (no more autoload). DOM pages inside
+// #titlePanel over the opening_scene hero art: HOME (NEW GAME / LOAD GAME /
+// BATTLE), FACTIONS, PORTRAITS, SLOTS, and BATTLE PICK (sandbox vs career).
+// The world sim idles while s.titleOpen is up (update() early-outs, saveGame
+// refuses). All DOM access is HEADLESS-guarded; the state helpers
+// (_spawnAtStation, factionHomeStation) are pure and selfTest-covered.
 const TITLE_FACTIONS = [
   { key: "krag", name: "KRAG COMBINE", icon: "sprites/icon_krag.png", color: "#ffb45e",
     blurb: "Industrial scavengers of the strip-mined moons — the Krag machine wastes nothing, and it is always hungry." },
@@ -118,8 +116,13 @@ Object.assign(GAME, {
     if (el) el.classList.remove("show");
   },
   _titlePage(name) {
-    for (const p of ["home", "factions", "portraits", "slots"]) {
-      const el = document.getElementById("title" + p[0].toUpperCase() + p.slice(1));
+    // Map short names → element ids (battlePick is multi-word).
+    const ids = {
+      home: "titleHome", factions: "titleFactions", portraits: "titlePortraits",
+      slots: "titleSlots", battlePick: "titleBattlePick",
+    };
+    for (const [p, id] of Object.entries(ids)) {
+      const el = document.getElementById(id);
       if (el) el.style.display = p === name ? "" : "none";
     }
   },
@@ -128,6 +131,11 @@ Object.assign(GAME, {
     for (let n = 1; n <= SAVE_SLOTS; n++) any = any || this.slotUsed(n);
     const btn = document.getElementById("titleLoad");
     if (btn) { btn.disabled = !any; btn.textContent = any ? "LOAD GAME" : "NO SAVES"; }
+    const career = document.getElementById("titleBattleCareer");
+    if (career) {
+      career.disabled = !any;
+      career.textContent = any ? "CAREER (LADDER)" : "CAREER (NO SAVES)";
+    }
   },
   renderTitleFactions() {
     const row = document.getElementById("titleFactionRow"); if (!row) return;
@@ -162,13 +170,70 @@ Object.assign(GAME, {
     for (const card of row.querySelectorAll("[data-pid]"))
       card.addEventListener("click", () => this._confirmPortrait(card.getAttribute("data-pid")));
   },
-  // mode "load" (click a used slot → resume) or "overwrite" (all slots full on
-  // NEW GAME → click any slot to claim it for this._pendingFaction, confirmed)
+  // mode "load" | "overwrite" | "battle" (career ladder hub) | "sandbox"
   renderTitleSlots(mode) {
     this._titleSlotMode = mode;
     const head = document.getElementById("titleSlotsHead");
-    if (head) head.textContent = mode === "overwrite" ? "ALL SLOTS FULL — OVERWRITE ONE" : "LOAD GAME";
+    if (head) {
+      head.textContent = mode === "overwrite" ? "ALL SLOTS FULL — OVERWRITE ONE"
+        : mode === "battle" ? "LADDER — PICK CAREER SAVE"
+        : mode === "sandbox" ? "SANDBOX — PICK PROFILE SLOT"
+        : mode === "battleP1" ? "CAREER DUEL — PICK P1 SAVE"
+        : mode === "battleP2" ? "CAREER DUEL — PICK P2 SAVE (SAME = GHOST)"
+        : "LOAD GAME";
+    }
     const row = document.getElementById("titleSlotRow"); if (!row) return;
+
+    // ---- SANDBOX profile slots (isolated from career) ----
+    if (mode === "sandbox") {
+      const meta = this.readSandboxMeta ? this.readSandboxMeta() : {};
+      const maxN = (typeof BATTLE_SANDBOX !== "undefined" && BATTLE_SANDBOX.slots) || 3;
+      let html = "";
+      for (let n = 1; n <= maxN; n++) {
+        const used = this.sandboxSlotUsed ? this.sandboxSlotUsed(n) : false;
+        const m = meta[n];
+        if (!used) {
+          html += '<div class="titleCard" data-sb-slot="' + n + '">' +
+            '<div class="tsSlotLbl">SLOT ' + n + '</div>' +
+            '<div class="tcName" style="color:#57d1c9">NEW SANDBOX</div>' +
+            '<div class="tcBlurb">100,000 cr · all ships owned<br>store · hangar · free-build</div></div>';
+          continue;
+        }
+        const hull = m && m.hullKey ? String(m.hullKey).toUpperCase() : "SHIP";
+        html += '<div class="titleCard" data-sb-slot="' + n + '">' +
+          '<button type="button" class="tsTrash" data-del-sb="' + n + '" title="Delete sandbox profile">🗑</button>' +
+          '<div class="tsSlotLbl">SLOT ' + n + '</div>' +
+          '<div class="tcName" style="color:#57d1c9">' + (m && m.name ? m.name : ("Sandbox " + n)) + '</div>' +
+          '<div class="tsRow"><span>CREDITS</span><b>' + ((m && m.credits) || 0).toLocaleString() + '</b></div>' +
+          '<div class="tsRow"><span>HULL</span><b>' + hull + '</b></div>' +
+          '<div class="tsRow"><span>SHIPS</span><b>' + ((m && m.shipCount) || 1) + '</b></div>' +
+          '<div class="tsRow"><span>DRONES</span><b>' + ((m && m.fleet) || 0) + '</b></div>' +
+          '<div class="tsDate">' + (m && m.lastSaved ? new Date(m.lastSaved).toLocaleString() : "") + '</div>' +
+          '</div>';
+      }
+      row.innerHTML = html;
+      for (const trash of row.querySelectorAll("[data-del-sb]")) {
+        trash.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+          const n = +trash.getAttribute("data-del-sb");
+          if (!confirm("Delete sandbox profile " + n + "? Start over with 100k.")) return;
+          if (this.clearSandboxSlot && this.clearSandboxSlot(n)) {
+            toast("sandbox " + n + " cleared", "#ff8a8a", 2);
+            this.renderTitleSlots("sandbox");
+          }
+        });
+      }
+      for (const card of row.querySelectorAll("[data-sb-slot]")) {
+        const n = +card.getAttribute("data-sb-slot");
+        card.addEventListener("click", () => {
+          if (typeof this.enterBattleSandboxHub === "function") this.enterBattleSandboxHub(n);
+        });
+      }
+      return;
+    }
+
+    // ---- CAREER slots ----
     const meta = this.readSlotsMeta();
     let html = "";
     for (let n = 1; n <= SAVE_SLOTS; n++) {
@@ -215,6 +280,25 @@ Object.assign(GAME, {
       const n = +card.getAttribute("data-slot"), used = this.slotUsed(n);
       if (mode === "load") {
         if (used) card.addEventListener("click", () => this._loadSlot(n));
+      } else if (mode === "battle") {
+        if (used) card.addEventListener("click", () => {
+          if (typeof this.startBattleFromSlot === "function") this.startBattleFromSlot(n);
+        });
+      } else if (mode === "battleP1") {
+        if (used) card.addEventListener("click", () => {
+          this._battleCareerP1 = n;
+          this.renderTitleSlots("battleP2");
+          this._titlePage("slots");
+        });
+      } else if (mode === "battleP2") {
+        if (used) card.addEventListener("click", () => {
+          const p1 = this._battleCareerP1;
+          if (p1 == null) { this.renderTitleHome(); this._titlePage("battlePick"); return; }
+          if (typeof this.startBattleCareerVsCareer === "function")
+            this.startBattleCareerVsCareer(p1, n, {
+              aiDifficulty: this._pendingBattleDiff || "normal",
+            });
+        });
       } else {
         card.addEventListener("click", () => {
           if (used && !confirm("Overwrite slot " + n + "? Its save will be lost.")) return;
@@ -228,10 +312,25 @@ Object.assign(GAME, {
     const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
     on("titleNew", () => { this.renderTitleFactions(); this._titlePage("factions"); });
     on("titleLoad", () => { this.renderTitleSlots("load"); this._titlePage("slots"); });
+    on("titleBattle", () => { this.renderTitleHome(); this._titlePage("battlePick"); });
+    on("titleBattleSandbox", () => {
+      this.renderTitleSlots("sandbox"); this._titlePage("slots");
+    });
+    on("titleBattleCareer", () => {
+      let any = false;
+      for (let n = 1; n <= SAVE_SLOTS; n++) any = any || this.slotUsed(n);
+      if (!any) { toast("no career saves — play campaign first, or use Sandbox", "#ff9a3c", 3); sfx("warn"); return; }
+      this.renderTitleSlots("battle"); this._titlePage("slots");
+    });
+    on("titleBattleBack", () => { this.renderTitleHome(); this._titlePage("home"); });
     on("titleFacBack", () => { this.renderTitleHome(); this._titlePage("home"); });
     on("titlePortBack", () => { this.renderTitleFactions(); this._titlePage("factions"); });
     on("titleSlotBack", () => {
       if (this._titleSlotMode === "overwrite") { this.renderTitlePortraits(); this._titlePage("portraits"); }
+      else if (this._titleSlotMode === "battleP2") { this.renderTitleSlots("battleP1"); this._titlePage("slots"); }
+      else if (this._titleSlotMode === "battle" || this._titleSlotMode === "battleP1" || this._titleSlotMode === "sandbox") {
+        this.renderTitleHome(); this._titlePage("battlePick");
+      }
       else { this.renderTitleHome(); this._titlePage("home"); }
     });
   },

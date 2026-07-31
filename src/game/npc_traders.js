@@ -245,17 +245,20 @@ Object.assign(GAME, {
     }
     g.restore();
   },
-  // blinking edge notification while a nearby convoy is being raided
+  // Critical trader raid: radio + lower-left crit card (no top vitals flash).
   drawTraderAlert(g) {
     if (HEADLESS) return;
     const s = this.state;
     const hot = (s.npcTraders || []).some(t => !t.dead && t.underAttackT > 0 &&
       this.dist(s.x, s.y, t.x, t.y) < NPC_TRADERS.alertRange);
-    if (!hot || Math.sin(s.t * 9) < -0.2) return;
-    const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
-    g.font = `bold ${Math.max(10, 12 * k) | 0}px monospace`; g.textAlign = "center";
-    g.fillStyle = "#ff9a3c";
-    g.fillText("⚠ TRADER UNDER ATTACK", CONFIG.W / 2, 60 * k);   // just below the HUD bars
-    g.textAlign = "left";
+    if (!hot) { s._traderAlertLatch = false; return; }
+    // One-shot notify when a nearby raid starts; don't spam every frame
+    if (!s._traderAlertLatch) {
+      s._traderAlertLatch = true;
+      if (this.critNotify)
+        this.critNotify("Trader convoy under attack — intercept if you can.", "#ff9a3c", "traffic");
+      else if (this.radioSay)
+        this.radioSay("traffic", "Traffic — freighter under fire nearby.", "#ff9a3c");
+    }
   },
 });

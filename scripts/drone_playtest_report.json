@@ -1,0 +1,49 @@
+{
+  "at": "2026-07-30T19:47:33.448Z",
+  "passed": [
+    "buildDrone(0) ok → role escort",
+    "escort wing fills to cap 1",
+    "overflow → hangar",
+    "role toggle hangar↔escort (docked)",
+    "hangar drones not in formation (moved=0)",
+    "escorts engaged hostile (hull 40→40)",
+    "assign 3 drones to outpost berths",
+    "defense AI launches on raider",
+    "drones re-berth after perimeter clear",
+    "recall returns drone to hangar",
+    "berth cap 3 enforced",
+    "send hangar drone on trade run",
+    "mid-flight redispatch blocked",
+    "escort drones move during duel",
+    "deathmatch fleet intact (1 drones)",
+    "reinforce APIs gated off deathmatch",
+    "capture + rally at bop1",
+    "manual build → reinforce hangar (4)",
+    "reinforce pipeline active (berths total 2)",
+    "emptiest-first dispatch toward o1",
+    "personal hangar → reinforce hangar",
+    "S&D launch with fuel=100",
+    "off-lane fuel-out detonates S&D drone",
+    "at outpost: fuel unlimited/refilled (100)",
+    "berthed stays stationed when P2 outside perimeter",
+    "launches defend when P2 enters perimeter",
+    "transit takes damage / can be destroyed near P2 (ehp 100→100)",
+    "transit grunts cannot end match via pilot kill",
+    "survivors recovered into reinforce pipeline (not discarded)",
+    "rival mirror fills berths (3)",
+    "rival S&D active (3)",
+    "integrated match tick stable",
+    "no NaN player state"
+  ],
+  "warnings": [
+    "S&D may not have committed to rival yet"
+  ],
+  "failures": [],
+  "log": [
+    "roles: {\"escort\":1,\"hangar\":1}",
+    "fleet=1 roles={\"escort\":1}",
+    "maxTransit=1 final berths o0=2 o1=0 queue=0",
+    "S&D pos→rival dist 3843 targetOp=bop10 fuel=100",
+    "after 4s: queue=0 transit=0 snD=0 berth=0 phase=match"
+  ]
+}

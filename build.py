@@ -34,9 +34,10 @@ MODULES = [
 GAME_FILES = [
     "core/config.js", "content/catalog.js", "content/planet_data.js", "game/sprites.js", "core/camera.js", "core/input.js", "core/physics.js",
     "world/stars.js", "world/planets.js", "world/ores.js", "world/fields.js", "world/regions.js", "world/junk.js", "world/obstacles.js", "world/rendering.js", "world/fog.js",
-    "game/audio.js", "game/player.js", "game/economy.js", "game/item_icons.js", "game/ui.js", "game/encounters.js", "game/enemy_bases.js", "game/outposts.js",
+    "game/audio.js", "game/player.js", "game/economy.js", "game/item_icons.js", "game/ui.js", "game/encounters.js", "game/enemy_bases.js", "game/outposts.js", "game/reinforce_net.js",
     "game/regions.js", "game/sites.js", "game/scan.js", "game/lineage.js", "game/politics.js", "game/victory.js", "game/tutorial.js",
     "game/drones.js", "game/ships.js", "game/contracts.js", "game/quests.js", "game/radio.js", "game/fleet.js", "game/npc_traders.js", "game/trade_routes.js", "game/galaxy_map.js", "game/objectives.js",
+    "game/battle_mode.js", "game/battle_arena.js", "game/battle_match.js", "game/battle_sandbox.js", "game/battle_opponent.js", "game/battle_control.js", "game/battle_net.js", "game/battle_ui.js",
     "game/save.js",
     "game/title.js",
     "game/visual_novel.js",
@@ -142,7 +143,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   /* DOM overlays stay full-bleed (their art should reach the bezel) but their
      CONTENT is padded clear of the notch and the home indicator. */
   #loadoutPanel,#dronePanel,#contractsPanel,#fleetPanel,#storePanel,#warpPanel,
-  #shipsPanel,#skillsPanel,#titlePanel{
+  #shipsPanel,#skillsPanel,#titlePanel,#fortifyPanel,#battlePanel{
     padding-top:env(safe-area-inset-top,0px);
     padding-bottom:env(safe-area-inset-bottom,0px);
     box-sizing:border-box}
@@ -362,9 +363,15 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   .flRole{flex:none;padding:2px 8px;border-radius:6px;border:1px solid;font-size:9px;font-weight:700;letter-spacing:.6px}
   .flSlotLbl{flex:1;font-size:10px;font-weight:700;letter-spacing:.6px;color:#00e5cc}
   .flRemove{border-color:#5a2a34;color:#ff8a8a;padding:4px 9px;font-size:10px}
-  .flToHangar,.flToEscort,.flTrade{padding:4px 9px;font-size:10px}
+  .flToHangar,.flToEscort,.flToTank,.flTrade{padding:4px 9px;font-size:10px}
   .flToEscort{border-color:#1c5a54;color:#dffdf8}
   .flToEscort:disabled{opacity:.45;cursor:default}
+  .flToTank{border-color:#5a4a2a;color:#ffb45e}
+  .flToTank:disabled{opacity:.45;cursor:default}
+  .flClaim{padding:8px 14px;font-size:12px;font-weight:700;letter-spacing:.6px;
+    background:#1c5a54;border-color:#2c8b82;color:#dffdf8}
+  .flClaim:hover{background:#247a72}
+  .flClaimCard{border-color:#2c8b82;background:#0e1f24;box-shadow:inset 0 0 18px rgba(87,209,201,.18)}
   .flBars{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .flBarOut{width:90px}
   .drBarFill.flHp{background:#7bd88f}
@@ -649,7 +656,9 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     background:#05070d;opacity:0;pointer-events:none;transition:opacity .6s ease}
   #openingScene.show{opacity:1}
   #openingScene.show.fade{opacity:0}
-  #openingSceneImg{width:100%;height:100%;object-fit:cover}
+  /* contain (not cover): intro plates are 16:9; cover on a tall phone only
+     showed a thin vertical slice of the art. */
+  #openingSceneImg{width:100%;height:100%;object-fit:contain;object-position:center}
 
   /* ---- VISUAL NOVEL overlay (faction prologues + story scenes; GAME.vnStart in
      game/visual_novel.js — portrait-over-background compositing, typewriter
@@ -658,12 +667,18 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     color:#e8edf4;font-family:ui-monospace,Menlo,Consolas,monospace;
     user-select:none;-webkit-user-select:none;touch-action:manipulation}
   #vnPanel.show{display:block}
-  #vnBg,#vnBgFade{position:absolute;inset:0;background:#04060c center/cover no-repeat;
+  /* Quest / VN plates are authored 1280×720 (16:9). background-size:cover on a
+     portrait phone crops to ~center third of the width — a "slice" of the scene.
+     contain snaps the full plate into the viewport; panel fill (#04060c) is the
+     letterbox. Desktop 16:9 monitors still fill edge-to-edge when art matches. */
+  #vnBg,#vnBgFade{position:absolute;inset:0;background-color:#04060c;background-position:center;
+    background-size:contain;background-repeat:no-repeat;
     filter:brightness(.62) saturate(.9)}
   #vnPanel.splash #vnBg,#vnPanel.splash #vnBgFade{filter:none}
   #vnBgFade{opacity:0;transition:opacity .5s ease}
   #vnBgFade.in{opacity:1}
-  #vnChar{position:absolute;bottom:20vh;width:min(44vw,330px);aspect-ratio:3/4;border-radius:14px;
+  /* Talker card: modestly smaller so more of the 16:9 plate stays readable. */
+  #vnChar{position:absolute;bottom:20vh;width:min(34vw,250px);aspect-ratio:3/4;border-radius:14px;
     background:#0a1120 center 18%/cover no-repeat;border:1px solid #2a3a52;display:none;
     box-shadow:0 10px 40px rgba(0,0,0,.65)}
   #vnChar.pos-left{left:6%}
@@ -690,7 +705,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     background:rgba(22,32,47,.85);color:#7f8ea6;font-family:inherit;font-size:11px;font-weight:700;
     cursor:pointer;letter-spacing:1px}
   #vnSkip:hover{color:#e8edf4;border-color:#57d1c9}
-  @media(max-width:600px){ #vnChar{width:56vw;bottom:24vh} #vnText{font-size:12px} #vnBox{min-height:22vh} }
+  @media(max-width:600px){ #vnChar{width:42vw;bottom:24vh} #vnText{font-size:12px} #vnBox{min-height:22vh} }
 
   /* ---- TITLE screen (boot landing: NEW GAME / LOAD GAME · faction pick ·
      save-slot cards; game/title.js drives the pages) ---- */
@@ -709,6 +724,25 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   .titleHead{font-size:12px;font-weight:700;letter-spacing:3px;color:#57d1c9}
   #titleHome .ghBtn{min-width:220px;padding:13px 18px;font-size:13px;letter-spacing:2px}
   #titleLoad:disabled{opacity:.35;cursor:default}
+  /* ---- battle mode panels ---- */
+  #battlePanel{position:fixed;inset:0;display:none;flex-direction:column;z-index:20;touch-action:none;
+    background:linear-gradient(180deg,#0a101c 0%,#0d1524 100%);color:#e8edf4;font-family:ui-monospace,monospace}
+  #battlePanel.show{display:flex}
+  #btBody{flex:1;overflow:auto;padding:12px 14px 20px;display:flex;flex-direction:column;gap:10px;min-height:0}
+  .btMatchCard{display:block;width:100%;text-align:left;padding:12px 14px;border-radius:10px;
+    border:1px solid #2a3a52;background:#0e1626;color:#e8edf4;font-family:inherit;cursor:pointer}
+  .btMatchCard:hover{background:#14243a;border-color:#3a5a7a}
+  .btMatchCard.dim{opacity:.55}
+  .btMatchName{font-size:12px;font-weight:700;letter-spacing:1px;color:#ffb45e;margin-bottom:4px}
+  .btMatchBlurb{font-size:10px;color:#9ab8e0;line-height:1.35}
+  .btRow{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .btResult{padding:16px;border-radius:12px;border:1px solid #2a3a52;background:#0e1626}
+  .btResult.win{border-color:#2c8b82;box-shadow:inset 0 0 24px rgba(87,209,201,.15)}
+  .btResult.loss{border-color:#5a2a34}
+  .btResult h3{margin:0 0 8px;font-size:16px;letter-spacing:1px}
+  .btResult.win h3{color:#57e6ff}
+  .btResult.loss h3{color:#ff8a8a}
+  .btMeta{font-size:11px;color:#9ab8e0}
   #titleFactionRow,#titleSlotRow,#titlePortraitRow{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
   #titlePortraitRow{max-width:920px;max-height:min(62vh,560px);overflow-y:auto;padding:4px}
   .titlePortraitCard{width:132px;padding:10px 8px}
@@ -736,13 +770,15 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   #radioLogBox{width:min(96vw,420px);max-height:min(70vh,520px);display:flex;flex-direction:column;
     background:rgba(8,12,20,.96);border:1px solid #1c5a54;border-radius:14px;
     box-shadow:0 0 40px rgba(0,0,0,.55);overflow:hidden}
-  #radioLogHead{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #1c3a52}
-  #radioLogHead h2{margin:0;font-size:13px;letter-spacing:1.5px;color:#8fd0ff;flex:1}
+  #radioLogHead{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #1c3a52;flex-wrap:wrap}
+  #radioLogHead h2{margin:0;font-size:13px;letter-spacing:1.5px;color:#8fd0ff;flex:1;min-width:120px}
+  #radioLogCh{font-size:10px;font-weight:700;letter-spacing:1px;padding:4px 8px;border-radius:6px;
+    border:1px solid #2a3a52;background:#0d1520}
   #radioLogBody{flex:1;overflow:auto;padding:10px 12px;min-height:180px;touch-action:pan-y;
     -webkit-overflow-scrolling:touch;user-select:text;-webkit-user-select:text}
   .rlLine{font-size:11px;line-height:1.45;color:#e8edf4;padding:4px 0;border-bottom:1px solid rgba(42,58,82,.35);
     word-wrap:break-word;white-space:pre-wrap}
-  .rlLine .rlTag{color:#57e6ff;font-weight:700;margin-right:6px;letter-spacing:.5px}
+  .rlLine .rlTag{font-weight:700;margin-right:6px;letter-spacing:.5px;opacity:.95}
   #radioLogClose{padding:8px 14px;border-radius:8px;border:1px solid #2a3a52;background:#16202f;color:#e8edf4;
     font-family:inherit;font-size:11px;font-weight:700;cursor:pointer}
   .tsRow{display:flex;justify-content:space-between;gap:12px;width:100%;font-size:10px}
@@ -845,6 +881,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     <button class="ghTab" data-tab="ships">⛭ Ships</button>
     <button class="ghTab" data-tab="drones">◈ Hangar</button>
     <button class="ghTab" data-tab="fleet">▲ Fleet</button>
+    <button class="ghTab" data-tab="battle" style="display:none">⚔ Matches</button>
     <button class="ghTab" data-tab="contracts">✦ Jobs</button>
     <button class="ghTab" data-tab="skills">◆ Skills</button>
     <button class="ghBtn" id="loSaveBtn">SAVE</button>
@@ -853,7 +890,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   </div>
   <div id="loBody">
     <div class="ghCol" id="loShipCol">
-      <h2>Hangar Bay · <span id="loPageLbl">1 / 1</span> — cycle ships &amp; drones · active modules become skills</h2>
+      <h2>Hangar Bay · <span id="loPageLbl">1 / 1</span> — your ship &amp; drones · swap hulls on the SHIPS tab</h2>
       <div id="loShipRow">
         <button class="ghBtn loArrow" id="loPrev">◀</button>
         <div id="loPortrait">
@@ -893,6 +930,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     <button class="ghTab" data-tab="ships">⛭ Ships</button>
     <button class="ghTab on" data-tab="drones">◈ Hangar</button>
     <button class="ghTab" data-tab="fleet">▲ Fleet</button>
+    <button class="ghTab" data-tab="battle" style="display:none">⚔ Matches</button>
     <button class="ghTab" data-tab="contracts">✦ Jobs</button>
     <button class="ghTab" data-tab="skills">◆ Skills</button>
     <button class="ghBtn go" id="drUndock">Launch ▸</button>
@@ -933,6 +971,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     <button class="ghTab" data-tab="ships">⛭ Ships</button>
     <button class="ghTab" data-tab="drones">◈ Hangar</button>
     <button class="ghTab on" data-tab="fleet">▲ Fleet</button>
+    <button class="ghTab" data-tab="battle" style="display:none">⚔ Matches</button>
     <button class="ghTab" data-tab="contracts">✦ Jobs</button>
     <button class="ghTab" data-tab="skills">◆ Skills</button>
     <button class="ghBtn go" id="ftLaunch">Launch ▸</button>
@@ -951,6 +990,23 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
       <div id="ftConvoy"></div>
     </div>
   </div>
+</div>
+
+<!-- ===== BATTLE MODE hub / match browser (game/battle_ui.js) ===== -->
+<div id="battlePanel">
+  <div id="loHead">
+    <h1 id="btTitle">Battle Hub</h1>
+    <span class="ghSp"></span>
+    <button class="ghTab" data-tab="loadout">⚙ Loadout</button>
+    <button class="ghTab" data-tab="store">☰ Store</button>
+    <button class="ghTab" data-tab="ships">⛭ Ships</button>
+    <button class="ghTab" data-tab="drones">◈ Hangar</button>
+    <button class="ghTab" data-tab="fleet">▲ Fleet</button>
+    <button class="ghTab on" data-tab="battle">⚔ Matches</button>
+    <button class="ghBtn" id="btExit">TITLE</button>
+    <button class="ghBtn go" id="btUndock">Close ▸</button>
+  </div>
+  <div id="btBody"></div>
 </div>
 
 <!-- ===== STATION BAY · CONTRACTS tab (DOM overlay; populated by GAME.renderContractsPanel) ===== -->
@@ -1001,6 +1057,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     <button class="ghTab" data-tab="ships">⛭ Ships</button>
     <button class="ghTab" data-tab="drones">◈ Hangar</button>
     <button class="ghTab" data-tab="fleet">▲ Fleet</button>
+    <button class="ghTab" data-tab="battle" style="display:none">⚔ Matches</button>
     <button class="ghTab" data-tab="contracts">✦ Jobs</button>
     <button class="ghTab" data-tab="skills">◆ Skills</button>
     <button class="ghBtn go" id="stLaunch">Launch ▸</button>
@@ -1055,6 +1112,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     <button class="ghTab on" data-tab="ships">⛭ Ships</button>
     <button class="ghTab" data-tab="drones">◈ Hangar</button>
     <button class="ghTab" data-tab="fleet">▲ Fleet</button>
+    <button class="ghTab" data-tab="battle" style="display:none">⚔ Matches</button>
     <button class="ghTab" data-tab="contracts">✦ Jobs</button>
     <button class="ghTab" data-tab="skills">◆ Skills</button>
     <button class="ghBtn go" id="spLaunch">Launch ▸</button>
@@ -1166,6 +1224,14 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
     <div class="titlePage" id="titleHome">
       <button class="ghBtn go" id="titleNew">NEW GAME</button>
       <button class="ghBtn" id="titleLoad">LOAD GAME</button>
+      <button class="ghBtn" id="titleBattle">BATTLE</button>
+    </div>
+    <div class="titlePage" id="titleBattlePick" style="display:none">
+      <div class="titleHead">BATTLE MODE</div>
+      <div class="titleHint" style="margin-bottom:10px;font-size:10px;color:#7f8ea6;letter-spacing:1px">SANDBOX = FREE-BUILD &middot; CAREER = LADDER SNAPSHOT</div>
+      <button class="ghBtn go" id="titleBattleSandbox">SANDBOX</button>
+      <button class="ghBtn" id="titleBattleCareer">CAREER (LADDER)</button>
+      <button class="ghBtn" id="titleBattleBack">&#9666; BACK</button>
     </div>
     <div class="titlePage" id="titleFactions" style="display:none">
       <div class="titleHead">CHOOSE YOUR FACTION</div>
@@ -1191,6 +1257,7 @@ renderer-free and runs headless — selfTest plays the whole loop in Node.
   <div id="radioLogBox">
     <div id="radioLogHead">
       <h2>◎ COCKPIT RADIO</h2>
+      <span id="radioLogCh">ALL</span>
       <button type="button" class="ghBtn" id="radioLogClose">CLOSE</button>
     </div>
     <div id="radioLogBody"></div>

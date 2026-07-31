@@ -34,6 +34,30 @@ Object.assign(GAME, {
   pickAlienAt(sx, sy) {
     const s = this.state, z = s.cam.zoom, scan = s.derived.scanRange;
     let best = null, bd = CONFIG.tapPickR;
+    // Battle P2 pilot (flat SF like aliens)
+    if (s.playMode === "battle" && s.battle && s.battle.p2 && !s.battle.p2.dead
+        && s.battle.p2.hp && s.battle.p2.hp.hull > 0) {
+      const p2 = s.battle.p2;
+      if (this.dist(s.x, s.y, p2.x, p2.y) <= scan * 1.35) {
+        const p = this.SF(p2.x, p2.y), dd = Math.hypot(p.x - sx, p.y - sy);
+        const r = (p2.r || CONFIG.shipR || 16) * z, hitR = Math.max(CONFIG.tapPickR, r);
+        if (dd < hitR && dd < bd + r) { bd = dd; best = p2; }
+      }
+      if (p2.fleet) for (const dr of p2.fleet) {
+        if ((dr.hp || 0) <= 0) continue;
+        if (this.dist(s.x, s.y, dr.x, dr.y) > scan * 1.35) continue;
+        const p = this.SF(dr.x, dr.y), dd = Math.hypot(p.x - sx, p.y - sy);
+        // Generous hit pad — drones are small and need to be easy to lock mid-fight
+        const r = 16 * z, hitR = Math.max(CONFIG.tapPickR * 1.15, r);
+        if (dd < hitR && dd < bd + r) {
+          bd = dd;
+          best = (this.wrapP2Drone && this.wrapP2Drone(dr)) || {
+            id: dr.id, kind: "p2drone", _p2drone: true, _drone: dr,
+            x: dr.x, y: dr.y, tier: dr.tier, r: 10,
+          };
+        }
+      }
+    }
     for (const al of s.aliens) {
       if (al.state === "DEAD") continue;
       if (this.dist(s.x, s.y, al.x, al.y) > scan) continue;

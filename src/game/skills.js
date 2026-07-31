@@ -388,7 +388,7 @@ Object.assign(GAME, {
 
       // 5. applySkillsToDerived: %-stat, resist cap, weapon mods.
       const base = { shieldMax: 1000, armorMax: 1000, armorRepair: 0, hullMax: 1000, res: { shield: 0, armor: 0.1, hull: 0 },
-                     thrust: 100, turnSpeed: 100, fuelMax: 1000, fuelCostK: 1, scanRange: 900, tractorRange: 600, tractorStr: 1, solarRegen: 2, shieldRegen: 75, shieldDelay: 3 };
+                     thrust: 100, turnSpeed: 100, fuelMax: 1000, fuelCostK: 1, scanRange: 1600, tractorRange: 600, tractorStr: 1, solarRegen: 2, shieldRegen: 75, shieldDelay: 3 };
       const d1 = this.applySkillsToDerived(JSON.parse(JSON.stringify(base)), { shield_cap: 5, shield_resist: 5, laser_dmg: 5, cannon_armor: 5, laser_crit: 5, missile_hit: 5, eng_fueleff: 5, armor_repair: 4, tractor_str: 5, eng_turn: 5 });
       near(d1.shieldMax, 1300, "shield_cap 5×6% → 1000→1300");
       near(d1.res.shield, 0.15, "shield_resist 5×3% → +0.15");

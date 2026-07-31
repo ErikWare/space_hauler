@@ -64,14 +64,20 @@ Object.assign(GAME, {
   updateObstacles(dt) {
     const s = this.state; if (!s.obstacles || !s.obstacles.length) return;
     const near = CONFIG.collNear;
+    const battle = s.playMode === "battle";
+    const shipMass = this.shipMass();
     for (const o of s.obstacles) {
-      o.x += o.vx * dt; o.y += o.vy * dt; o.rot += o.spinV * dt;
-      const dx = o.x - s.x, dy = o.y - s.y, reach = o.r + near;
-      if (dx * dx + dy * dy > reach * reach) continue;                 // far: skip collision
-      const impact = Math.hypot(s.vx - o.vx, s.vy - o.vy);            // closing speed BEFORE resolution
-      if (this.circleHit(s, CONFIG.shipR, this.shipMass(), o, o.r, o.mass)) {
+      // Battle terrain is static (no drift) — collision only when near the ship
+      if (!battle) {
+        o.x += o.vx * dt; o.y += o.vy * dt; o.rot += o.spinV * dt;
+      } else if (o.spinV) {
+        o.rot += o.spinV * dt * 0.2; // tiny tumble, no translation
+      }
+      const dx = o.x - s.x, dy = o.y - s.y, reach = o.r + (battle ? 400 : near);
+      if (dx * dx + dy * dy > reach * reach) continue;
+      const impact = Math.hypot(s.vx - (o.vx || 0), s.vy - (o.vy || 0));
+      if (this.circleHit(s, CONFIG.shipR, shipMass, o, o.r, o.mass)) {
         if (s.invuln <= 0 && !s.atStation && impact > CONFIG.obstacleRamMinSpeed) {
-          // heavy hulls take reduced terrain-ram damage (still never zero — these are planetoids)
           this.damageShip(Math.max(1, Math.min(CONFIG.obstacleRamMax, CONFIG.obstacleRamDmg + impact * CONFIG.obstacleRamSpeedK) * this.shipRamMult(3)));
           sfx("crunch");
         }
@@ -81,33 +87,58 @@ Object.assign(GAME, {
   // world render: depth-sorted with rocks/ships (pushes closures into `items`).
   drawObstacles(g, items, isWorldVisible, z) {
     const s = this.state; if (!s.obstacles) return;
+    const battle = s.playMode === "battle";
     for (const o of s.obstacles) {
       if (!isWorldVisible(o.x, o.y, o.r)) continue;
       const pt = this.S(o.x, o.y), R = o.r * z;
-      items.push({ y: o.y, f: () => this._paintObstacle(g, o, pt.x, pt.y, R) });
+      // iOS: skip multi-gradient paint for tiny on-screen bodies
+      if (battle && R < 6) continue;
+      items.push({ y: o.y, f: () => this._paintObstacle(g, o, pt.x, pt.y, R, battle) });
     }
   },
-  _paintObstacle(g, o, x, y, R) {
+  _paintObstacle(g, o, x, y, R, simple) {
+    // Battle terrain carries a real PNG body (planetoid / asteroid chunk / hull
+    // wreck) assigned at arena seed — procedural polygons read as flat grey
+    // blobs next to the sprite-art rocks around them. Falls through to the
+    // procedural paint whenever the art isn't loaded (headless, first frames).
+    if (o.art && typeof ART !== "undefined" && ART.draw
+        && ART.draw(g, o.art, x, y, R * 2.1, o.rot || 0)) return;
     const base = o.col, n = o.shape.length;
-    g.save(); g.translate(x, y); g.rotate(o.rot);
+    g.save(); g.translate(x, y); g.rotate(o.rot || 0);
     g.lineJoin = "round";
-    // soft occlusion shadow so the solid body reads against the starfield
+    const path = () => {
+      g.beginPath();
+      for (let i = 0; i < n; i++) {
+        const a = i / n * TAU, rad = R * o.shape[i];
+        const px = Math.cos(a) * rad, py = Math.sin(a) * rad;
+        i ? g.lineTo(px, py) : g.moveTo(px, py);
+      }
+      g.closePath();
+    };
+    // Mobile / battle: flat fill (no createRadialGradient — very expensive on iOS GPU)
+    if (simple || R < 14) {
+      path();
+      g.fillStyle = base;
+      g.fill();
+      g.strokeStyle = "rgba(0,0,0,0.4)";
+      g.lineWidth = Math.max(1, R * 0.03);
+      g.stroke();
+      g.restore();
+      return;
+    }
     const halo = g.createRadialGradient(0, 0, R * 0.6, 0, 0, R * 1.14);
     halo.addColorStop(0, "rgba(0,0,0,0)"); halo.addColorStop(1, "rgba(0,0,0,0.4)");
     g.fillStyle = halo; g.beginPath(); g.arc(0, 0, R * 1.14, 0, TAU); g.fill();
-    const path = () => { g.beginPath();
-      for (let i = 0; i < n; i++) { const a = i / n * TAU, rad = R * o.shape[i];
-        const px = Math.cos(a) * rad, py = Math.sin(a) * rad; i ? g.lineTo(px, py) : g.moveTo(px, py); }
-      g.closePath(); };
-    // lit-sphere body: highlight up-left → dark rim
     path();
     const grd = g.createRadialGradient(-R * 0.38, -R * 0.42, R * 0.08, 0, 0, R * 1.08);
     grd.addColorStop(0, shade(base, 0.42)); grd.addColorStop(0.5, base); grd.addColorStop(1, shade(base, -0.72));
     g.fillStyle = grd; g.fill();
     g.save(); g.clip();
-    for (const c of o.craters) { const cx = c.ax * R, cy = c.ay * R, cr = c.cr * R;
+    for (const c of o.craters) {
+      const cx = c.ax * R, cy = c.ay * R, cr = c.cr * R;
       g.fillStyle = "rgba(0,0,0,0.30)"; g.beginPath(); g.arc(cx, cy, cr, 0, TAU); g.fill();
-      g.fillStyle = "rgba(255,255,255,0.10)"; g.beginPath(); g.arc(cx - cr * 0.3, cy - cr * 0.3, cr * 0.55, 0, TAU); g.fill(); }
+      g.fillStyle = "rgba(255,255,255,0.10)"; g.beginPath(); g.arc(cx - cr * 0.3, cy - cr * 0.3, cr * 0.55, 0, TAU); g.fill();
+    }
     g.restore();
     path(); g.strokeStyle = "rgba(0,0,0,0.45)"; g.lineWidth = Math.max(1, R * 0.02); g.stroke();
     g.restore();

@@ -230,6 +230,8 @@ Object.assign(GAME, {
       toast("⚠ PIRATES AMBUSH YOUR TRADE ROUTE — " + this.regionLabel(region), "#ff6b6b");
       sfx("warn"); AUDIO.play("warning");
       if (this.pushEvent) this.pushEvent(s, "pirates ambush the " + this.regionLabel(region) + " trade lane", "#ff9a3c");
+      if (this.critNotify)
+        this.critNotify("Trade lane ambushed — " + this.regionLabel(region) + ". Protect the freighters!", "#ff9a3c", "dispatch");
       return;
     }
     // live fight: cleared when the whole ambush squad is down
@@ -251,7 +253,9 @@ Object.assign(GAME, {
       for (const a of squad) { a._tradeRaid = true; s.aliens.push(a); }
       ForgeFaction.activateGroup(grp.leader, s.aliens);
       raid.aliens = squad;
-      toast("⚠ pirates sighted on the trade lane — engage!", "#ff6b6b"); sfx("warn");
+      if (this.critNotify) this.critNotify("Pirates sighted on the trade lane — engage!", "#ff6b6b", "dispatch");
+      else toast("⚠ pirates sighted on the trade lane — engage!", "#ff6b6b");
+      sfx("warn");
     }
     // ambushed freighter already made it home → the pirates find an empty lane
     const victim = this._raidVictim(raid);
@@ -269,7 +273,10 @@ Object.assign(GAME, {
         const i = o.stationedDrones.indexOf(d);
         if (i >= 0) o.stationedDrones.splice(i, 1);
         burst(d.x, d.y, "#ff5060", 16);
-        toast("✖ freighter drone lost to pirates — " + this.regionLabel(this.regionGet(o.regionId)) + " lane", "#ff6b6b");
+        if (this.critNotify)
+          this.critNotify("Freighter lost to pirates — " + this.regionLabel(this.regionGet(o.regionId)) + " lane.", "#ff6b6b", "dispatch");
+        else
+          toast("✖ freighter drone lost to pirates — " + this.regionLabel(this.regionGet(o.regionId)) + " lane", "#ff6b6b");
         sfx("boom");
       } else {
         toast("⚠ freighter mauled on the trade lane — limped home", "#ff9a3c");
@@ -318,16 +325,17 @@ Object.assign(GAME, {
     g.globalAlpha = 1;
     g.restore();
   },
-  // blinking edge note while a lane is being hit (mirrors drawTraderAlert)
+  // Keep latch for re-notify when a new raid starts; no top-of-screen text.
   drawTradeRouteAlert(g) {
     if (HEADLESS) return;
     const s = this.state;
-    if (!s.tradeRaid || Math.sin(s.t * 9) < -0.2) return;
-    const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
-    g.font = `bold ${Math.max(10, 12 * k) | 0}px monospace`; g.textAlign = "center";
-    g.fillStyle = TROUTE.laneRaidCol;
-    g.fillText("⚠ TRADE ROUTE UNDER ATTACK", CONFIG.W / 2, 74 * k);   // below the trader alert line
-    g.textAlign = "left";
+    if (!s.tradeRaid) { s._tradeRouteAlertLatch = false; return; }
+    if (!s._tradeRouteAlertLatch) {
+      s._tradeRouteAlertLatch = true;
+      // Primary notify already fires when the raid spawns; reaffirm on first draw frame.
+      if (this.critNotify)
+        this.critNotify("Trade route under attack — mark is live on the map.", TROUTE.laneRaidCol, "dispatch");
+    }
   },
 
   // ---- selfTest (headless; wired into build.py --check) ------------------------

@@ -65,9 +65,91 @@ Object.assign(GAME, {
     return bases;
   },
 
+  // Stable 3-layer shell for a wing drone (flat shield/hp pools). Shared across
+  // lock, fire, and missile impact so deferred damage still kills the live drone.
+  // Once created, the shell is authoritative for combat; flat pools mirror it via
+  // _syncDroneFromCombatShell. External edits (regen / fleet DPS) must update BOTH
+  // (see _setDronePools) so nothing heals a half-dead shell by accident.
+  _droneCombatShell(d) {
+    if (!d) return null;
+    if (!d._combatHp) {
+      d._combatHp = {
+        shield: d.shield || 0, shieldMax: d.maxShield || d.shield || 0,
+        armor: 0, armorMax: 0,
+        hull: d.hp || 0, hullMax: d.maxHp || d.hp || 1,
+        res: { shield: 0, armor: 0, hull: 0 }, _sinceHit: 0,
+      };
+    } else {
+      d._combatHp.shieldMax = d.maxShield != null ? d.maxShield : (d._combatHp.shieldMax || 0);
+      d._combatHp.hullMax = d.maxHp != null ? d.maxHp : (d._combatHp.hullMax || 1);
+    }
+    return d._combatHp;
+  },
+
+  // Write shell → flat drone pools. Call after fireWeapon / updateProjectiles.
+  _syncDroneFromCombatShell(d) {
+    if (!d || !d._combatHp) return;
+    d.shield = Math.max(0, d._combatHp.shield || 0);
+    d.hp = Math.max(0, d._combatHp.hull || 0);
+  },
+
+  // Mutate flat pools + shell together (regen, fleet hits, scripted damage).
+  _setDronePools(d, shield, hp) {
+    if (!d) return;
+    if (shield != null) d.shield = Math.max(0, shield);
+    if (hp != null) d.hp = Math.max(0, hp);
+    if (d._combatHp) {
+      if (shield != null) d._combatHp.shield = d.shield;
+      if (hp != null) d._combatHp.hull = d.hp;
+    }
+  },
+
+  // After projectiles resolve (esp. deferred missiles), push shell damage into
+  // live P2 wing drones and cull / advance targets when they die.
+  syncP2DroneCombatShells() {
+    const s = this.state;
+    if (s.playMode !== "battle" || !s.battle || !s.battle.p2 || !s.battle.p2.fleet) return;
+    for (const d of s.battle.p2.fleet) {
+      if (!d || !d._combatHp) continue;
+      const wasAlive = (d.hp || 0) > 0;
+      this._syncDroneFromCombatShell(d);
+      if (wasAlive && (d.hp || 0) <= 0) {
+        d.hp = 0;
+        if (typeof burst === "function") burst(d.x, d.y, "#ffb45e", 10);
+        if (typeof sfx === "function") sfx("boom");
+        if (typeof toast === "function") toast("wing drone down", "#ffb45e");
+        if (ForgeCombat.getLock().targetId === d.id) ForgeCombat.clearLock();
+        if (s.scanActiveId === d.id) {
+          s.scanActiveId = null;
+          if (this.advanceScanTarget) this.advanceScanTarget();
+        }
+      }
+    }
+  },
+
+  wrapP2Drone(d) {
+    if (!d || (d.hp || 0) <= 0) return null;
+    const hp = this._droneCombatShell(d);
+    return {
+      id: d.id, kind: "p2drone", _p2drone: true, _drone: d,
+      x: d.x, y: d.y, tier: d.tier, r: 10,
+      name: "Wing Drone T" + (d.tier || 0),
+      hp,
+    };
+  },
+
   findCombatTarget(id) {
     if (id == null) return null;
     const s = this.state;
+    // Battle duel P2 is a full player-ship combatant (3-layer hp).
+    if (s.playMode === "battle" && s.battle && s.battle.p2 && s.battle.p2.id === id
+        && !s.battle.p2.dead && s.battle.p2.hp && s.battle.p2.hp.hull > 0)
+      return s.battle.p2;
+    // P2 wing drones (flat pools, wrapped for fireWeapon)
+    if (s.playMode === "battle" && s.battle && s.battle.p2 && s.battle.p2.fleet) {
+      const d = s.battle.p2.fleet.find(dr => dr.id === id && (dr.hp || 0) > 0);
+      if (d) return this.wrapP2Drone(d);
+    }
     return s.aliens.find(a => a.id === id && a.state !== "DEAD")
         || s.enemyBases.find(b => b.id === id && !b.destroyed)
         || (s.outposts || []).find(o => o.id === id && o.owner !== "player")

@@ -20,8 +20,17 @@ const CONFIG = {
   //   BURST:    hold = charge, release = one impulse toward it
   thrustFuelRate: 5, chargeTime: 2.5, burstCost: 12,
   dragFree: 0.994, dragTow: 0.985,     // velocity ×/frame @60fps (overridden by nebula)
-  solarRegen: 2, solarMax: 25,         // dry-tank trickle floor (never a hard softlock)
+  // Dry-tank: slow solar trickle only (never a hard softlock) — NOT enough to
+  // keep thrusters alive. Engines stay dead until fuel recovers past fuelOutRecover
+  // (must be ≤ solarMax so the trickle can eventually restart the engines).
+  solarRegen: 0.45, solarMax: 10,
+  fuelOutRecover: 8,                   // absolute fuel needed to clear fuelOut
+  fuelOutDrag: 0.972,                  // heavier coast drag while engines are dead
   accel: 1100, impulse: 560,           // base magnitudes; scaled by derived.thrust/100
+  // Tap-to-fly (mobile-friendly): rocket icon toggles; tap sets a world waypoint.
+  // Ship burns at thrustPower toward the point, then coasts when it arrives.
+  tapFlyArrive: 52,                    // world units — engines cut when this close
+  tapFlyOvershoot: 140,                // also cut if we pass the point within this band
   // ---- hull / physics ----
   shipR: 16, shipMass: 2, invulnT: 0.8, flashT: 0.3, dockHeal: 8, junkMass: 0.4,
   // ---- tractor / tow ----
@@ -301,7 +310,11 @@ const CONFIG = {
   // fire-and-forget stream. fuelPerShot ×2.3 puts a premium on opening fire, so
   // sustained shooting draws down the shared fuel pool you also need for the
   // shield booster and for escaping. Tune here, rebuild, re-run the TTK sim. ----
-  combat: { fireRateMult: 2.0, dmgMult: 2.0, fuelPerShotMult: 2.3 },
+  // Broadside retune: slow cadence + heavy punch so each shot is anticipated.
+  // fireRateMult > 1 lengthens cooldowns; dmgMult is raised MORE than the rate
+  // stretch so a hit still feels decisive. fuelPerShotMult keeps opening fire
+  // expensive (shared pool with thrust / skills). Per-weapon CDs stay independent.
+  combat: { fireRateMult: 2.65, dmgMult: 3.15, fuelPerShotMult: 2.15 },
   // ---- weapon projectiles / cooldown fallbacks ----
   rockHp: (mass) => Math.round(mass * 16 + 8),
   junkHp: 14, projLife: 1.4, projR: 5, weaponCd: 0.6,
@@ -722,30 +735,63 @@ const input = {
   landEdge: false,                 // L key near a planet → land; also used as launch key in space
 };
 
-// ---- particles + toasts ----
+// ---- particles + toasts (iOS-friendly: cap + swap-remove, no mid-array splice) ----
 const particles = [];
+const PARTICLE_MAX = 96;          // hard cap (mobile GC / fill-rate)
+const PARTICLE_MAX_BATTLE = 56;   // tighter in battle arenas
 function burst(x, y, color, n = 8) {
-  for (let i = 0; i < n; i++) particles.push({ x, y, vx: (rnd() * 2 - 1) * 110, vy: (rnd() * 2 - 1) * 110,
-    life: 0.3 + rnd() * 0.4, t: 0, color });
+  // Battle / low-power: fewer sparks, hard cap
+  const inBattle = typeof GAME !== "undefined" && GAME.state && GAME.state.playMode === "battle";
+  const max = inBattle ? PARTICLE_MAX_BATTLE : PARTICLE_MAX;
+  let count = inBattle ? Math.min(n, 4) : n;
+  if (particles.length + count > max) count = Math.max(0, max - particles.length);
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y, vx: (rnd() * 2 - 1) * 110, vy: (rnd() * 2 - 1) * 110,
+      life: 0.25 + rnd() * 0.35, t: 0, color,
+    });
+  }
 }
 function stepParticles(dt) {
-  for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i];
-    p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.t >= p.life) particles.splice(i, 1); }
+  // Swap-remove dead particles (O(1) vs splice O(n))
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.t >= p.life) {
+      const last = particles.pop();
+      if (i < particles.length) particles[i] = last;
+    }
+  }
 }
-const toasts = [];   // kept for self-tests + rare on-screen criticals
-// Gameplay chatter (tractor full, DPS, pickups, etc.) streams to the cockpit
-// radio so it does not paint over ship vitals. Pass { hud: true } only for rare
-// full-screen-critical moments. Quest status stays on the quest HUD / wing chat.
+const toasts = [];   // kept for self-tests; forceHud is rare — prefer radio / crit chat
+// Gameplay chatter streams to the cockpit radio so it does not paint over
+// ship vitals. Pass { hud: true } only when a full-screen flash is required.
+// Critical alerts (raids, under-attack) use GAME.critNotify → radio + lower-left
+// chat card (same lane as wing/quest banter), never the top vitals strip.
 function toast(text, col, life, opts) {
   const o = (opts && typeof opts === "object") ? opts : null;
   const forceHud = !!(o && o.hud) || opts === true;
-  toasts.push({ text: text, age: 0, col, life, forceHud });
-  if (toasts.length > 8) toasts.shift();
-  // Mirror into radio (traffic channel) — brighter cockpit feed
-  if (!forceHud && typeof GAME !== "undefined" && GAME.radioFeed)
+  const asCrit = !!(o && o.crit);
+  // Battle: skip radio mirror spam (DOM + string work) unless forced/crit
+  const inBattle = typeof GAME !== "undefined" && GAME.state && GAME.state.playMode === "battle";
+  toasts.push({ text: text, age: 0, col, life, forceHud: forceHud && !asCrit });
+  if (toasts.length > (inBattle ? 5 : 8)) toasts.shift();
+  if (asCrit && typeof GAME !== "undefined" && GAME.critNotify) {
+    try { GAME.critNotify(text, col, o.channel || "dispatch"); } catch (e) { /* soft */ }
+    return;
+  }
+  if (!forceHud && !inBattle && typeof GAME !== "undefined" && GAME.radioFeed)
     try { GAME.radioFeed(text, col); } catch (e) { /* soft */ }
 }
-function stepToasts(dt) { for (let i = toasts.length - 1; i >= 0; i--) { toasts[i].age += dt; if (toasts[i].age > (toasts[i].life || 3)) toasts.splice(i, 1); } }
+function stepToasts(dt) {
+  for (let i = toasts.length - 1; i >= 0; i--) {
+    toasts[i].age += dt;
+    if (toasts[i].age > (toasts[i].life || 3)) {
+      const last = toasts.pop();
+      if (i < toasts.length) toasts[i] = last;
+    }
+  }
+}
 
 /*=== HARNESS:ASSETS =========================================================
   Procedural baked sprites (2.5D pseudo-sphere / 3/4 iso), rastered on demand

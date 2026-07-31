@@ -3,7 +3,8 @@
 // each drone carries a role — "escort" flies a formation slot around the player
 // (cap = active hull.escortSlots, 1–6; FLEET.max is the fallback base),
 // "hangar" idles docked (no AI, no position, no drawing),
-// "trade" runs station-to-station for a payout (state trade/returning). Escorts
+// "trade" runs station-to-station for a payout; on arrival role becomes
+// "claim" until the player banks the reward (satisfaction loop). Escorts
 // spread targets across nearby aliens, fire their loadout weapon through
 // ForgeCombat.applyDamage, and drop into repair/retreat when mauled. Roles are
 // assigned from the FLEET dock tab (#fleetPanel); loadouts are edited on the
@@ -12,23 +13,31 @@ const FLEET = {
   max: 1,                   // BASE escort when hull omits escortSlots (starter tug = 1). Hull.escortSlots raises to 6.
   offsets: [[-80, 0], [80, 0], [0, 80], [-140, 60], [140, 60], [0, 150]],
   slotNames: ["LEFT WING", "RIGHT WING", "REAR", "PORT FLANK", "STARBOARD FLANK", "TAIL"],
-  maxSpeed: 220,            // u/s velocity clamp
+  // Tank parks ahead of the bow and soaks fire (aliens prefer tank targets).
+  tankOffset: [0, -110],
+  maxSpeed: 200,            // u/s velocity clamp
   damping: 0.85,            // velocity retention per frame @60fps (lerp toward goal)
-  scanRange: 600, fireRange: 300, standoff: 160,
+  scanRange: 520, fireRange: 240, standoff: 180,
+  // DPS nerf — drones were glass-cannon wiping packs alone (0.38× prior formula).
+  dmgScale: 0.38,
+  fireRateScale: 0.72,      // longer gap between volleys
   repairBelow: 0.30, repairResume: 0.80,   // hp fractions: enter / leave repair
   retreatHull: 0.50,        // retreat when shield 0 AND hp under this fraction
   retreatOffset: 40,        // retreat point sits this far behind the player
   snapDist: 3000,           // warp/respawn catch-up: teleport to slot beyond this
   trail: "#00e5cc",         // teal — distinct from trade-drone cyan (#00bcd4/#57e6ff)
-  tierMult: { normal: 1, rare: 1.4, unique: 1.8, elite: 2.4 },   // cargo-item swap scaling
+  tankTrail: "#ffb45e",     // warm — tank intercept drone
+  tierMult: { normal: 1, rare: 1.35, unique: 1.65, elite: 2.1 },   // cargo-item swap scaling
 };
 
 Object.assign(GAME, {
   initFleet(s) { (s || this.state).playerFleet = []; },
 
   // ---- roles ----------------------------------------------------------------
-  escorts(s) { return ((s || this.state).playerFleet || []).filter(d => d.role === "escort"); },
+  escorts(s) { return ((s || this.state).playerFleet || []).filter(d => d.role === "escort" || d.role === "tank"); },
+  tanks(s) { return ((s || this.state).playerFleet || []).filter(d => d.role === "tank"); },
   // escort wing cap from active hull (1–6). Starter = 1; Eclipse crown = 6.
+  // Tank and escort share the same deck slots.
   escortCap() {
     const h = this.activeHull ? this.activeHull() : null;
     const n = (h && h.escortSlots != null) ? h.escortSlots : FLEET.max;
@@ -49,25 +58,43 @@ Object.assign(GAME, {
     s = s || this.state;
     let k = 0;
     for (const d of s.playerFleet) {
-      if (d.role !== "escort") { d.formationIdx = null; continue; }
-      d.formationIdx = k; d.offsetX = FLEET.offsets[k][0]; d.offsetY = FLEET.offsets[k][1]; k++;
+      if (d.role !== "escort" && d.role !== "tank") { d.formationIdx = null; continue; }
+      d.formationIdx = k;
+      if (d.role === "tank") {
+        d.offsetX = FLEET.tankOffset[0]; d.offsetY = FLEET.tankOffset[1];
+      } else {
+        d.offsetX = FLEET.offsets[k][0]; d.offsetY = FLEET.offsets[k][1];
+      }
+      k++;
     }
   },
-  // hangar ↔ escort transitions (docked only; trade role is entered via
-  // sendOnTradeRun and left automatically on return)
+  // hangar ↔ escort/tank transitions (docked only; trade role is entered via
+  // sendOnTradeRun and left via claimTradePayout after arrival)
   setDroneRole(fleetIdx, role) {
     const s = this.state, d = s.playerFleet[fleetIdx];
     if (!d) return { ok: false, reason: "no such drone" };
     if (!s.docked) { toast("role changes need a dock"); sfx("warn"); return { ok: false, reason: "not docked" }; }
     if (d.role === "trade") return { ok: false, reason: "on a trade run" };
+    if (d.role === "claim") { toast("claim the trade payout first"); sfx("warn"); return { ok: false, reason: "awaiting claim" }; }
     if (d.role === role) return { ok: false, reason: "already " + role };
-    if (role === "escort") {
-      if (this.escorts(s).length >= this.escortCap()) { toast(`escort wing full (${this.escortCap()})`); sfx("warn"); return { ok: false, reason: "escort full" }; }
-      d.role = "escort"; d.state = "follow"; d.targetAlienId = null; d.wcd = 0; d.vx = 0; d.vy = 0;
+    if (role === "escort" || role === "tank") {
+      if (this.escorts(s).length >= this.escortCap() && d.role !== "escort" && d.role !== "tank") {
+        toast(`escort wing full (${this.escortCap()})`); sfx("warn"); return { ok: false, reason: "escort full" };
+      }
+      // Switching escort↔tank while already deployed just flips the stance.
+      const wasWing = d.role === "escort" || d.role === "tank";
+      if (!wasWing && this.escorts(s).length >= this.escortCap()) {
+        toast(`escort wing full (${this.escortCap()})`); sfx("warn"); return { ok: false, reason: "escort full" };
+      }
+      d.role = role; d.state = "follow"; d.targetAlienId = null; d.wcd = 0; d.vx = 0; d.vy = 0;
       this.reindexFormation(s);
       const slot = this.fleetSlotPos(d, s);
       d.x = slot.x; d.y = slot.y;
-      toast("companion joins your wing", FLEET.trail); sfx("buy");
+      if (role === "tank")
+        toast("tank drone on point — will draw fire", FLEET.tankTrail);
+      else
+        toast("companion joins your wing", FLEET.trail);
+      sfx("buy");
     } else if (role === "hangar") {
       d.role = "hangar"; d.state = "follow"; d.targetAlienId = null;
       this.reindexFormation(s);
@@ -79,19 +106,69 @@ Object.assign(GAME, {
   // world position of a drone's formation slot (player frame, heading-rotated)
   fleetSlotPos(d, s) {
     s = s || this.state;
-    const off = FLEET.offsets[d.formationIdx] || FLEET.offsets[0];
+    const off = d.role === "tank"
+      ? FLEET.tankOffset
+      : (FLEET.offsets[d.formationIdx] || FLEET.offsets[0]);
     const a = s.heading + Math.PI / 2;
     return { x: s.x + off[0] * Math.cos(a) - off[1] * Math.sin(a),
              y: s.y + off[0] * Math.sin(a) + off[1] * Math.cos(a) };
   },
 
+  // Flat shield→hull soak for alien fire / lasers.
+  damageFleetDrone(d, amount) {
+    if (!d || amount <= 0) return false;
+    let left = amount;
+    if ((d.shield || 0) > 0) {
+      const take = Math.min(d.shield, left);
+      d.shield -= take; left -= take;
+    }
+    if (left > 0) d.hp = Math.max(0, (d.hp || 0) - left);
+    return (d.hp || 0) <= 0;
+  },
+  destroyFleetDrone(d) {
+    const s = this.state;
+    if (!s || !d) return;
+    const i = (s.playerFleet || []).indexOf(d);
+    if (i < 0) return;
+    if (typeof burst === "function") burst(d.x, d.y, "#ff8a3c", 14);
+    if (typeof toast === "function") toast("✖ drone destroyed", "#ff6b6b", 2);
+    if (typeof sfx === "function") sfx("warn");
+    s.playerFleet.splice(i, 1);
+    this.reindexFormation(s);
+  },
+
   removeFromFleet(fleetIdx) {
     const s = this.state, d = s.playerFleet[fleetIdx];
     if (!d) return false;
+    if (d.role === "trade") { toast("drone is mid trade run"); sfx("warn"); return false; }
+    if (d.role === "claim") { toast("claim the trade payout first"); sfx("warn"); return false; }
     s.playerFleet.splice(fleetIdx, 1);
     this.reindexFormation(s);
     toast("companion dismissed"); sfx("drop");
     return true;
+  },
+
+  // Bank a finished trade run. Drones park as role "claim" on arrival with the
+  // payout held until the player taps CLAIM — intentional delay for the joy of
+  // collecting rewards later (dock → FLEET tab).
+  claimTradePayout(fleetIdx) {
+    const s = this.state, d = s.playerFleet[fleetIdx];
+    if (!d) return { ok: false, reason: "no such drone" };
+    if (d.role !== "claim") return { ok: false, reason: "nothing to claim" };
+    if (!s.docked) { toast("dock to claim a trade payout"); sfx("warn"); return { ok: false, reason: "not docked" }; }
+    const pay = Math.max(0, d.payout | 0);
+    const stName = this._stName(d.stationId != null ? d.stationId : d.toId);
+    s.credits += pay;
+    if (pay > 0 && typeof GAME.addXpFromCredits === "function") GAME.addXpFromCredits(pay);
+    toast(`★ Claimed +${pay}cr from ${stName}`, "#57e6ff"); sfx("sell");
+    if (typeof this.checkWin === "function") this.checkWin();
+    d.role = "hangar"; d.state = "follow"; d.targetAlienId = null;
+    d.fuel = d.maxFuel; d.shield = d.maxShield;
+    delete d.fromId; delete d.toId; delete d.fromX; delete d.fromY; delete d.toX; delete d.toY;
+    delete d.departMs; delete d.arriveMs; delete d.travelTime; delete d.payout; delete d.progress;
+    delete d.surviveP; delete d.convoyId; delete d.laneOffset;
+    this.reindexFormation(s);
+    return { ok: true, payout: pay };
   },
 
   updateFleet(dt, sArg) {
@@ -99,11 +176,12 @@ Object.assign(GAME, {
     if (!s || !s.playerFleet || !s.playerFleet.length) return;
     for (let fi = s.playerFleet.length - 1; fi >= 0; fi--) {
       const d = s.playerFleet[fi];
-      if (d.role === "hangar") continue;   // docked in the bay: no AI, no position
+      if (d.role === "hangar" || d.role === "claim") continue;   // bay / awaiting claim: no AI
+      if ((d.hp || 0) <= 0) { this.destroyFleetDrone(d); continue; }
 
       // one-way trade run: wall-clock progress along fromX→toX (with a small
       // perpendicular lane offset so a convoy fans out). On arrival a survival
-      // roll fires — success banks the share and parks the ship free; failure
+      // roll fires — success parks the ship as "claim" (payout held); failure
       // destroys it (pirates). No auto-return leg; advances across a background gap.
       if (d.role === "trade") {
         const span = Math.max(1, d.arriveMs - d.departMs);
@@ -123,15 +201,16 @@ Object.assign(GAME, {
             this.reindexFormation(s);
             continue;
           }
-          s.credits += d.payout;
-          GAME.addXpFromCredits(d.payout);   // XP: running trade runs
-          toast(`Trade run complete at ${this._stName(d.toId)}! +${d.payout}cr`, "#57e6ff"); sfx("sell");
-          this.checkWin();
-          d.role = "hangar"; d.state = "follow"; d.targetAlienId = null;
-          d.stationId = d.toId; d.fuel = d.maxFuel; d.shield = d.maxShield;
-          delete d.fromId; delete d.toId; delete d.fromX; delete d.fromY; delete d.toX; delete d.toY;
-          delete d.departMs; delete d.arriveMs; delete d.travelTime; delete d.payout; delete d.progress;
+          // Hold the payout for CLAIM — no auto-bank (satisfaction loop).
+          const destId = d.toId, destName = this._stName(destId), held = d.payout;
+          d.role = "claim"; d.state = "follow"; d.targetAlienId = null;
+          d.stationId = destId; d.fuel = d.maxFuel; d.shield = d.maxShield;
+          d.progress = 1;
+          delete d.fromId; delete d.fromX; delete d.fromY; delete d.toX; delete d.toY;
+          delete d.departMs; delete d.arriveMs; delete d.travelTime;
           delete d.surviveP; delete d.convoyId; delete d.laneOffset;
+          // keep d.toId + d.payout for claim UI / claimTradePayout
+          toast(`Trade run arrived at ${destName} — claim +${held}cr in FLEET`, "#ffd27a"); sfx("buy");
           this.reindexFormation(s);
         }
         continue;
@@ -144,31 +223,84 @@ Object.assign(GAME, {
       if (d.state === "retreat" && d.hp >= d.maxHp * FLEET.retreatHull) d.state = "repair";
       if (d.state === "repair" && d.hp > d.maxHp * FLEET.repairResume) d.state = "follow";
 
-      if (d.state === "follow" || d.state === "attack") {
-        let tgt = d.targetAlienId != null ? s.aliens.find(a => a.id === d.targetAlienId && a.state !== "DEAD") : null;
-        if (d.targetAlienId != null && !tgt) { d.targetAlienId = null; d.state = "follow"; }
-        if (!tgt) {
+      // Tank soaks: hold the intercept line, fire sparingly (aggro is the job).
+      // Escorts pick targets and DPS at reduced power.
+      if (d.state === "follow" || d.state === "attack" || d.role === "tank") {
+        // Resolve current target: prefer player's sticky scan selection (one focus)
+        let tgt = null;
+        const focusId = s.scanActiveId;
+        if (focusId != null) {
+          if (focusId === "battle_p2" && s.battle && s.battle.p2 && !s.battle.p2.dead)
+            tgt = s.battle.p2;
+          else if (this.findCombatTarget)
+            tgt = this.findCombatTarget(focusId);
+          if (tgt) {
+            d.targetAlienId = focusId === "battle_p2" ? "battle_p2" : focusId;
+            if (d.role !== "tank") d.state = "attack";
+          }
+        }
+        if (!tgt && d.targetAlienId === "battle_p2" && s.battle && s.battle.p2 && !s.battle.p2.dead)
+          tgt = s.battle.p2;
+        else if (!tgt && d.targetAlienId != null)
+          tgt = (this.findCombatTarget && this.findCombatTarget(d.targetAlienId))
+            || s.aliens.find(a => a.id === d.targetAlienId && a.state !== "DEAD");
+        if (d.targetAlienId != null && !tgt) { d.targetAlienId = null; if (d.role !== "tank") d.state = "follow"; }
+        if (!tgt && !focusId) {
+          // No player focus: auto-pick (prefer P2 pilot, else free aliens)
+          if (s.playMode === "battle" && s.battle && s.battle.p2 && !s.battle.p2.dead
+              && s.battle.p2.hp && s.battle.p2.hp.hull > 0) {
+            const p2 = s.battle.p2;
+            if (this.dist(d.x, d.y, p2.x, p2.y) < FLEET.scanRange) {
+              tgt = p2; d.targetAlienId = "battle_p2";
+              if (d.role !== "tank") d.state = "attack";
+            }
+          }
+        }
+        if (!tgt && !focusId) {
           const taken = new Set();
           for (const o of s.playerFleet) if (o !== d && o.targetAlienId != null) taken.add(o.targetAlienId);
           let best = null, bd = FLEET.scanRange, bestFree = null, bdFree = FLEET.scanRange;
           for (const a of s.aliens) {
-            if (a.state === "DEAD") continue;
+            if (a.state === "DEAD" || a._warpIn) continue;
             const dd = this.dist(d.x, d.y, a.x, a.y);
             if (dd < bd) { bd = dd; best = a; }
             if (dd < bdFree && !taken.has(a.id)) { bdFree = dd; bestFree = a; }
           }
           tgt = bestFree || best;
-          if (tgt) { d.targetAlienId = tgt.id; d.state = "attack"; }
+          if (tgt) { d.targetAlienId = tgt.id; if (d.role !== "tank") d.state = "attack"; }
         }
-        if (d.state === "attack" && tgt) {
-          // every fitted weapon fires together — 3-weapon glass cannon = 3× volley
-          const ws = d.loadout.filter(m => m.type === "weapon");
+        if (tgt && (d.state === "attack" || d.role === "tank")) {
+          const ws = (d.loadout || []).filter(m => m.type === "weapon");
+          // Tanks fire half as often — they're bait, not the kill.
+          const rateMul = (d.role === "tank" ? 0.55 : 1) * (FLEET.fireRateScale || 1);
+          // p2drone wrappers need live coords from the drone ref
+          if (tgt.kind === "p2drone" && tgt._drone) { tgt.x = tgt._drone.x; tgt.y = tgt._drone.y; }
           if (ws.length && d.wcd <= 0 && this.dist(d.x, d.y, tgt.x, tgt.y) <= FLEET.fireRange) {
-            const dmg = ws.reduce((a, w) => a + w.dmg, 0);   // w.dmg already baked with drone-skill boost (reapplyDroneStats)
-            ForgeCombat.applyDamage(tgt, dmg, dmg, dmg);
-            d.wcd = 1 / (ws[0].fireRate || 1);
-            burst(tgt.x, tgt.y, FLEET.trail, 3);
-            if (tgt.hp.hull <= 0) this.onAlienKilled(tgt);
+            const raw = ws.reduce((a, w) => a + w.dmg, 0);
+            const dmg = Math.max(1, Math.round(raw * (FLEET.dmgScale || 0.38) * (d.role === "tank" ? 0.55 : 1)));
+            if (tgt.kind === "p2drone" && tgt._drone) {
+              const dr = tgt._drone;
+              let left = dmg;
+              const sh = Math.min(dr.shield || 0, left);
+              const newSh = (dr.shield || 0) - sh; left -= sh;
+              const newHp = left > 0 ? Math.max(0, (dr.hp || 0) - left) : (dr.hp || 0);
+              if (this._setDronePools) this._setDronePools(dr, newSh, newHp);
+              else { dr.shield = newSh; dr.hp = newHp; }
+              if ((dr.hp || 0) <= 0) {
+                dr.hp = 0; burst(dr.x, dr.y, "#ffb45e", 8);
+                if (s.scanActiveId === dr.id) s.scanActiveId = null;
+              }
+            } else {
+              ForgeCombat.applyDamage(tgt, dmg, dmg, dmg);
+              if (tgt.kind === "battlePilot") {
+                if (tgt.hp && tgt.hp.hull <= 0) {
+                  tgt.dead = true; tgt.state = "DEAD";
+                  if (this.isBattleMatch && this.isBattleMatch()) this.endBattleMatch("p2_down");
+                }
+              } else if (tgt.hp && tgt.hp.hull <= 0) this.onAlienKilled(tgt);
+            }
+            d.wcd = (1 / ((ws[0].fireRate || 1) * rateMul));
+            burst(tgt.x, tgt.y, d.role === "tank" ? FLEET.tankTrail : FLEET.trail, 2);
           }
         }
       }
@@ -186,8 +318,29 @@ Object.assign(GAME, {
         continue;
       }
       let goal;
-      if (d.state === "attack") {
-        const tgt = s.aliens.find(a => a.id === d.targetAlienId);
+      if (d.role === "tank") {
+        // Sit between the player and the nearest hostile so fire hits the tank first.
+        let foe = d.targetAlienId != null ? s.aliens.find(a => a.id === d.targetAlienId && a.state !== "DEAD") : null;
+        if (!foe) {
+          let bd = FLEET.scanRange * 1.4;
+          for (const a of s.aliens) {
+            if (a.state === "DEAD") continue;
+            const dd = this.dist(s.x, s.y, a.x, a.y);
+            if (dd < bd) { bd = dd; foe = a; }
+          }
+        }
+        if (foe) {
+          const dx = foe.x - s.x, dy = foe.y - s.y, dist = Math.hypot(dx, dy) || 1;
+          const hold = Math.min(140, dist * 0.35);
+          goal = { x: s.x + (dx / dist) * hold, y: s.y + (dy / dist) * hold };
+        } else goal = this.fleetSlotPos(d, s);
+      } else if (d.state === "attack") {
+        let tgt = null;
+        if (d.targetAlienId === "battle_p2" && s.battle && s.battle.p2 && !s.battle.p2.dead)
+          tgt = s.battle.p2;
+        else if (d.targetAlienId != null)
+          tgt = (this.findCombatTarget && this.findCombatTarget(d.targetAlienId))
+            || s.aliens.find(a => a.id === d.targetAlienId);
         goal = tgt && this.dist(d.x, d.y, tgt.x, tgt.y) > FLEET.standoff
           ? { x: tgt.x, y: tgt.y } : { x: d.x, y: d.y };
       } else if (d.state === "retreat") {
@@ -202,7 +355,7 @@ Object.assign(GAME, {
       // equal to the ship's speed to keep pace — so escorts trailed ~700u behind
       // a fast tug, then snapped back ("sit there → respawn"). Attack/retreat
       // chase an independent point, so they skip the feed-forward.
-      const follow = !(d.state === "attack" || d.state === "retreat");
+      const follow = !(d.state === "attack" || d.state === "retreat" || d.role === "tank");
       const shipSpd = Math.hypot(s.vx, s.vy);
       const cap = Math.max(FLEET.maxSpeed, shipSpd * 1.25 + 200);   // headroom above ship speed to close
       const kP = 3.5;
@@ -228,7 +381,9 @@ Object.assign(GAME, {
       if (d.role === "hangar") continue;   // bay drones have no world presence
       if (this.dist(d.x, d.y, s.cam.x, s.cam.y) > viewR) continue;
       const p = this.SF(d.x, d.y), sz = 9 * z;
-      const col = (DRONES.tierCol && DRONES.tierCol[d.tier]) || FLEET.trail;   // colour by quality tier
+      const col = d.role === "tank"
+        ? FLEET.tankTrail
+        : ((DRONES.tierCol && DRONES.tierCol[d.tier]) || FLEET.trail);
       // thin leash to the formation slot (escorts only — traders fly routes)
       if (d.role !== "trade") {
         const slot = this.fleetSlotPos(d, s), sl = this.SF(slot.x, slot.y);
@@ -237,7 +392,10 @@ Object.assign(GAME, {
       }
       // faint red line to the target while attacking
       if (d.state === "attack" && d.targetAlienId != null) {
-        const t = s.aliens.find(a => a.id === d.targetAlienId);
+        let t = null;
+        if (d.targetAlienId === "battle_p2" && s.battle && s.battle.p2 && !s.battle.p2.dead) t = s.battle.p2;
+        else t = (this.findCombatTarget && this.findCombatTarget(d.targetAlienId))
+          || s.aliens.find(a => a.id === d.targetAlienId);
         if (t) { const tp = this.SF(t.x, t.y);
           g.strokeStyle = "rgba(255,80,96,0.30)"; g.lineWidth = Math.max(0.8, 1 * z);
           g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(tp.x, tp.y); g.stroke(); }
@@ -338,8 +496,9 @@ Object.assign(GAME, {
     const mult = FLEET.tierMult[item.tier] || 1;
     if (item.weapon) {
       const w = item.weapon;
+      // Nerf: was 10× layer-avg (drones melted packs). Now ~3.8× before dmgScale in fire.
       return { type: "weapon", name: item.name, srcItem: item,
-        dmg: Math.max(1, Math.round(10 * (w.dmgShield + w.dmgArmor + w.dmgHull) / 3 * mult)),
+        dmg: Math.max(1, Math.round(3.8 * (w.dmgShield + w.dmgArmor + w.dmgHull) / 3 * mult)),
         amount: 0, fuelCost: 1,
         fireRate: Math.round(10000 / ForgeCombat.weaponCooldownMs(item, { fireRate: 1 })) / 10 };
     }
@@ -441,20 +600,29 @@ Object.assign(GAME, {
     fl.cred.textContent = Math.round(s.credits);
     const esc = this.escorts(s).length;
     const trade = s.playerFleet.filter(d => d.role === "trade").length;
-    fl.summary.textContent = `Owned ${s.playerFleet.length}/${DRONES.ownedMax} · Escorting ${esc}/${this.escortCap()} · On trade runs ${trade}`;
+    const claimN = s.playerFleet.filter(d => d.role === "claim").length;
+    fl.summary.textContent = `Owned ${s.playerFleet.length}/${DRONES.ownedMax} · Escorting ${esc}/${this.escortCap()} · On trade runs ${trade}`
+      + (claimN ? ` · Ready to claim ${claimN}` : "");
     this.renderConvoyCard();
     fl.list.innerHTML = "";
     if (!s.playerFleet.length) { this._drEl("ghNote", "No drones yet — build one in the HANGAR tab.", fl.list); return; }
-    const roleBadge = { escort: ["ESCORT", "#00e5cc"], hangar: ["HANGAR", "#8a8f98"], trade: ["TRADE RUN", "#ffd27a"] };
+    const roleBadge = {
+      escort: ["ESCORT", "#00e5cc"], tank: ["TANK", "#ffb45e"],
+      hangar: ["HANGAR", "#8a8f98"], trade: ["TRADE RUN", "#ffd27a"],
+      claim: ["READY", "#57e6ff"],
+    };
     s.playerFleet.forEach((d, fi) => {
       const flying = d.role === "trade";
-      const card = this._drEl("flCard" + (flying ? " flTradeCard" : ""), null, fl.list);
+      const awaiting = d.role === "claim";
+      const card = this._drEl("flCard" + (flying ? " flTradeCard" : "") + (awaiting ? " flClaimCard" : ""), null, fl.list);
       const top = this._drEl("flTop", null, card);
       this._drEl("drTag t" + d.tier, DRONES.tiers[d.tier].name, top);
       const [rl, rc] = roleBadge[d.role] || [d.role, "#c7d2e0"];
       const roleEl = this._drEl("flRole", rl, top); roleEl.style.color = rc; roleEl.style.borderColor = rc;
-      if (d.role === "escort" && d.formationIdx != null)
-        this._drEl("flSlotLbl", FLEET.slotNames[d.formationIdx] || `SLOT ${d.formationIdx + 1}`, top);
+      if ((d.role === "escort" || d.role === "tank") && d.formationIdx != null)
+        this._drEl("flSlotLbl",
+          d.role === "tank" ? "POINT" : (FLEET.slotNames[d.formationIdx] || `SLOT ${d.formationIdx + 1}`),
+          top);
       const bars = this._drEl("flBars", null, card);
       const bar = (v, max, cls) => {
         const out = this._drEl("drBarOut flBarOut", null, bars);
@@ -472,19 +640,45 @@ Object.assign(GAME, {
         const barOut = this._drEl("drBarOut flTradeBar", null, card);
         const fill = this._drEl("drBarFill", null, barOut);
         fill.style.width = Math.round(clamp(d.progress || 0, 0, 1) * 100) + "%";
-        this._drEl("flNote", `payout +${d.payout}cr on arrival · in flight, can't redirect`, card);
+        this._drEl("flNote", `+${d.payout}cr ready to claim on arrival · in flight, can't redirect`, card);
+        return;
+      }
+
+      if (awaiting) {
+        const dest = this._stName(d.stationId != null ? d.stationId : d.toId);
+        this._drEl("flNote", `Arrived at ${dest} — payout waiting`, card);
+        const actRow = this._drEl("flBars", null, card);
+        const claim = this._drEl("btn:ghBtn go flClaim", `★ CLAIM +${d.payout}cr`, actRow);
+        claim.dataset.act = "claim"; claim.dataset.fi = String(fi);
         return;
       }
 
       // idle → role toggles + trade dispatch (opens the destination picker)
       const actRow = this._drEl("flBars", null, card);
-      if (d.role === "escort") {
+      if (d.role === "escort" || d.role === "tank") {
         const hg = this._drEl("btn:ghBtn flToHangar", "→ HANGAR", actRow);
         hg.dataset.act = "hangar"; hg.dataset.fi = String(fi);
+        // Flip escort ↔ tank while deployed
+        if (d.role === "escort") {
+          const tk = this._drEl("btn:ghBtn flToTank", "→ TANK", actRow);
+          tk.dataset.act = "tank"; tk.dataset.fi = String(fi);
+        } else {
+          const es = this._drEl("btn:ghBtn flToEscort", "→ ESCORT", actRow);
+          es.dataset.act = "escort"; es.dataset.fi = String(fi);
+        }
       } else if (d.role === "hangar") {
         const es = this._drEl("btn:ghBtn flToEscort", "JOIN ESCORT", actRow);
         es.dataset.act = "escort"; es.dataset.fi = String(fi);
         es.disabled = esc >= this.escortCap();
+        const tk = this._drEl("btn:ghBtn flToTank", "JOIN AS TANK", actRow);
+        tk.dataset.act = "tank"; tk.dataset.fi = String(fi);
+        tk.disabled = esc >= this.escortCap();
+      }
+      // Queue into the docked outpost's network (career / sandbox / campaign / control)
+      if (this.dockedOutpost && this.dockedOutpost() && this.dockedOutpost().owner === "player"
+          && d.role !== "trade" && d.role !== "claim") {
+        const rfb = this._drEl("btn:ghBtn flToEscort", "→ QUEUE", actRow);
+        rfb.dataset.act = "reinforce"; rfb.dataset.fi = String(fi);
       }
       const tr = this._drEl("btn:ghBtn flTrade", ui.pick === fi ? "▾ CHOOSE DESTINATION" : "SEND ON TRADE RUN", actRow);
       tr.dataset.act = "trade"; tr.dataset.fi = String(fi);
@@ -598,7 +792,14 @@ Object.assign(GAME, {
       const act = btn.dataset.act;
       if (act === "remove") { ui.pick = null; this.removeFromFleet(fi); }
       else if (act === "escort") { ui.pick = null; this.setDroneRole(fi, "escort"); }
+      else if (act === "tank") { ui.pick = null; this.setDroneRole(fi, "tank"); }
       else if (act === "hangar") { ui.pick = null; this.setDroneRole(fi, "hangar"); }
+      else if (act === "reinforce") {
+        ui.pick = null;
+        if (this.enqueueNetworkReinforcement) this.enqueueNetworkReinforcement(fi);
+        else if (this.enqueueReinforcement) this.enqueueReinforcement(fi);
+      }
+      else if (act === "claim") { ui.pick = null; this.claimTradePayout(fi); }
       else if (act === "trade") { ui.pick = ui.pick === fi ? null : fi; }   // toggle the picker
       else if (act === "cancelpick") { ui.pick = null; }
       else if (act === "dispatch") { const r = this.sendOnTradeRun(fi, +btn.dataset.dest); if (r.ok) ui.pick = null; }

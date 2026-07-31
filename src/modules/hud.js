@@ -150,11 +150,22 @@
   // module — the room freed by removing the tractor + engine-mode buttons). The i-th
   // drawn button lives at skillSlotRect(i); the real fit-slot index is tracked in
   // _skillLayout so a tap maps to the right ForgeEquipment slot.
-  var SKILL_SIZE = 44, SKILL_GAP = 8, SKILL_X = 12, SKILL_Y0 = 150;
+  // Weapon / skill buttons: a horizontal row along the BOTTOM (was a left
+  // column running down from y150k, which crowded the play area and the match
+  // card). SKILL_BOTTOM is the row's offset up from the screen bottom; the
+  // SURVEY/SCAN/MAP tools sit under it (gameButtons in game/ui.js).
+  var SKILL_SIZE = 44, SKILL_GAP = 8, SKILL_X = 12, SKILL_BOTTOM = 158, SKILL_MAX = 6;
   var _skillLayout = [];
   function skillSlotRect(i) {
     var size = SKILL_SIZE * k;
-    return { x: SKILL_X * k, y: SKILL_Y0 * k + i * (size + SKILL_GAP * k), w: size, h: size };
+    return { x: SKILL_X * k + i * (size + SKILL_GAP * k), y: H - SKILL_BOTTOM * k,
+             w: size, h: size };
+  }
+  // Full row footprint — other HUD layers stack above this.
+  function skillRowRect() {
+    var size = SKILL_SIZE * k;
+    return { x: SKILL_X * k, y: H - SKILL_BOTTOM * k,
+             w: size * SKILL_MAX + SKILL_GAP * k * (SKILL_MAX - 1), h: size };
   }
 
   // Weapon-type indicator badge, upper-right (below the mini-map disc).
@@ -245,6 +256,68 @@
     }
   }
 
+  // Vertical sibling of vitalBar: same glossy pill language, but the fill grows
+  // bottom-up like a gauge. Four of these in a row replace four full-width
+  // horizontal bars, which freed the whole top band for the match card.
+  function vitalBarV(x, y, w, h, ratio, color, warnT) {
+    ratio = ratio < 0 ? 0 : (ratio > 1 ? 1 : ratio);
+    var r = w / 2;
+    ctx.globalAlpha = 0.14;
+    rrect(ctx, x - 1.5 * k, y - 1.5 * k, w + 3 * k, h + 3 * k, r + 1.5 * k);
+    ctx.fillStyle = color; ctx.fill();
+    ctx.globalAlpha = 1;
+    rrect(ctx, x, y, w, h, r);
+    ctx.fillStyle = "#0c111b"; ctx.fill();
+    ctx.strokeStyle = "rgba(233,237,244,0.08)"; ctx.lineWidth = 1; ctx.stroke();
+    if (ratio > 0) {
+      ctx.save();
+      rrect(ctx, x, y, w, h, r); ctx.clip();
+      var fh = Math.max(w, h * ratio);
+      var fy = y + h - fh;                       // grows up from the bottom
+      var g = ctx.createLinearGradient(x, fy, x + w, fy);
+      g.addColorStop(0, hexLerp(color, "#ffffff", 0.30));
+      g.addColorStop(0.55, color);
+      g.addColorStop(1, hexLerp(color, "#000000", 0.30));
+      ctx.fillStyle = g;
+      rrect(ctx, x, fy, w, fh, r); ctx.fill();
+      // gloss band down the left third
+      ctx.globalAlpha = 0.22; ctx.fillStyle = "#ffffff";
+      rrect(ctx, x + 1.2 * k, fy + 1.5 * k, w * 0.42, Math.max(0.1, fh - 3 * k), r * 0.6); ctx.fill();
+      ctx.globalAlpha = 1;
+      // bright cap at the top of the fill
+      if (ratio < 0.99) {
+        ctx.fillStyle = hexLerp(color, "#ffffff", 0.55);
+        ctx.fillRect(x, fy, w, 2 * k);
+      }
+      ctx.restore();
+    }
+    if (warnT != null) {
+      ctx.globalAlpha = 0.35 + 0.45 * Math.abs(Math.sin(warnT * 6));
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5 * k;
+      rrect(ctx, x - 1 * k, y - 1 * k, w + 2 * k, h + 2 * k, r + 1 * k); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.lineWidth = 1;
+    }
+  }
+
+  // Geometry of the vertical vitals cluster (top-left). Exported via
+  // vitalsRect() so the flight HUD can lay the match card beside it.
+  // Pitch (w + gap = 30) is sized for a FIVE-character readout: "99999" at the
+  // 7.5 value font measures ~24px, leaving ~6px between neighbouring columns.
+  // Late-game hulls can exceed that, so vitalNum() folds anything past 5 digits
+  // into k / M notation — the column can never be overrun.
+  var VIT = { x0: 12, w: 18, gap: 12, top: 17, h: 42 };
+  function vitalNum(v) {
+    v = Math.round(v || 0);
+    if (v >= 1000000) return Math.round(v / 100000) / 10 + "M";   // 1.2M
+    if (v >= 100000) return Math.round(v / 1000) + "k";           // 123k
+    return String(v);
+  }
+  function vitalsRect() {
+    var pitch = (VIT.w + VIT.gap) * k;
+    return { x: VIT.x0 * k, y: 5 * k,
+             w: pitch * 4 - VIT.gap * k, h: (VIT.top + VIT.h + 11) * k };
+  }
+
   function drawTopStrip(s) {
     var hp = s.hp || {}, t = s.t || 0;
     // soft panel: opaque at the top, fading to nothing — no hard bottom edge
@@ -255,32 +328,40 @@
     ctx.fillStyle = pg;
     ctx.fillRect(0, 0, W, 84 * k);
 
-    var x0 = 12 * k, barW = 132 * k, barH = 11 * k, rowH = 15.5 * k, y0 = 9 * k;
-    var rows = [
-      { cur: hp.shield || 0, max: hp.shieldMax || 1, col: COL.shield, tag: "SHD" },
-      { cur: hp.armor || 0,  max: hp.armorMax || 1,  col: COL.armor,  tag: "ARM" },
-      { cur: hp.hull || 0,   max: hp.hullMax || 1,   col: COL.hull,   tag: "HULL" }
-    ];
-    ctx.textBaseline = "middle";
-    for (var i = 0; i < rows.length; i++) {
-      var row = rows[i], y = y0 + i * rowH, ratio = row.cur / row.max;
-      var warn = row.tag === "HULL" && ratio < 0.30;
-      vitalBar(x0, y, barW, barH, ratio, row.col, warn ? t : null);
-      ctx.fillStyle = warn ? COL.hull : hexLerp(row.col, "#ffffff", 0.5);
-      ctx.font = font(8.5, true);
-      ctx.textAlign = "left";
-      ctx.fillText(row.tag + " " + Math.round(row.cur) + "/" + Math.round(row.max), x0 + barW + 9 * k, y + barH / 2);
-    }
-
-    // fuel pill (§3.1): green → red <25% → white in the solar trickle
+    // ── vitals: four vertical gauges in one narrow left cluster ──────────────
+    // Was four 132k-wide horizontal pills + 100k of "SHD 50/100" labels, which
+    // ate the entire top band. Vertical bars carry the same read (fraction at a
+    // glance, colour-coded, warn pulse) in ~110k instead of ~245k. The bar shows
+    // the fraction, so only the CURRENT value is printed under it — cur/max at
+    // this column width would collide with the neighbouring gauge.
     var fuel = s.fuel || 0, fuelMax = s.fuelMax || 1, fr = fuel / fuelMax;
     var fuelCol = s.solar ? COL.charge2 : (fr < 0.25 ? COL.fuelLow : COL.fuel);
-    var fy = y0 + 3 * rowH;
-    vitalBar(x0, fy, barW, barH, fr, fuelCol, (fr < 0.15 && !s.solar) ? t : null);
-    ctx.fillStyle = hexLerp(fuelCol, "#ffffff", 0.5);
-    ctx.font = font(8.5, true);
-    ctx.textAlign = "left";
-    ctx.fillText("FUEL " + Math.round(fuel) + "/" + Math.round(fuelMax), x0 + barW + 9 * k, fy + barH / 2);
+    var cols = [
+      { cur: hp.shield || 0, max: hp.shieldMax || 1, col: COL.shield, tag: "SHD" },
+      { cur: hp.armor || 0,  max: hp.armorMax || 1,  col: COL.armor,  tag: "ARM" },
+      { cur: hp.hull || 0,   max: hp.hullMax || 1,   col: COL.hull,   tag: "HULL" },
+      { cur: fuel,           max: fuelMax,           col: fuelCol,    tag: "FUEL", fuel: true }
+    ];
+    var vx0 = VIT.x0 * k, vw = VIT.w * k, vgap = VIT.gap * k;
+    var vTop = VIT.top * k, vH = VIT.h * k;
+    for (var i = 0; i < cols.length; i++) {
+      var c = cols[i], cx = vx0 + i * (vw + vgap);
+      var ratio = c.max > 0 ? c.cur / c.max : 0;
+      var warn = c.fuel ? (ratio < 0.15 && !s.solar) : (c.tag === "HULL" && ratio < 0.30);
+      vitalBarV(cx, vTop, vw, vH, ratio, c.col, warn ? t : null);
+      var lit = hexLerp(c.col, "#ffffff", 0.5);
+      // tag above
+      ctx.fillStyle = warn ? c.col : lit;
+      ctx.font = font(7, true);
+      ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+      ctx.fillText(c.tag, cx + vw / 2, vTop - 4 * k);
+      // current value below (max is what the gauge itself is showing)
+      ctx.fillStyle = lit;
+      ctx.font = font(7.5, true);
+      ctx.textBaseline = "top";
+      ctx.fillText(vitalNum(c.cur), cx + vw / 2, vTop + vH + 4 * k);
+    }
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
 
     // ── nav cluster, top-right: credits chip + base / region / coord ──
     var rx = W - 12 * k;
@@ -373,18 +454,24 @@
       ctx.closePath(); ctx.stroke();
       ctx.lineWidth = 1;
     });
-    // Survey contacts: dim, unlabelled returns. You know something is there and
-    // roughly what kind — never what it is. Identifying one is a trip, not a tap.
+    // Survey contacts: unlabelled returns on the dial after a region SURVEY.
+    // Brighter + slightly larger so POIs read as the point of the sweep.
     (mm.contacts || []).forEach(function (c) {
       var dx = c.x - ship.x, dy = c.y - ship.y, d = Math.sqrt(dx * dx + dy * dy);
       var px, py;
       if (d * kMap <= R - 6 * k) { px = cx + dx * kMap; py = cy + dy * kMap; }
       else { var a = Math.atan2(dy, dx); px = cx + Math.cos(a) * (R - 6 * k); py = cy + Math.sin(a) * (R - 6 * k); }
-      ctx.globalAlpha = 0.42 + 0.14 * Math.sin((s.t || 0) * 2.2 + px);
-      ctx.fillStyle = c.cls === "hostile" ? "#ff8a8a" : c.cls === "signal" ? "#7fdfff" : "#9fb4c8";
-      ctx.font = "bold " + Math.max(7, 8 * k) + "px monospace";
+      var pulse = 0.72 + 0.28 * Math.sin((s.t || 0) * 2.6 + px);
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = c.cls === "hostile" ? "#ff8a8a" : c.cls === "signal" ? "#7fdfff" : "#c8d8e8";
+      ctx.font = "bold " + Math.max(9, 10 * k) + "px monospace";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(c.cls === "hostile" ? "△" : c.cls === "signal" ? "⌁" : "◌", px, py);
+      // soft ping ring so contacts pop on the radar dish
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.globalAlpha = 0.35 * pulse;
+      ctx.lineWidth = 1 * k;
+      ctx.beginPath(); ctx.arc(px, py, 5.5 * k, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
       ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
     });
@@ -455,6 +542,25 @@
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+
+    // MAP affordance: the whole dish is the galaxy-map button (see
+    // gameButtons().map in game/ui.js), so it carries a small badge on the
+    // lower-right rim instead of costing a separate button in the tool row.
+    var bx = cx + R * 0.72, by = cy + R * 0.72, br = 11 * k;
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(12,18,30,0.92)"; ctx.fill();
+    ctx.strokeStyle = "rgba(143,208,255,0.75)"; ctx.lineWidth = 1.2 * k; ctx.stroke();
+    ctx.fillStyle = "#8fd0ff";
+    ctx.font = "bold " + Math.max(8, 10 * k) + "px monospace";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("◈", bx, by + 0.5 * k);
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  }
+
+  // Bounding box of the mini-map dish — doubles as the MAP button hit-box.
+  function minimapRect() {
+    var R = 44 * k, cx = W - 58 * k, cy = 118 * k;
+    return { x: cx - R, y: cy - R, w: R * 2, h: R * 2 };
   }
 
   // Category badge: a filled colored disc with the 2-char category code in white.
@@ -660,7 +766,8 @@
     ctx.fill();
   }
 
-  // Only forceHud toasts paint on-canvas (rare). Routine chatter is radio-only.
+  // forceHud toasts are rare. Keep them OFF the top vitals (shield/armor/fuel) —
+  // mid-screen lower third, same band as combat telegraphs.
   function drawToasts(s) {
     var list = (s.toasts || []).filter(function (t) { return t.forceHud; });
     list.forEach(function (t, i) {
@@ -671,8 +778,7 @@
       ctx.font = font(11, true);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      // Sit under the top vitals strip, not over the center of the ship view
-      ctx.fillText(t.text, W / 2, (118 + i * 16) * k);
+      ctx.fillText(t.text, W / 2, H * 0.38 + i * 16 * k);
       ctx.globalAlpha = 1;
     });
   }
@@ -777,7 +883,9 @@
 
       var texts = ops.filter(function (o) { return o[0] === "fillText"; })
                      .map(function (o) { return String(o[1][0]); });
-      ["SHD 50/100", "ARM 60/80", "HULL 10/60", "FUEL 30/100", "1234cr",
+      // Vertical gauges: tag above the bar, current value below it (the bar
+      // itself carries the fraction, so cur/max is no longer printed).
+      ["SHD", "ARM", "HULL", "FUEL", "50", "60", "10", "30", "1234cr",
        "base 250m", "+1 Shield Booster"
       ].forEach(function (want) {
         check(texts.indexOf(want) !== -1, "expected HUD text '" + want + "' not drawn");
@@ -913,7 +1021,10 @@
     hitSkillButton: hitSkillButton,
     hitWarpButton: hitWarpButton,
     skillSlotRect: skillSlotRect,
+    skillRowRect: skillRowRect,
     skillTap: skillTap,
+    vitalsRect: vitalsRect,
+    minimapRect: minimapRect,
     drawProjectile: drawProjectile,
     COL: COL,
     getState: getState,

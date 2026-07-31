@@ -48,9 +48,10 @@
   var CRIT_MULT = 1.5;         // crit damage multiplier
   var GLANCE_CHANCE = 0.20;    // chance a non-crit hit glances
   var GLANCE_MULT = 0.5;       // glancing damage multiplier
-  var AOE_FACTOR = 0.40;       // missile splash = 40% of base per-layer damage
+  var AOE_FACTOR = 0.50;       // missile splash = 50% of base per-layer damage
   var DEFAULT_FIRE_MS = 1200;  // default weapon cooldown when a weapon omits fireRate_ms
-  var PROJ_SPEED = { laser: 1600, cannon: 1200, missile: 700 }; // world units / s
+  var PROJ_SPEED = { laser: 1800, cannon: 1300, missile: 520 }; // world units / s
+  var MISSILE_HOME = 2.4;      // rad/s seek rate while in flight
   var RESPAWN_DESTROYED_S = 2.0; // "SHIP DESTROYED" hold before "WARPING TO BASE..."
 
   /* Deterministic RNG (mulberry32) for seeded rolls / tests. */
@@ -208,12 +209,16 @@
     ensure();
     var speed = speedOverride || PROJ_SPEED[type] || 1000;
     var d = Math.hypot(to.x - from.x, to.y - from.y);
-    var ttl = Math.min(2.5, d / speed + 0.05);   // laser no longer clips short — full travel distance
+    // Missiles loiter longer so the seeker + blast read clearly
+    var ttlCap = type === "missile" ? 4.0 : 2.5;
+    var ttl = Math.min(ttlCap, d / speed + (type === "missile" ? 0.35 : 0.05));
     return {
       id: ++state._pid, type: type, color: color || COL[type] || COL.ink,
       from: { x: from.x, y: from.y }, x: from.x, y: from.y, tx: to.x, ty: to.y,
       speed: speed, ttl: ttl, life: 0, dead: false,
-      hit: false, crit: false, glancing: false, aoe: 0
+      hit: false, crit: false, glancing: false, aoe: 0,
+      // Deferred damage payload (missiles apply on impact, not on fire)
+      pending: null, homeTarget: null, blastDrawn: false
     };
   }
 
@@ -288,18 +293,37 @@
     var dA = base * w.dmgArmor * mult * mA;
     var dH = base * w.dmgHull * mult * mH;
 
+    var aoeMult = ship.aoeMult != null ? ship.aoeMult : 1;
+    var radius = (w.aoe && w.aoe > 0)
+      ? w.aoe * (1 + specialSum(weaponItem, "aoe_radius_pct") / 100) * aoeMult
+      : 0;
+    proj.aoe = round4(radius);
+    proj.hit = true; proj.crit = crit; proj.glancing = glancing;
+
+    // Missiles: real flight + impact blast. Damage is deferred until the warhead
+    // arrives so the seeker and area ring read as actual munitions.
+    if (w.type === "missile") {
+      proj.pending = {
+        target: target, allTargets: allTargets || [],
+        dS: dS, dA: dA, dH: dH, radius: radius,
+        crit: crit, glancing: glancing
+      };
+      proj.homeTarget = target;
+      out.hit = true; out.crit = crit; out.glancing = glancing; out.mult = mult;
+      out.damage = 0; // resolved on impact
+      out.deferred = true;
+      if (crit) addFloater("CRIT", to.x, to.y, COL.crit);
+      return out;
+    }
+
     var before = hpTotal(target);
     applyDamage(target, dS, dA, dH);
     out.hit = true; out.crit = crit; out.glancing = glancing; out.mult = mult;
     out.damage = round4(before - hpTotal(target));
     out.dead = !!(target && target._lastDamage && target._lastDamage.dead);
 
-    // Missile splash: 40% of base per-layer damage to everything within the (affix-
-    // boosted) AoE radius of the impact point, excluding the primary target.
-    if (w.aoe && w.aoe > 0 && allTargets && allTargets.length) {
-      var aoeMult = ship.aoeMult != null ? ship.aoeMult : 1;   // "blast radius" skill; default 1
-      var radius = w.aoe * (1 + specialSum(weaponItem, "aoe_radius_pct") / 100) * aoeMult;
-      proj.aoe = round4(radius);
+    // Instant splash for non-missile AoE weapons (if any)
+    if (radius > 0 && allTargets && allTargets.length) {
       for (var i = 0; i < allTargets.length; i++) {
         var o = allTargets[i];
         if (!o || o === target) continue;
@@ -309,6 +333,28 @@
 
     if (crit) addFloater("CRIT", to.x, to.y, COL.crit);
     return out;
+  }
+
+  function resolveMissileImpact(p) {
+    if (!p || !p.pending) return;
+    var pay = p.pending;
+    p.pending = null;
+    var impact = { x: p.x, y: p.y };
+    if (pay.target) {
+      var before = hpTotal(pay.target);
+      applyDamage(pay.target, pay.dS, pay.dA, pay.dH);
+      p.resolvedDamage = round4(before - hpTotal(pay.target));
+    }
+    if (pay.radius > 0 && pay.allTargets && pay.allTargets.length) {
+      for (var i = 0; i < pay.allTargets.length; i++) {
+        var o = pay.allTargets[i];
+        if (!o || o === pay.target) continue;
+        if (dist(o, impact) <= pay.radius)
+          applyDamage(o, pay.dS * AOE_FACTOR, pay.dA * AOE_FACTOR, pay.dH * AOE_FACTOR);
+      }
+    }
+    // Short-lived blast marker for drawCombat
+    p.blast = { r: Math.max(40, pay.radius || 80), age: 0, ttl: 0.35 };
   }
 
   // Advance projectiles toward their impact points, age the lock's locking→locked
@@ -327,10 +373,24 @@
     for (var i = 0; i < state.projectiles.length; i++) {
       var p = state.projectiles[i];
       p.life += delta;
+      // Homing missiles gently re-aim at a living target
+      if (p.type === "missile" && p.homeTarget && p.homeTarget.hp && p.homeTarget.hp.hull > 0) {
+        p.tx = p.homeTarget.x; p.ty = p.homeTarget.y;
+      }
       var dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy);
       var step = p.speed * delta;
-      if (d <= step || p.life >= p.ttl) { p.x = p.tx; p.y = p.ty; p.dead = true; }
-      else { p.x += dx / d * step; p.y += dy / d * step; }
+      if (d <= step || p.life >= p.ttl) {
+        p.x = p.tx; p.y = p.ty;
+        if (p.pending) resolveMissileImpact(p);
+        p.dead = true;
+      } else {
+        p.x += dx / d * step; p.y += dy / d * step;
+      }
+      // Keep blast rings one frame after death for the flash
+      if (p.blast) {
+        p.blast.age += delta;
+        if (p.blast.age < p.blast.ttl) { p.dead = false; live.push(p); continue; }
+      }
       if (!p.dead) live.push(p);
     }
     state.projectiles = live;
@@ -445,19 +505,52 @@
   function drawProjectiles(ctx, camera) {
     for (var i = 0; i < state.projectiles.length; i++) {
       var p = state.projectiles[i];
-      var col = COL[p.type] || COL.ink;
+      var col = p.color || COL[p.type] || COL.ink;
       var a = project(camera, p.x, p.y);
+      var z = (camera && camera.zoom) || 1;
+      // Missile impact blast ring (area of effect)
+      if (p.blast) {
+        var frac = 1 - p.blast.age / p.blast.ttl;
+        var br = p.blast.r * z * (0.55 + 0.45 * (1 - frac));
+        ctx.globalAlpha = 0.55 * frac;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = Math.max(1.5, 2.5 * z);
+        ctx.beginPath(); ctx.arc(a.x, a.y, br, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 0.2 * frac;
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(a.x, a.y, br * 0.7, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+        continue;
+      }
       var b = project(camera, p.from.x, p.from.y);
       ctx.strokeStyle = col;
       ctx.fillStyle = col;
-      ctx.lineWidth = p.type === "laser" ? 2 : 1.5;
-      ctx.beginPath();
-      ctx.moveTo(b.x, b.y);
-      ctx.lineTo(a.x, a.y);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(a.x, a.y, p.type === "missile" ? 3 : 2, 0, Math.PI * 2);
-      ctx.fill();
+      if (p.type === "missile") {
+        // Seeker body + short exhaust — reads as a munition, not a laser tick
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        var ang = Math.atan2(p.ty - p.y, p.tx - p.x);
+        ctx.lineTo(a.x - Math.cos(ang) * 10 * z, a.y - Math.sin(ang) * 10 * z);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, Math.max(2.5, 3.2 * z), 0, Math.PI * 2);
+        ctx.fill();
+        if (p.aoe > 0) {
+          ctx.globalAlpha = 0.15;
+          ctx.beginPath(); ctx.arc(a.x, a.y, Math.min(28, p.aoe * 0.08) * z, 0, Math.PI * 2); ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      } else {
+        ctx.lineWidth = p.type === "laser" ? 2 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.y);
+        ctx.lineTo(a.x, a.y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.lineWidth = 1;
     }
   }
@@ -512,7 +605,7 @@
 
   function seq(arr) { var i = 0; return function () { return arr[i++ % arr.length]; }; }
   function laserItem() { return { id: "w_l", weapon: { type: "laser", dmgShield: 1.6, dmgArmor: 0.6, dmgHull: 1.0, range: 600, fuelPerShot: 8, aoe: 0, ammo: null }, specials: [] }; }
-  function missileItem(ammo) { return { id: "w_m", weapon: { type: "missile", dmgShield: 1.0, dmgArmor: 1.0, dmgHull: 1.0, range: 400, fuelPerShot: 3, aoe: 120, ammo: 20 }, ammo: ammo == null ? 20 : ammo, specials: [] }; }
+  function missileItem(ammo) { return { id: "w_m", weapon: { type: "missile", dmgShield: 1.0, dmgArmor: 1.0, dmgHull: 1.0, range: 400, fuelPerShot: 3, aoe: 120, ammo: 20, projSpeed: 2000 }, ammo: ammo == null ? 20 : ammo, specials: [] }; }
   function mkTarget(id, x, y, s, a, h) {
     return { id: id, x: x, y: y, hp: { shield: s, shieldMax: s, armor: a, armorMax: a, hull: h, hullMax: h, res: { shield: 0, armor: 0, hull: 0 } } };
   }
@@ -598,14 +691,17 @@
       check(tm.hp.shield === 100, "missed target keeps full shield");
       check(getFloaters().some(function (f) { return f.text === "MISS"; }), "MISS floater should spawn");
 
-      // 9. Missile AoE: 40% of base per-layer damage to neighbours within 120 units.
+      // 9. Missile AoE: damage applies on impact; 50% splash to neighbours in radius.
       initCombat();
       var prim = mkTarget("p", 300, 0, 50, 0, 0);
       var near1 = mkTarget("n1", 350, 0, 50, 0, 0);  // 50 units from impact — inside AoE
       var far1 = mkTarget("f1", 600, 0, 50, 0, 0);   // 300 units — outside AoE
       var rmis = fireWeapon(missileItem(20), prim, [prim, near1, far1], { x: 0, y: 0, weaponDmg: 10 }, { rng: seq([0.5, 0.5, 0.5]) });
-      near(prim.hp.shield, 40, 1e-6, "missile primary: 50 - (10×1.0) = 40");
-      near(near1.hp.shield, 46, 1e-6, "AoE neighbour: 50 - (10×0.4) = 46");
+      check(rmis.deferred === true, "missile damage should be deferred to impact");
+      check(prim.hp.shield === 50, "primary unharmed until impact");
+      for (var mi = 0; mi < 40; mi++) updateProjectiles(0.05); // fly to impact
+      near(prim.hp.shield, 40, 1e-6, "missile primary on impact: 50 - 10 = 40");
+      near(near1.hp.shield, 45, 1e-6, "AoE neighbour: 50 - (10×0.5) = 45");
       check(far1.hp.shield === 50, "target outside AoE radius untouched");
       check(rmis.ammoLeft === 19, "missile ammo should decrement 20→19");
 
@@ -673,6 +769,7 @@
       initCombat();
       var pA = mkTarget("pA", 300, 0, 50, 0, 0), nA = mkTarget("nA", 500, 0, 50, 0, 0);   // neighbour 200u from impact
       fireWeapon(missileItem(20), pA, [pA, nA], { x: 0, y: 0, weaponDmg: 10, aoeMult: 2 }, { rng: seq([0.5, 0.5, 0.5]) });
+      for (var mj = 0; mj < 40; mj++) updateProjectiles(0.05);
       check(nA.hp.shield < 50, "aoeMult=2 should extend splash to a 200u neighbour (radius 120→240)");
     } catch (e) {
       fails.push("FAIL: selfTest threw: " + (e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : e));

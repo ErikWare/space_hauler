@@ -50,7 +50,8 @@
 
   var TIER_ORDER = ["normal", "rare", "unique", "elite"];
   var RESTOCK_SECONDS = 300;                 // 5 minutes real-time per station
-  var STOCK_MIN = 8, STOCK_MAX = 12;
+  // Raw roll counts before stacking — shelves show fewer rows with qty badges.
+  var STOCK_MIN = 14, STOCK_MAX = 22;
   var MARKUP = 1.3, MARKDOWN = 0.7;          // buy ×1.3, sell ×0.7
   var HOME_REFINE_BONUS = 0.10;              // 10% better refining at your home
 
@@ -142,8 +143,31 @@
 
   /* ── stock generation ─────────────────────────────────────────────────────── */
 
-  /* generateStock(station, seed?) — 8–12 rolled items. Home stock is weighted-tier
-   * generateItem() only (guaranteed common/rare); outer mixes in rollDrop() salvage. */
+  /* Collapse identical catalog rows into qty stacks (base + tier + name).
+   * Stacks keep a representative item and set `_qty` so the UI can show ×N. */
+  function stackStock(list) {
+    if (!list || !list.length) return [];
+    var map = Object.create(null), order = [];
+    for (var i = 0; i < list.length; i++) {
+      var it = list[i];
+      if (!it) continue;
+      var key = String(it.base || it.id || "?") + "|" + String(it.tier || "normal")
+        + "|" + String(it.name || "");
+      if (map[key]) {
+        map[key]._qty = (map[key]._qty || 1) + (it._qty || 1);
+      } else {
+        var row = it;
+        if (row._qty == null) row._qty = 1;
+        map[key] = row;
+        order.push(key);
+      }
+    }
+    return order.map(function (k) { return map[k]; });
+  }
+
+  /* generateStock(station, seed?) — rolls a generous raw shelf, then stacks
+   * identical modules so the UI stays dense. Home is weighted-tier generateItem
+   * only (common/rare); outer mixes in rollDrop salvage. */
   function generateStock(station, seed) {
     var IS = items();
     if (!IS) return [];
@@ -166,7 +190,7 @@
       var base = keys[Math.floor(rng() * keys.length)];
       out.push(IS.generateItem(base, tier, { ilvl: ilvl, rng: rng }));
     }
-    return out;
+    return stackStock(out);
   }
 
   /* generateBarStock(station, seed?) — { copper:n, silver:n, gold:n, platinum:n }.
@@ -247,20 +271,24 @@
     var st = state.station;
     var credits = ps ? ps.credits : 0;
     if (!st || !st.stock) return { success: false, reason: "no store open", newCredits: credits };
-    var item = st.stock[itemIndex];
-    if (!item) return { success: false, reason: "no such item", newCredits: credits };
-    var price = buyPrice(item);
-    if (!ps || ps.credits < price) return { success: false, reason: "insufficient credits", newCredits: credits, item: item, price: price };
+    var shelf = st.stock[itemIndex];
+    if (!shelf) return { success: false, reason: "no such item", newCredits: credits };
+    var price = buyPrice(shelf);
+    if (!ps || ps.credits < price) return { success: false, reason: "insufficient credits", newCredits: credits, item: shelf, price: price };
     if (!ps.inventory) ps.inventory = [];
     if (ps.inventoryMax != null && ps.inventory.length >= ps.inventoryMax) {
-      return { success: false, reason: "inventory full", newCredits: credits, item: item, price: price };
+      return { success: false, reason: "inventory full", newCredits: credits, item: shelf, price: price };
     }
+    // One unit leaves the shelf; stacks decrement qty instead of vanishing.
+    var bought = Object.assign({}, shelf);
+    delete bought._qty;
     ps.credits -= price;
-    ps.inventory.push(item);
-    st.stock.splice(itemIndex, 1);
+    ps.inventory.push(bought);
+    if ((shelf._qty || 1) > 1) shelf._qty -= 1;
+    else st.stock.splice(itemIndex, 1);
     if (state.selected && state.selected.side === "stock") state.selected = null;
-    if (state.callbacks && state.callbacks.onBuy) state.callbacks.onBuy(item, price);
-    return { success: true, newCredits: ps.credits, item: item, price: price };
+    if (state.callbacks && state.callbacks.onBuy) state.callbacks.onBuy(bought, price);
+    return { success: true, newCredits: ps.credits, item: bought, price: price };
   }
 
   function barBuyPrice(type) { return Math.round((BAR_BASE_VALUE[type] || 0) * MARKUP); }
@@ -538,11 +566,23 @@
       var outer = mkStation(6, 5800, 0);
       [home, mid, outer].forEach(function (stn, idx) {
         var s1 = generateStock(stn, 100 + idx);
-        check(s1.length >= STOCK_MIN && s1.length <= STOCK_MAX, "stock count " + s1.length + " out of 8–12 for station " + stn.id);
-        s1.forEach(function (it) { check(it && it.id && it.base && it.value != null, "malformed stock item on station " + stn.id); });
+        // After stacking, row count is ≤ raw roll size and ≥ 1
+        check(s1.length >= 1 && s1.length <= STOCK_MAX, "stock count " + s1.length + " out of range for station " + stn.id);
+        s1.forEach(function (it) {
+          check(it && it.id && it.base && it.value != null, "malformed stock item on station " + stn.id);
+          check((it._qty || 1) >= 1, "stack qty must be ≥1");
+        });
         var s2 = generateStock(stn, 100 + idx);
         check(s1.length === s2.length && s1[0].base === s2[0].base && s1[0].value === s2[0].value, "generateStock not deterministic for seed on station " + stn.id);
       });
+      // Stacking merges identical catalog keys
+      var stacked = stackStock([
+        IS.generateItem("laser", "rare", { ilvl: 3, rng: IS.seedRng(9) }),
+        IS.generateItem("laser", "rare", { ilvl: 3, rng: IS.seedRng(9) }),
+        IS.generateItem("cannon", "normal", { ilvl: 2, rng: IS.seedRng(2) }),
+      ]);
+      check(stacked.length === 2, "stackStock should collapse identical base+tier+name");
+      check(stacked.some(function (r) { return r.base === "laser" && r._qty === 2; }), "laser stack should be qty 2");
 
       // 2. Home class stocks common/rare only; outer can reach unique/elite.
       var homeStock = generateStock(home, 4242);
@@ -555,23 +595,31 @@
       check(buyPrice(item) === Math.round(baseVal * 1.3), "buyPrice should be value×1.3");
       check(sellPrice(item) === Math.round(baseVal * 0.7), "sellPrice should be value×0.7");
 
-      // 4. Buy: deducts markup, moves item, removes from stock; blocked when broke.
+      // 4. Buy: deducts markup, moves one unit, stacks decrement; blocked when broke.
       var buyStation = mkStation(5, 5000, 0);
-      buyStation.stock = [item];
-      var ps = { credits: 1000, inventory: [] };
+      buyStation.stock = [Object.assign({}, item, { _qty: 2 })];
+      var ps = { credits: 5000, inventory: [] };
       openStore(buyStation, ps, {});
       var poor = buyItem(0, { credits: 5, inventory: [] });
       check(poor.success === false && poor.newCredits === 5, "buy with too few credits must fail");
+      var price1 = buyPrice(item);
       var r = buyItem(0, ps);
-      check(r.success === true && r.newCredits === 1000 - buyPrice(item), "buy should deduct the markup price");
-      check(ps.inventory.length === 1 && ps.inventory[0] === item, "bought item should land in inventory");
-      check(buyStation.stock.length === 0, "bought item should leave the stock");
+      check(r.success === true && r.newCredits === 5000 - price1, "buy should deduct the markup price");
+      check(ps.inventory.length === 1 && ps.inventory[0].base === item.base, "bought item should land in inventory");
+      check(ps.inventory[0]._qty == null, "inventory units must not carry shelf qty");
+      check(buyStation.stock.length === 1 && buyStation.stock[0]._qty === 1, "buying one unit should leave qty 1");
+      var r2 = buyItem(0, ps);
+      check(r2.success === true && buyStation.stock.length === 0, "buying last unit should clear the shelf row");
+      check(ps.inventory.length === 2, "two buys should yield two inventory units");
 
       // 5. Sell: adds markdown credits, removes from inventory.
       var before = ps.credits;
-      var nc = sellItem(item, ps);
-      check(nc === before + sellPrice(item), "sell should add value×0.7, got " + nc);
-      check(ps.inventory.length === 0, "sold item should leave inventory");
+      var held = ps.inventory[0];
+      var nc = sellItem(held, ps);
+      check(nc === before + sellPrice(held), "sell should add value×0.7, got " + nc);
+      check(ps.inventory.length === 1, "sold one unit should leave the other");
+      sellItem(ps.inventory[0], ps);
+      check(ps.inventory.length === 0, "sold last unit should empty inventory");
 
       // 6. Inventory-full guard.
       var fullPs = { credits: 100000, inventory: [{}, {}], inventoryMax: 2 };
@@ -678,6 +726,7 @@
   var Api = {
     initStore: initStore,
     generateStock: generateStock,
+    stackStock: stackStock,
     restockStation: restockStation,
     restockIfExpired: restockIfExpired,
     openStore: openStore,

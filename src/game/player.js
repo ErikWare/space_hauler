@@ -124,7 +124,48 @@ Object.assign(GAME, {
     return d;
   },
 
+  // ---- tap-to-fly (mobile) -------------------------------------------------
+  // Rocket icon toggles between hold-to-thrust and tap-a-point autopilot.
+  // Dest is a world {x,y}; engines burn at thrustPower until arrival, then coast.
+  toggleTapFly() {
+    const s = this.state;
+    s.tapFly = !s.tapFly;
+    s.tapFlyDest = null;
+    s.holdT = 0; s.charge = 0; s.thrusting = false;
+    if (!HEADLESS && typeof localStorage !== "undefined")
+      localStorage.setItem("sh_tapFly", s.tapFly ? "1" : "0");
+    if (typeof toast === "function")
+      toast(s.tapFly ? "🚀 TAP FLY — tap space to set course" : "🚀 HOLD THRUST — hold to steer",
+        s.tapFly ? "#57d1c9" : "#7fdfff", 2.2);
+    if (typeof sfx === "function") sfx("buy");
+    return s.tapFly;
+  },
+
+  setTapFlyDest(sx, sy) {
+    const s = this.state;
+    if (!s || !s.tapFly || s.docked || s.onPlanet || s.dead) return false;
+    if (s.fuelOut || s.fuel <= 0.01) {
+      if (typeof toast === "function") toast("engines dead — no course", "#ff6b6b", 1.4);
+      return false;
+    }
+    const w = this.worldFromScreen ? this.worldFromScreen(sx, sy)
+      : { x: s.x, y: s.y };
+    s.tapFlyDest = { x: w.x, y: w.y };
+    if (typeof sfx === "function") sfx("grab");
+    return true;
+  },
+
+  clearTapFlyDest() {
+    const s = this.state;
+    if (s) s.tapFlyDest = null;
+  },
+
   // ---- dual engine (CONSTANT accelerate / BURST charge-release) ----
+  // fuelOut = engines hard-dead. Solar trickle alone is too weak to fly on; the
+  // player is helpless until the tank recovers past fuelOutRecover.
+  //
+  // Tap-fly: when enabled + a dest is set, inject full-power aim toward the
+  // waypoint (respects thrustPower %). On arrival engines cut and the ship coasts.
   tickEngine(dt) {
     const s = this.state, towing = s.tows.length > 0;
     let towMass = 0;
@@ -133,9 +174,47 @@ Object.assign(GAME, {
     // a stronger beam hauls heavy loads with less fuel cost + speed loss.
     const towMult = (1 + towMass * CONFIG.towK / (s.derived.tractorStr || 1)) * (s.derived.fuelCostK || 1);
     const thrustMul = s.derived.thrust / 100 * (s.thrustPower || 0.75);
-    const dirMag = Math.hypot(input.ax, input.ay);
-    if (dirMag > 0.02) { s.aimX = input.ax / dirMag; s.aimY = input.ay / dirMag; s.heading = Math.atan2(s.aimY, s.aimX); }
-    if (s.mode === "constant") {
+
+    // Resolve thrust intent: keyboard/hold input, or tap-fly waypoint.
+    let ax = input.ax || 0, ay = input.ay || 0;
+    const keyMag = Math.hypot(ax, ay);
+    // Manual keys cancel an active course (player took the stick back)
+    if (keyMag > 0.02 && s.tapFlyDest) s.tapFlyDest = null;
+
+    let tapNav = false;
+    if (s.tapFly && s.tapFlyDest && keyMag < 0.02) {
+      const dx = s.tapFlyDest.x - s.x, dy = s.tapFlyDest.y - s.y;
+      const d = Math.hypot(dx, dy);
+      const arriveR = CONFIG.tapFlyArrive || 52;
+      const overR = CONFIG.tapFlyOvershoot || 140;
+      // Closing past the point, or inside the arrive bubble → cut engines, coast
+      const closing = d > 1e-3 ? -((s.vx || 0) * dx + (s.vy || 0) * dy) / d : 0;
+      const passed = closing < -20 && d < overR;
+      if (d <= arriveR || passed) {
+        s.tapFlyDest = null;
+        ax = 0; ay = 0;
+      } else {
+        ax = dx / d; ay = dy / d;
+        tapNav = true;
+      }
+    }
+
+    const dirMag = Math.hypot(ax, ay);
+    if (dirMag > 0.02) {
+      s.aimX = ax / dirMag; s.aimY = ay / dirMag;
+      s.heading = Math.atan2(s.aimY, s.aimX);
+    }
+    // Dead engines: may aim / face, but no acceleration whatsoever
+    if (s.fuelOut || s.fuel <= 0.01) {
+      s.thrusting = false;
+      s.holdT = 0;
+      s.charge = lerp(s.charge, 0, Math.min(1, 14 * dt));
+      s.flare = Math.max(0, s.flare - 2.2 * dt);
+      return towing;
+    }
+    // Tap-nav always burns continuous thrust (ignore burst mode) — mobile needs
+    // predictable "go here" behaviour, not charge-and-release.
+    if (tapNav || s.mode === "constant") {
       if (dirMag > 0.02 && s.fuel > 0.01) {
         const cost = CONFIG.thrustFuelRate * towMult * dt, eff = cost > 0 ? Math.min(1, s.fuel / cost) : 0;
         const acc = CONFIG.accel * thrustMul * eff;
@@ -157,15 +236,30 @@ Object.assign(GAME, {
     return towing;
   },
 
-  // fuel floor: solar trickle so a dry tank is never a hard softlock
+  // fuel floor: slow solar trickle ONLY while under solarMax (emergency floor,
+  // never fills the whole tank). Engines stay hard-dead until fuelOutRecover.
   tickFuel(dt) {
     const s = this.state;
-    if (s.fuel <= 0.01 && !s.fuelOut) { s.fuelOut = true; sfx("warn");
-      if (s.tows.length) { this.dropAllTows(); toast("FUEL OUT — loads dropped"); }
-      toast("FUEL OUT — solar trickle charging"); }
-    const solar = (s.derived && s.derived.solarRegen) || CONFIG.solarRegen;
-    if (s.fuel < CONFIG.solarMax) s.fuel = Math.min(CONFIG.solarMax, s.fuel + solar * dt);
-    if (s.fuelOut && s.fuel > s.fuelMax * 0.3) s.fuelOut = false;
+    if (s.fuel <= 0.01 && !s.fuelOut) {
+      s.fuelOut = true; sfx("warn");
+      if (s.tows.length) { this.dropAllTows(); toast("FUEL OUT — loads dropped", "#ff6b6b"); }
+      toast("ENGINES DEAD — solar trickle only · helpless until recharged", "#ff6b6b", 3.2);
+    }
+    // Emergency floor only — while fuelOut, ignore module solarRegen buffs so a
+    // dry tank cannot fly on a strong solar rig.
+    const solar = s.fuelOut
+      ? CONFIG.solarRegen
+      : ((s.derived && s.derived.solarRegen) || CONFIG.solarRegen);
+    if (s.fuel < CONFIG.solarMax)
+      s.fuel = Math.min(CONFIG.solarMax, s.fuel + solar * dt);
+    // Recover once the floor has crawled to fuelOutRecover (≤ solarMax).
+    // ~15–25s of helplessness, then a limp tank — not a free "sip and fly".
+    const recoverAt = Math.min(CONFIG.solarMax || 10, CONFIG.fuelOutRecover || 8);
+    if (s.fuelOut && s.fuel >= recoverAt - 1e-6) {
+      s.fuelOut = false;
+      toast("engines online — limp fuel only", "#7bd88f", 1.8);
+      sfx("grab");
+    }
     if (!s.warned && s.fuel < s.fuelMax * 0.25) { s.warned = true; sfx("warn"); toast("fuel low"); }
     if (s.fuel > s.fuelMax * 0.3) s.warned = false;
   },
@@ -200,53 +294,144 @@ Object.assign(GAME, {
   },
 
   // ---- weapons (ForgeCombat) ----
-  // The first equipped weapon whose skill button is toggled ON (auto-fire enabled).
-  // A weapon sits idle until its left-column skill button activates it (V3 rule).
+  // First equipped weapon whose skill is ON (HUD / legacy callers).
+  // Auto-fire uses activeWeaponSlots() so multiple armed guns keep independent
+  // fire rates — laser + missile both ON no longer share one global cooldown.
   activeWeaponItem() {
+    const slots = this.activeWeaponSlots();
+    return slots.length ? slots[0].item : null;
+  },
+  activeWeaponSlots() {
     const eq = ForgeEquipment.getEquipped(), sk = ForgeEquipment.getSkillState();
+    const out = [];
     for (let i = 0; i < eq.slots.length; i++) {
       const it = eq.slots[i];
-      if (it && it.weapon && sk[i] && sk[i].active) return it;
+      if (it && it.weapon && sk[i] && sk[i].active) out.push({ slot: i, item: it });
     }
-    return null;
+    return out;
+  },
+  _tickWeaponCds(dt) {
+    const s = this.state;
+    if (!s.weaponCds) s.weaponCds = [];
+    const ms = dt * 1000;
+    for (let i = 0; i < s.weaponCds.length; i++)
+      s.weaponCds[i] = Math.max(0, (s.weaponCds[i] || 0) - ms);
+    // legacy single CD mirror (HUD/scripts): min of active weapons, else 0
+    s.weaponCd = Math.max(0, (s.weaponCd || 0) - ms);
+  },
+  _setWeaponCd(slot, ms) {
+    const s = this.state;
+    if (!s.weaponCds) s.weaponCds = [];
+    while (s.weaponCds.length <= slot) s.weaponCds.push(0);
+    s.weaponCds[slot] = ms;
+    // keep legacy field as the soonest next shot for UI
+    let soon = ms;
+    for (let i = 0; i < s.weaponCds.length; i++)
+      if (s.weaponCds[i] > 0 && s.weaponCds[i] < soon) soon = s.weaponCds[i];
+    s.weaponCd = soon;
+  },
+  _weaponCdReady(slot) {
+    const s = this.state;
+    if (!s.weaponCds) s.weaponCds = [];
+    return (s.weaponCds[slot] || 0) <= 0;
   },
   tryFireWeapon(dt) {
     const s = this.state;
-    s.weaponCd = Math.max(0, (s.weaponCd || 0) - dt * 1000);
-    if (!ForgeCombat.isLocked() || s.weaponCd > 0) return;
-    const w = this.activeWeaponItem(); if (!w) return;
-    const target = this.findCombatTarget(ForgeCombat.getLock().targetId);
+    this._tickWeaponCds(dt);
+    if (!ForgeCombat.isLocked()) return;
+    const armed = this.activeWeaponSlots();
+    if (!armed.length) return;
+    // Prefer sticky scan active target when it matches the lock (one target at a time)
+    const lockId = ForgeCombat.getLock().targetId;
+    const preferId = (s.scanActiveId != null && s.scanActiveId === lockId) ? s.scanActiveId : lockId;
+    const target = this.findCombatTarget(preferId);
     if (!target) return;
-    if (typeof target.hp === "number") { this.fireAtRock(target, w); return; }
-    if (target.kind === "outpost") { this.fireAtOutpost(target, w); return; }
-    if (target.kind === "emplacement") { this.fireAtEmplacement(target, w); return; }
-    if (target.kind === "torpedo") { this.fireAtTorpedo(target, w); return; }
-    // Range gate: only fire if target is within weapon range (range affixes + skill range mult)
-    const weapRange = (w.weapon.range || 800) * (1 + (s.derived.weaponRange || 0) / 100) * this.wpnRangeMult(w.weapon.type);
-    const tgtDist = Math.hypot(target.x - s.x, target.y - s.y);
-    if (tgtDist > weapRange) { s._outOfRange = 60; return; }  // blink HUD indicator, don't fire
-    s._outOfRange = 0;
-    // territoryDamageMult: Phase 6 +10% in wedges whose 50-pirate milestone is claimed
+
+    for (const { slot, item: w } of armed) {
+      if (!this._weaponCdReady(slot)) continue;
+      if (typeof target.hp === "number") { this.fireAtRock(target, w, slot); continue; }
+      if (target.kind === "outpost") { this.fireAtOutpost(target, w, slot); continue; }
+      if (target.kind === "emplacement") { this.fireAtEmplacement(target, w, slot); continue; }
+      if (target.kind === "torpedo") { this.fireAtTorpedo(target, w, slot); continue; }
+      if (target.kind === "p2drone") { this.fireAtP2Drone(target, w, slot); continue; }
+      // Range gate per weapon (missile can still fire when laser is out of range)
+      const weapRange = (w.weapon.range || 800) * (1 + (s.derived.weaponRange || 0) / 100) * this.wpnRangeMult(w.weapon.type);
+      const tgtDist = Math.hypot(target.x - s.x, target.y - s.y);
+      if (tgtDist > weapRange) { s._outOfRange = 60; continue; }
+      s._outOfRange = 0;
+      const shipState = { x: s.x, y: s.y, weaponDmg: s.derived.weaponDmg * this.territoryDamageMult(s.x, s.y),
+                          fireRate: s.derived.fireRate, fuel: s.fuel, fuelCostK: s.derived.fuelCostK };
+      this.applyWpnMods(shipState, w.weapon.type);
+      const preShield = target.hp.shield;
+      const res = ForgeCombat.fireWeapon(w, target, s.aliens, shipState);
+      if (res.ok) {
+        AUDIO.play("shoot");
+        s.fuel = shipState.fuel;
+        this._setWeaponCd(slot, ForgeCombat.weaponCooldownMs(w, shipState));
+        s.flare = Math.max(s.flare, 0.4);
+        s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;
+        if (res.hit) { AUDIO.play(preShield > 0 ? "hit_shield" : "hit_armor");
+          const tag = res.crit ? "CRIT " + res.damage : res.glancing ? "graze " + res.damage : "-" + res.damage;
+          toast(tag, res.crit ? "#ffd27a" : res.glancing ? "#9aa7b8" : "#ff8f6b"); }
+        if (res.dead) {
+          if (target.kind === "enemyBase") this.onEnemyBaseDestroyed(target);
+          else if (target.kind === "battlePilot") {
+            target.dead = true; target.state = "DEAD";
+            if (this.isBattleMatch && this.isBattleMatch()) this.endBattleMatch("p2_down");
+          } else this.onAlienKilled(target);
+        }
+      } else if (res.reason === "insufficient fuel") { toast("no fuel to fire"); break; }
+    }
+  },
+  // P2 wing drones use flat shield+hp pools — stable combat shell so lasers AND
+  // deferred missiles write through to the live drone (see wrapP2Drone).
+  fireAtP2Drone(wrap, w, slot) {
+    const s = this.state;
+    const d = wrap && wrap._drone;
+    if (!d || (d.hp || 0) <= 0) { ForgeCombat.clearLock(); return; }
+    // Prefer a fresh wrapper so shell + coords match the live drone this frame
+    const live = (this.wrapP2Drone && this.wrapP2Drone(d)) || wrap;
+    live.x = d.x; live.y = d.y;
     const shipState = { x: s.x, y: s.y, weaponDmg: s.derived.weaponDmg * this.territoryDamageMult(s.x, s.y),
                         fireRate: s.derived.fireRate, fuel: s.fuel, fuelCostK: s.derived.fuelCostK };
-    this.applyWpnMods(shipState, w.weapon.type);   // per-weapon skill perks (dmg/fuel/crit/hit/layer/aoe)
-    const preShield = target.hp.shield;   // which layer the hit sound lands on
-    const res = ForgeCombat.fireWeapon(w, target, s.aliens, shipState);
+    this.applyWpnMods(shipState, w.weapon.type);
+    const weapRange = (w.weapon.range || 800) * (1 + (s.derived.weaponRange || 0) / 100) * this.wpnRangeMult(w.weapon.type);
+    if (Math.hypot(d.x - s.x, d.y - s.y) > weapRange) { s._outOfRange = 60; return; }
+    s._outOfRange = 0;
+    const preShield = live.hp.shield;
+    const preHull = d.hp;
+    const res = ForgeCombat.fireWeapon(w, live, [], shipState);
     if (res.ok) {
       AUDIO.play("shoot");
       s.fuel = shipState.fuel;
-      s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState);
+      if (slot != null) this._setWeaponCd(slot, ForgeCombat.weaponCooldownMs(w, shipState));
       s.flare = Math.max(s.flare, 0.4);
-      s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
-      if (res.hit) { AUDIO.play(preShield > 0 ? "hit_shield" : "hit_armor");
-        const tag = res.crit ? "CRIT " + res.damage : res.glancing ? "graze " + res.damage : "-" + res.damage;
-        toast(tag, res.crit ? "#ffd27a" : res.glancing ? "#9aa7b8" : "#ff8f6b"); }
-      if (res.dead) { if (target.kind === "enemyBase") this.onEnemyBaseDestroyed(target); else this.onAlienKilled(target); }
+      s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;
+      // Instant weapons (laser/cannon) already mutated the shared shell
+      if (this._syncDroneFromCombatShell) this._syncDroneFromCombatShell(d);
+      else { d.shield = live.hp.shield; d.hp = live.hp.hull; }
+      if (res.hit && !res.deferred) {
+        AUDIO.play(preShield > 0 ? "hit_shield" : "hit_armor");
+        const dealt = Math.max(0, (preShield + preHull) - ((d.shield || 0) + (d.hp || 0)));
+        const tag = res.crit ? "CRIT " + (res.damage || Math.round(dealt))
+          : res.glancing ? "graze " + (res.damage || Math.round(dealt))
+          : "-" + (res.damage || Math.round(dealt));
+        toast(tag, res.crit ? "#ffd27a" : res.glancing ? "#9aa7b8" : "#ff8f6b");
+      }
+      if ((d.hp || 0) <= 0) {
+        d.hp = 0;
+        burst(d.x, d.y, "#ffb45e", 10);
+        sfx("boom");
+        if (ForgeCombat.getLock().targetId === d.id) ForgeCombat.clearLock();
+        if (s.scanActiveId === d.id) s.scanActiveId = null;
+        if (this.advanceScanTarget) this.advanceScanTarget();
+        toast("wing drone down", "#ffb45e");
+      }
     } else if (res.reason === "insufficient fuel") { toast("no fuel to fire"); }
   },
   // Manual rock fire is allowed but gives NO reward — rocks yield ore only by
   // towing them home. A towed rock is immune. Destroying a rock is pure loss.
-  fireAtRock(rock, w) {
+  fireAtRock(rock, w, slot) {
     const s = this.state;
     const idx = s.rocks.indexOf(rock);
     if (idx >= 0 && this.isTowed("rocks", idx)) { ForgeCombat.clearLock(); return; }  // towed = immune
@@ -259,7 +444,8 @@ Object.assign(GAME, {
     if (res.ok) {
       AUDIO.play("shoot");
       s.fuel = shipState.fuel;
-      s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState);
+      if (slot != null) this._setWeaponCd(slot, ForgeCombat.weaponCooldownMs(w, shipState));
+      else s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState);
       s.flare = Math.max(s.flare, 0.4);
       s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
       if (res.hit) { rock.hp = Math.max(0, wrapper.hp.hull); rock.hitFlash = 0.3; }
@@ -270,51 +456,67 @@ Object.assign(GAME, {
     } else if (res.reason === "insufficient fuel") { toast("no fuel to fire"); }
   },
 
-  // Auto-scan: find and lock the nearest hostile alien within scan range.
-  // Cycles through enemies if one is already dead or locked — call on SCAN button tap
-  // and automatically after each kill to chain targets.
+  // Active SCAN (orange pulse): arms quest / site first, then quietly loads
+  // every hostile in the current region into the sticky scan queue. Target
+  // selection is a separate click on the list (or a world tap).
   scanNearestEnemy() {
-    // Wing survey marks take priority over combat lock while the special is live.
-    if (this.tryTutorObjectiveScan && this.tryTutorObjectiveScan()) return true;
     const s = this.state;
-    const curLockId = ForgeCombat.getLock().targetId;
-    let best = null, bd = s.derived.scanRange;
-    for (const al of s.aliens) {
-      if (al.state === "DEAD") continue;
-      if (al.id === curLockId) continue;  // skip current target (allow cycling)
-      const d = Math.hypot(al.x - s.x, al.y - s.y);
-      if (d < bd) { bd = d; best = al; }
+    // Wing survey marks take priority — always arm even while combat CD is hot.
+    if (this.tryTutorObjectiveScan && this.tryTutorObjectiveScan()) {
+      if (this.beginActiveScanPulse) this.beginActiveScanPulse(true);
+      return true;
     }
-    // If nothing else found but the current target is still alive, keep it
-    if (!best && curLockId) {
-      const cur = this.findCombatTarget(curLockId);
-      if (cur && cur.state !== "DEAD") return;  // already locked on something good
+    // Heavy-body site cache unlock
+    if (this.trySiteScan && this.trySiteScan()) return true;
+    // Cooldown blocks combat spam (same cadence as SURVEY)
+    if ((s.scanPulseCd || 0) > 0 && !s.scanPulse) {
+      if (typeof toast === "function")
+        toast("⊕ scan recharging · " + Math.ceil(s.scanPulseCd) + "s", "#ff8a3c", 1.1);
+      return false;
     }
-    if (best) { this.lockAlien(best); return true; }
-    // Also scan enemy bases if no aliens
-    for (const al of s.aliens) {
-      if (al.kind !== "enemyBase") continue;
-      const d = Math.hypot(al.x - s.x, al.y - s.y);
-      if (d <= s.derived.scanRange) { this.lockAlien(al); return true; }
+    if (this.beginActiveScanPulse) this.beginActiveScanPulse(false);
+    // Pulse itself populates the list at ping; also seed immediately for
+    // responsiveness so the first frame after tap already shows contacts.
+    if (this.scanRegionIntoList) {
+      const reg = this.regionAt(s.x, s.y);
+      const before = (s.scanList && s.scanList.length) || 0;
+      const n = this.scanRegionIntoList(reg, { aggro: false });
+      if (n === 0 && (!s.scanList || !s.scanList.length)) {
+        if (typeof toast === "function") toast("⊕ no hostiles in this sector", "#ff8a3c", 1.3);
+      } else if (n === 0 && before > 0 && typeof toast === "function") {
+        // Rescan with no new contacts still re-sorts by range — confirm that
+        toast("⊕ re-sorted · nearest first", "#ff8a3c", 1.2);
+      }
     }
-    ForgeCombat.clearLock();
-    toast("no targets in scan range");
-    return false;
+    return true;
   },
   lockAlien(al) {
     const s = this.state, shipState = { x: s.x, y: s.y, scanRange: s.derived.scanRange, targets: s.aliens };
     const ok = ForgeCombat.lockOn(al, shipState);
     if (ok) {
-      if (al.kind === "enemyBase") {
+      // Mirror into the sticky scan queue + active target so drones + markers track it
+      if (this.selectScanTarget) this.selectScanTarget(al.id, { quiet: true });
+      else s.scanActiveId = al.id;
+      if (al.kind === "battlePilot") {
+        sfx("grab"); toast("locking enemy pilot…");
+      } else if (al.kind === "p2drone") {
+        sfx("grab"); toast("locking wing drone…");
+      } else if (al.kind === "enemyBase") {
         for (const a of s.aliens) if (a._baseId === al.id && a.state === "IDLE") ForgeFaction.activateGroup(a, s.aliens);
+        sfx("grab"); toast("acquiring lock…");
       } else if (al.kind === "outpost") {
         this._provokeOutpost(al);
+        sfx("grab"); toast("acquiring lock…");
       } else if (al.kind === "emplacement") {
         this._provokeSite(this.siteById(al.siteId));   // waking the platform wakes the garrison
+        sfx("grab"); toast("acquiring lock…");
       } else if (al.kind === "torpedo") {
-        /* just a lock — torpedoes have no group */
-      } else ForgeFaction.activateGroup(al, s.aliens);
-      sfx("grab"); toast("acquiring lock…");
+        sfx("grab"); toast("acquiring lock…");
+      } else {
+        // World-tap lock still wakes the target — deliberate engage, not quiet scan
+        ForgeFaction.activateGroup(al, s.aliens);
+        sfx("grab"); toast("acquiring lock…");
+      }
     } else toast("target out of scan range");
     return ok;
   },
@@ -329,7 +531,7 @@ Object.assign(GAME, {
   // pools wrap into a ForgeCombat-shaped target for one shot (same trick as
   // fireAtRock), then write back. Hull to 0 flips the platform to player
   // control — outposts are captured, never destroyed.
-  fireAtOutpost(o, w) {
+  fireAtOutpost(o, w, slot) {
     const s = this.state;
     if (o.owner === "player") { ForgeCombat.clearLock(); return; }
     const wrapper = { id: o.id, x: o.x, y: o.y,
@@ -342,7 +544,8 @@ Object.assign(GAME, {
     if (res.ok) {
       AUDIO.play("shoot");
       s.fuel = shipState.fuel;
-      s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState);
+      if (slot != null) this._setWeaponCd(slot, ForgeCombat.weaponCooldownMs(w, shipState));
+      else s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState);
       s.flare = Math.max(s.flare, 0.4);
       s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
       this._provokeOutpost(o);
@@ -358,7 +561,7 @@ Object.assign(GAME, {
   // Player weapons vs a site base emplacement. The platform carries a real 3-layer
   // hp block (armor+hull), so it wraps like an alien but resolves to _destroyEmplacement
   // (loot payout) at hull 0 — never onAlienKilled. Firing wakes the site garrison.
-  fireAtEmplacement(emp, w) {
+  fireAtEmplacement(emp, w, slot) {
     const s = this.state;
     if (emp.destroyed) { ForgeCombat.clearLock(); return; }
     const wrapper = { id: emp.id, x: emp.x, y: emp.y, hp: emp.hp };   // applyDamage mutates emp.hp in place
@@ -368,7 +571,9 @@ Object.assign(GAME, {
     const res = ForgeCombat.fireWeapon(w, wrapper, [], shipState);
     if (res.ok) {
       AUDIO.play("shoot"); s.fuel = shipState.fuel;
-      s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState); s.flare = Math.max(s.flare, 0.4);
+      if (slot != null) this._setWeaponCd(slot, ForgeCombat.weaponCooldownMs(w, shipState));
+      else s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState);
+      s.flare = Math.max(s.flare, 0.4);
       s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
       this._provokeSite(this.siteById(emp.siteId));
       if (res.hit) {
@@ -381,7 +586,7 @@ Object.assign(GAME, {
   },
   // Shoot down an inbound torpedo drone (its own small hull pool). Death is settled
   // by _updateEmpProjectiles the next frame (burst + delist + clear lock).
-  fireAtTorpedo(tp, w) {
+  fireAtTorpedo(tp, w, slot) {
     const s = this.state;
     const wrapper = { id: tp.id, x: tp.x, y: tp.y, hp: tp.hp };
     const shipState = { x: s.x, y: s.y, weaponDmg: s.derived.weaponDmg * this.territoryDamageMult(s.x, s.y),
@@ -390,7 +595,9 @@ Object.assign(GAME, {
     const res = ForgeCombat.fireWeapon(w, wrapper, [], shipState);
     if (res.ok) {
       AUDIO.play("shoot"); s.fuel = shipState.fuel;
-      s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState); s.flare = Math.max(s.flare, 0.4);
+      if (slot != null) this._setWeaponCd(slot, ForgeCombat.weaponCooldownMs(w, shipState));
+      else s.weaponCd = ForgeCombat.weaponCooldownMs(w, shipState);
+      s.flare = Math.max(s.flare, 0.4);
       s.fireAnimType = w.weapon.type; s.fireAnimT = 0.25;   // swap in the muzzle-flash flight frame
       if (res.hit) { AUDIO.play("hit_armor"); burst(tp.x, tp.y, "#ff9a3c", 4); }
     } else if (res.reason === "insufficient fuel") { toast("no fuel to fire"); }
@@ -413,12 +620,52 @@ Object.assign(GAME, {
   // ---- alien AI (ForgeFaction) — aliens fire on the player inside updateAlienAI ----
   updateAliens(dt) {
     const s = this.state;
-    const playerState = { x: s.x, y: s.y, hp: s.hp, nebulae: ForgeWorld.getNebulas().map(n => ({ x: n.pos.x, y: n.pos.y })) };
+    // Live escort/tank refs — alien AI mutates shield/hp on these objects.
+    const fleet = (s.playerFleet || []).filter(d =>
+      (d.role === "escort" || d.role === "tank") && (d.hp || 0) > 0);
+    // Battle duel: expose P2 as a targetable entity so NPC noise doesn't
+    // only punish P1 (which skewed even-match balance hard toward P2).
+    if (s.playMode === "battle" && s.battle && s.battle.p2 && !s.battle.p2.dead
+        && s.battle.p2.hp && s.battle.p2.hp.hull > 0) {
+      const p2 = s.battle.p2;
+      fleet.push({
+        id: p2.id, x: p2.x, y: p2.y, role: "tank",
+        // Flat pools for hitDrone path — map 3-layer into shield+hp
+        shield: p2.hp.shield, hp: p2.hp.armor + p2.hp.hull,
+        _battleP2: true, _p2Ref: p2,
+      });
+    }
+    const playerState = {
+      x: s.x, y: s.y, hp: s.hp,
+      fleet,
+      nebulae: ForgeWorld.getNebulas().map(n => ({ x: n.pos.x, y: n.pos.y })),
+    };
     for (const al of s.aliens) {
       if (al.state === "DEAD") continue;
+      // Warp-in: hold still + no AI until the portal finishes, then go hot.
+      // Negative t = staggered delay before the portal opens.
+      if (al._warpIn) {
+        al._warpIn.t = (al._warpIn.t || 0) + dt;
+        al.vx = al.vy = 0;
+        if (al._warpIn.t < 0) continue;
+        if (al._warpIn.t >= (al._warpIn.dur || 0.9)) {
+          delete al._warpIn;
+          al.aggro = true;
+          // COMBAT is the dogfight state (ATTACK is not a valid AI node)
+          if (al.state !== "DEAD") al.state = "COMBAT";
+        } else continue;
+      }
       ForgeFaction.updateAlienAI(al, playerState, s.aliens, dt);
       if (al.x != null) { const d = this.dist(s.x, s.y, al.x, al.y);
         if (d < (al.r || 15) + CONFIG.shipR && s.invuln <= 0 && !s.atStation) this.damageShip(4 + (al.isLeader ? 4 : 0)); }  // ram — no collision inside station exclusion zone
+    }
+    // Cull drones killed by alien fire this frame
+    if (s.playerFleet) {
+      for (let i = s.playerFleet.length - 1; i >= 0; i--) {
+        const d = s.playerFleet[i];
+        if ((d.role === "escort" || d.role === "tank") && (d.hp || 0) <= 0)
+          this.destroyFleetDrone(d);
+      }
     }
     if (s.hp.hull <= 0 && !s.dead) this.onShipDestroyed();
     for (let i = s.aliens.length - 1; i >= 0; i--) { const al = s.aliens[i];
@@ -427,6 +674,11 @@ Object.assign(GAME, {
   onAlienKilled(al) {
     if (al._looted) return; al._looted = true; al.state = "DEAD";
     const s = this.state;
+    // Battle kill ledger — aliens are spliced out below, so match tick never sees DEAD.
+    if (s.playMode === "battle" && s.battle && s.battle.objectives) {
+      s.battle.objectives.kills = (s.battle.objectives.kills || 0) + 1;
+      if (s.battle._seenDead && al.id != null) s.battle._seenDead.add(al.id);
+    }
     burst(al.x, al.y, al.color, 22); burst(al.x, al.y, "#ffd27a", 14); AUDIO.play("explosion");
     // ForgeFaction.getDrops decides WHICH items drop; the danger table decides
     // their tier — kill in null-sec, loot rolls toward Unique/Elite
@@ -442,13 +694,15 @@ Object.assign(GAME, {
       s.loot.push({ x: al.x + (rnd() - 0.5) * 24, y: al.y + (rnd() - 0.5) * 24, vx: (rnd() - 0.5) * 24, vy: (rnd() - 0.5) * 24, credits: bounty, t: 0 });
     toast(al.isLeader ? "ELITE DOWN" : "alien down", al.isLeader ? "#ffb020" : "#e8edf4");
     if (ForgeCombat.getLock().targetId === al.id) ForgeCombat.clearLock();
+    if (s.scanActiveId === al.id) s.scanActiveId = null;
     const i = s.aliens.indexOf(al); if (i >= 0) s.aliens.splice(i, 1);
     this.onContractKill(al);   // Phase 4: strike/pirate/bounty progress
     this.onTraderRaiderKilled(al);   // Phase 6: "save the convoy" bonus check
     this.onFactionShipKilled(al);    // faction politics: kill ledger → patrol aggression
     this.onObjectiveKill(al);        // Phase 6: territory pirate/battle ledgers (game/objectives.js)
-    // Auto-advance: if the active weapon is armed, immediately scan for the next target
-    if (this.activeWeaponItem()) setTimeout(() => this.scanNearestEnemy(), 200);
+    // Auto-advance sticky scan queue (EVE flow) — keep weapons hot on next contact
+    if (this.pruneScanList) this.pruneScanList();
+    if (this.activeWeaponItem() && this.advanceScanTarget) this.advanceScanTarget();
   },
   updateLoot(dt) {
     const s = this.state;
@@ -469,7 +723,15 @@ Object.assign(GAME, {
     }
   },
   onShipDestroyed() {
-    const s = this.state, home = this.homeStationObj();
+    const s = this.state;
+    // Battle: deaths are match events — deathmatch ends, control respawns at
+    // the rally outpost (battle_control intercept). Never the campaign
+    // savePoint recovery, which would teleport out of the arena.
+    if (s.playMode === "battle") {
+      if (this.isBattleMatch && this.isBattleMatch()) this.endBattleMatch("death");
+      return;
+    }
+    const home = this.homeStationObj();
     // Onboarding specials: death is a scripted exit (scout survive / end trap).
     if (this.onTutorSpecialDeath && this.onTutorSpecialDeath()) {
       // Scout path already advanced the ladder; still need a recovery berth.

@@ -1,0 +1,32 @@
+{
+  "at": "2026-07-30T19:47:33.621Z",
+  "passed": [
+    "zone never shrinks (bounds stable)",
+    "radar ping marks enemy location",
+    "2×2 home/contested layout fun-shaped",
+    "3×3 mixed density + terrain clutter",
+    "home factory reinforce loop works day-one",
+    "dense homes feed simultaneous S&D pressure",
+    "heuristic fun scores recorded"
+  ],
+  "failures": [],
+  "notes": [
+    "2×2 total=10 P1=3 RIV=3 mid=4",
+    "layout {\"homeP1\":0,\"homeP2\":4,\"p1Outposts\":3,\"p2Outposts\":3,\"midOutposts\":4,\"terrain\":{\"home_p1\":1,\"prize\":1,\"choke\":1,\"home_p2\":1}}",
+    "P1 dist home 216  P2 dist home 216",
+    "3×3 total=16 P1=3 RIV=3 mid=10",
+    "layout {\"homeP1\":0,\"homeP2\":8,\"p1Outposts\":3,\"p2Outposts\":3,\"midOutposts\":10,\"terrain\":{\"home_p1\":1,\"flank\":2,\"choke\":2,\"prize\":1,\"asteroid_belt\":1,\"wreck_field\":1,\"home_p2\":1}}",
+    "terrain roles: home_p1, flank, choke, prize, asteroid_belt, wreck_field, home_p2",
+    "battle rocks=350 junk=186 obstacles=33",
+    "home berths after reinforce: 1",
+    "S&D launched P1=2 RIV=2",
+    "home rear factory fantasy: 9/10",
+    "contested mid density: 8/10",
+    "radar anti-camp: 8/10",
+    "no BR zone punishing expansion: 9/10",
+    "S&D pathing finds fight: 7/10",
+    "opening readability (spawn at home): 9/10",
+    "risk of mid clutter overload (3×3): 7/10",
+    "terrain identity (belts/wrecks): 8/10"
+  ]
+}

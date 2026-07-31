@@ -68,7 +68,7 @@
     res: { shield: 0.0, armor: 0.15, hull: 0.0 },
     fuelMax: 1500, solarRegen: 2,
     thrust: 100, turnSpeed: 100,
-    scanRange: 900,
+    scanRange: 1600,
     tractorRange: 140, tractorStr: 1, tractorSlots: 1,
     fuelCostK: 1,
     weaponDmg: 10, fireRate: 1, weaponRange: 0

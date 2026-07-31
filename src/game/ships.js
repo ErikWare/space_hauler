@@ -11,8 +11,11 @@
 // wedge ever flown into (s.maxDangerReached).
 Object.assign(GAME, {
   // ---- unlock gate: either condition satisfies (starter hulls have none) ----
+  // Sandbox battle lane: every hull is unlocked (player still pays credits).
   shipUnlockStatus(hullKey) {
     const s = this.state, hull = CONFIG.hulls[hullKey];
+    if (s.playMode === "battle" && s.battle && s.battle.lane === "sandbox")
+      return { unlocked: true, req: "" };
     const u = hull && hull.unlock;
     if (!u) return { unlocked: true, req: "" };
     const caps = s.capturedOutpostCount || 0, dmax = s.maxDangerReached || 1;
@@ -188,8 +191,12 @@ Object.assign(GAME, {
     // price / ownership row
     sp.buyRow.innerHTML = "";
     if (active) mk("spOwnNote", "★ This is your ship.", sp.buyRow);
-    else if (owned) mk("spOwnNote", "✓ Owned — set it active in LOADOUT.", sp.buyRow);
-    else {
+    else if (owned) {
+      mk("spOwnNote", "✓ Owned — ready to fly.", sp.buyRow);
+      const fly = mk("btn:ghBtn go", "SET ACTIVE", sp.buyRow);
+      fly.dataset.act = "activate";
+      fly.dataset.shipId = String((s.ships.find(sh => sh.hullKey === key) || {}).id || "");
+    } else {
       mk("spPrice", hull.cost ? hull.cost.credits.toLocaleString("en-US") + " cr" : "—", sp.buyRow);
       for (const o of ores) {
         const c = mk("spOreChip " + (o.ok ? "ok" : "short"),
@@ -215,6 +222,13 @@ Object.assign(GAME, {
     if (prev) prev.addEventListener("click", () => { this._spUI = this._spUI || { idx: 0 }; this._spUI.idx--; sfx("grab"); this.renderShipsPanel(); });
     if (next) next.addEventListener("click", () => { this._spUI = this._spUI || { idx: 0 }; this._spUI.idx++; sfx("grab"); this.renderShipsPanel(); });
     sp.buyRow.addEventListener("click", (e) => {
+      const act = e.target.closest ? e.target.closest("[data-act=activate]") : null;
+      if (act && act.dataset.shipId) {
+        const id = +act.dataset.shipId;
+        if (this.switchActiveShip) this.switchActiveShip(id);
+        this.renderShipsPanel();
+        return;
+      }
       const buy = e.target.closest ? e.target.closest("#spBuyBtn") : null;
       if (!buy || buy.disabled) return;
       this.buyShipUpgrade(buy.dataset.hull);

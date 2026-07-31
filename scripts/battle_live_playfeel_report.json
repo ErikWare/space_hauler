@@ -1,0 +1,1780 @@
+{
+  "at": "2026-07-30T02:33:01.694Z",
+  "control": [
+    {
+      "label": "2x2 full homes passive AI",
+      "kind": "ctrl_2x2",
+      "duration": 140,
+      "result": null,
+      "radarPings": 5,
+      "startOwn": {
+        "p": 3,
+        "r": 3,
+        "n": 4
+      },
+      "endOwn": {
+        "p": 4,
+        "r": 4,
+        "n": 2
+      },
+      "timeline": [
+        {
+          "t": 0,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 4
+          },
+          "p1": 2700,
+          "p2": 2700,
+          "snD": 0,
+          "rSnD": 0,
+          "dist": 5233,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 4
+          },
+          "p1": 2530,
+          "p2": 2512,
+          "snD": 2,
+          "rSnD": 2,
+          "dist": 588,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 4
+          },
+          "p1": 1447,
+          "p2": 1540,
+          "snD": 3,
+          "rSnD": 2,
+          "dist": 233,
+          "phase": "match"
+        },
+        {
+          "t": 60,
+          "own": {
+            "p": 4,
+            "r": 3,
+            "n": 3
+          },
+          "p1": 376,
+          "p2": 724,
+          "snD": 1,
+          "rSnD": 3,
+          "dist": 239,
+          "phase": "match"
+        },
+        {
+          "t": 80,
+          "own": {
+            "p": 4,
+            "r": 3,
+            "n": 3
+          },
+          "p1": 2616,
+          "p2": 343,
+          "snD": 0,
+          "rSnD": 3,
+          "dist": 816,
+          "phase": "match"
+        },
+        {
+          "t": 100,
+          "own": {
+            "p": 5,
+            "r": 3,
+            "n": 2
+          },
+          "p1": 2408,
+          "p2": 2700,
+          "snD": 0,
+          "rSnD": 4,
+          "dist": 4694,
+          "phase": "match"
+        },
+        {
+          "t": 120,
+          "own": {
+            "p": 5,
+            "r": 3,
+            "n": 2
+          },
+          "p1": 2102,
+          "p2": 2087,
+          "snD": 0,
+          "rSnD": 4,
+          "dist": 170,
+          "phase": "match"
+        },
+        {
+          "t": 140,
+          "own": {
+            "p": 4,
+            "r": 4,
+            "n": 2
+          },
+          "p1": 937,
+          "p2": 655,
+          "snD": 0,
+          "rSnD": 4,
+          "dist": 231,
+          "phase": "match"
+        }
+      ],
+      "layout": {
+        "homeP1": 0,
+        "homeP2": 4,
+        "p1Outposts": 3,
+        "p2Outposts": 3,
+        "midOutposts": 4,
+        "terrain": {
+          "home_p1": 1,
+          "prize": 1,
+          "choke": 1,
+          "home_p2": 1
+        }
+      },
+      "outposts": 10
+    },
+    {
+      "label": "2x2 maintain factory",
+      "kind": "ctrl_2x2",
+      "duration": 140,
+      "result": null,
+      "radarPings": 5,
+      "startOwn": {
+        "p": 3,
+        "r": 3,
+        "n": 4
+      },
+      "endOwn": {
+        "p": 4,
+        "r": 4,
+        "n": 2
+      },
+      "timeline": [
+        {
+          "t": 0,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 4
+          },
+          "p1": 2700,
+          "p2": 2700,
+          "snD": 0,
+          "rSnD": 0,
+          "dist": 5233,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 4
+          },
+          "p1": 2587,
+          "p2": 2515,
+          "snD": 2,
+          "rSnD": 2,
+          "dist": 588,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 4
+          },
+          "p1": 1688,
+          "p2": 1473,
+          "snD": 3,
+          "rSnD": 2,
+          "dist": 240,
+          "phase": "match"
+        },
+        {
+          "t": 60,
+          "own": {
+            "p": 4,
+            "r": 3,
+            "n": 3
+          },
+          "p1": 807,
+          "p2": 657,
+          "snD": 1,
+          "rSnD": 3,
+          "dist": 233,
+          "phase": "match"
+        },
+        {
+          "t": 80,
+          "own": {
+            "p": 4,
+            "r": 3,
+            "n": 3
+          },
+          "p1": 156,
+          "p2": 0,
+          "snD": 0,
+          "rSnD": 3,
+          "dist": 214,
+          "phase": "match"
+        },
+        {
+          "t": 100,
+          "own": {
+            "p": 5,
+            "r": 3,
+            "n": 2
+          },
+          "p1": 692,
+          "p2": 2700,
+          "snD": 0,
+          "rSnD": 4,
+          "dist": 2918,
+          "phase": "match"
+        },
+        {
+          "t": 120,
+          "own": {
+            "p": 5,
+            "r": 3,
+            "n": 2
+          },
+          "p1": 2700,
+          "p2": 2611,
+          "snD": 0,
+          "rSnD": 4,
+          "dist": 1772,
+          "phase": "match"
+        },
+        {
+          "t": 140,
+          "own": {
+            "p": 4,
+            "r": 4,
+            "n": 2
+          },
+          "p1": 1896,
+          "p2": 1937,
+          "snD": 0,
+          "rSnD": 4,
+          "dist": 237,
+          "phase": "match"
+        }
+      ],
+      "layout": {
+        "homeP1": 0,
+        "homeP2": 4,
+        "p1Outposts": 3,
+        "p2Outposts": 3,
+        "midOutposts": 4,
+        "terrain": {
+          "home_p1": 1,
+          "prize": 1,
+          "choke": 1,
+          "home_p2": 1
+        }
+      },
+      "outposts": 10
+    },
+    {
+      "label": "2x2 starve rival",
+      "kind": "ctrl_2x2",
+      "duration": 140,
+      "result": null,
+      "radarPings": 5,
+      "startOwn": {
+        "p": 3,
+        "r": 3,
+        "n": 4
+      },
+      "endOwn": {
+        "p": 5,
+        "r": 3,
+        "n": 2
+      },
+      "timeline": [
+        {
+          "t": 0,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 4
+          },
+          "p1": 2700,
+          "p2": 2700,
+          "snD": 0,
+          "rSnD": 0,
+          "dist": 5233,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 4
+          },
+          "p1": 2539,
+          "p2": 2468,
+          "snD": 2,
+          "rSnD": 2,
+          "dist": 588,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 4
+          },
+          "p1": 1203,
+          "p2": 1208,
+          "snD": 3,
+          "rSnD": 2,
+          "dist": 236,
+          "phase": "match"
+        },
+        {
+          "t": 60,
+          "own": {
+            "p": 4,
+            "r": 3,
+            "n": 3
+          },
+          "p1": 213,
+          "p2": 250,
+          "snD": 1,
+          "rSnD": 2,
+          "dist": 236,
+          "phase": "match"
+        },
+        {
+          "t": 80,
+          "own": {
+            "p": 4,
+            "r": 3,
+            "n": 3
+          },
+          "p1": 2676,
+          "p2": 85,
+          "snD": 0,
+          "rSnD": 2,
+          "dist": 1176,
+          "phase": "match"
+        },
+        {
+          "t": 100,
+          "own": {
+            "p": 5,
+            "r": 3,
+            "n": 2
+          },
+          "p1": 2700,
+          "p2": 2700,
+          "snD": 0,
+          "rSnD": 2,
+          "dist": 1972,
+          "phase": "match"
+        },
+        {
+          "t": 120,
+          "own": {
+            "p": 5,
+            "r": 3,
+            "n": 2
+          },
+          "p1": 1572,
+          "p2": 1608,
+          "snD": 0,
+          "rSnD": 2,
+          "dist": 219,
+          "phase": "match"
+        },
+        {
+          "t": 140,
+          "own": {
+            "p": 5,
+            "r": 3,
+            "n": 2
+          },
+          "p1": 793,
+          "p2": 588,
+          "snD": 0,
+          "rSnD": 2,
+          "dist": 267,
+          "phase": "match"
+        }
+      ],
+      "layout": {
+        "homeP1": 0,
+        "homeP2": 4,
+        "p1Outposts": 3,
+        "p2Outposts": 3,
+        "midOutposts": 4,
+        "terrain": {
+          "home_p1": 1,
+          "prize": 1,
+          "choke": 1,
+          "home_p2": 1
+        }
+      },
+      "outposts": 10
+    },
+    {
+      "label": "3x3 full homes",
+      "kind": "ctrl_3x3",
+      "duration": 160,
+      "result": null,
+      "radarPings": 6,
+      "startOwn": {
+        "p": 3,
+        "r": 3,
+        "n": 10
+      },
+      "endOwn": {
+        "p": 5,
+        "r": 5,
+        "n": 6
+      },
+      "timeline": [
+        {
+          "t": 0,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 10
+          },
+          "p1": 2700,
+          "p2": 2700,
+          "snD": 0,
+          "rSnD": 0,
+          "dist": 10889,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 10
+          },
+          "p1": 2700,
+          "p2": 2700,
+          "snD": 2,
+          "rSnD": 2,
+          "dist": 6307,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "own": {
+            "p": 3,
+            "r": 3,
+            "n": 10
+          },
+          "p1": 2675,
+          "p2": 2675,
+          "snD": 3,
+          "rSnD": 3,
+          "dist": 1329,
+          "phase": "match"
+        },
+        {
+          "t": 60,
+          "own": {
+            "p": 5,
+            "r": 3,
+            "n": 8
+          },
+          "p1": 1170,
+          "p2": 1290,
+          "snD": 1,
+          "rSnD": 4,
+          "dist": 280,
+          "phase": "match"
+        },
+        {
+          "t": 80,
+          "own": {
+            "p": 4,
+            "r": 4,
+            "n": 8
+          },
+          "p1": 72,
+          "p2": 101,
+          "snD": 1,
+          "rSnD": 4,
+          "dist": 175,
+          "phase": "match"
+        },
+        {
+          "t": 100,
+          "own": {
+            "p": 4,
+            "r": 4,
+            "n": 8
+          },
+          "p1": 2700,
+          "p2": 895,
+          "snD": 0,
+          "rSnD": 4,
+          "dist": 3833,
+          "phase": "match"
+        },
+        {
+          "t": 120,
+          "own": {
+            "p": 5,
+            "r": 4,
+            "n": 7
+          },
+          "p1": 2700,
+          "p2": 1045,
+          "snD": 0,
+          "rSnD": 4,
+          "dist": 1335,
+          "phase": "match"
+        },
+        {
+          "t": 140,
+          "own": {
+            "p": 4,
+            "r": 5,
+            "n": 7
+          },
+          "p1": 2700,
+          "p2": 2700,
+          "snD": 0,
+          "rSnD": 4,
+          "dist": 3932,
+          "phase": "match"
+        },
+        {
+          "t": 160,
+          "own": {
+            "p": 5,
+            "r": 5,
+            "n": 6
+          },
+          "p1": 1729,
+          "p2": 1819,
+          "snD": 0,
+          "rSnD": 4,
+          "dist": 282,
+          "phase": "match"
+        }
+      ],
+      "layout": {
+        "homeP1": 0,
+        "homeP2": 8,
+        "p1Outposts": 3,
+        "p2Outposts": 3,
+        "midOutposts": 10,
+        "terrain": {
+          "home_p1": 1,
+          "flank": 2,
+          "choke": 2,
+          "prize": 1,
+          "asteroid_belt": 1,
+          "wreck_field": 1,
+          "home_p2": 1
+        }
+      },
+      "outposts": 16
+    }
+  ],
+  "duel": [
+    {
+      "label": "dm0",
+      "duration": 46,
+      "result": {
+        "won": true,
+        "reason": "p2_down",
+        "summary": "P2 hull destroyed",
+        "winner": "P1",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 171,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2546,
+          "p2": 2504,
+          "dist": 516,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1771,
+          "p2": 1754,
+          "dist": 165,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1157,
+          "p2": 1027,
+          "dist": 226,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 551,
+          "p2": 436,
+          "dist": 279,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 46,
+          "p1": 171,
+          "p2": 0,
+          "dist": 191,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P1"
+    },
+    {
+      "label": "dm1",
+      "duration": 56,
+      "result": {
+        "won": false,
+        "reason": "death",
+        "summary": "P1 hull destroyed",
+        "winner": "P2",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 0,
+        "p2Ehp": 136,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2465,
+          "p2": 2503,
+          "dist": 516,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1638,
+          "p2": 1878,
+          "dist": 167,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1087,
+          "p2": 1163,
+          "dist": 230,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 491,
+          "p2": 640,
+          "dist": 286,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 27,
+          "p2": 141,
+          "dist": 199,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 56,
+          "p1": 0,
+          "p2": 136,
+          "dist": 259,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P2"
+    },
+    {
+      "label": "dm2",
+      "duration": 63,
+      "result": {
+        "won": true,
+        "reason": "p2_down",
+        "summary": "P2 hull destroyed",
+        "winner": "P1",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 130,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2574,
+          "p2": 2511,
+          "dist": 516,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1886,
+          "p2": 1763,
+          "dist": 160,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1257,
+          "p2": 1225,
+          "dist": 210,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 660,
+          "p2": 607,
+          "dist": 278,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 145,
+          "p2": 19,
+          "dist": 201,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 60,
+          "p1": 134,
+          "p2": 12,
+          "dist": 198,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 63,
+          "p1": 130,
+          "p2": 0,
+          "dist": 218,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P1"
+    },
+    {
+      "label": "dm3",
+      "duration": 52,
+      "result": {
+        "won": true,
+        "reason": "p2_down",
+        "summary": "P2 hull destroyed",
+        "winner": "P1",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 88,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2532,
+          "p2": 2484,
+          "dist": 516,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1972,
+          "p2": 1759,
+          "dist": 159,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1246,
+          "p2": 1149,
+          "dist": 217,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 829,
+          "p2": 652,
+          "dist": 283,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 232,
+          "p2": 94,
+          "dist": 210,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 52,
+          "p1": 88,
+          "p2": 0,
+          "dist": 209,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P1"
+    },
+    {
+      "label": "dm4",
+      "duration": 63,
+      "result": {
+        "won": false,
+        "reason": "death",
+        "summary": "P1 hull destroyed",
+        "winner": "P2",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 0,
+        "p2Ehp": 91,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2528,
+          "p2": 2533,
+          "dist": 516,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 2080,
+          "p2": 1943,
+          "dist": 166,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1481,
+          "p2": 1512,
+          "dist": 227,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 1081,
+          "p2": 1135,
+          "dist": 283,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 545,
+          "p2": 626,
+          "dist": 203,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 60,
+          "p1": 171,
+          "p2": 180,
+          "dist": 194,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 63,
+          "p1": 0,
+          "p2": 91,
+          "dist": 198,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P2"
+    },
+    {
+      "label": "dm5",
+      "duration": 57,
+      "result": {
+        "won": false,
+        "reason": "death",
+        "summary": "P1 hull destroyed",
+        "winner": "P2",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 0,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2517,
+          "p2": 2471,
+          "dist": 516,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1980,
+          "p2": 1938,
+          "dist": 162,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1374,
+          "p2": 1447,
+          "dist": 227,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 812,
+          "p2": 800,
+          "dist": 286,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 332,
+          "p2": 296,
+          "dist": 180,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 57,
+          "p1": 0,
+          "p2": 0,
+          "dist": 289,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P2"
+    },
+    {
+      "label": "dm6",
+      "duration": 50,
+      "result": {
+        "won": true,
+        "reason": "p2_down",
+        "summary": "P2 hull destroyed",
+        "winner": "P1",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 55,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2484,
+          "p2": 2532,
+          "dist": 516,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1775,
+          "p2": 1922,
+          "dist": 162,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1116,
+          "p2": 1257,
+          "dist": 215,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 515,
+          "p2": 706,
+          "dist": 290,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 56,
+          "p2": 13,
+          "dist": 260,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 55,
+          "p2": 0,
+          "dist": 241,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P1"
+    },
+    {
+      "label": "dm7",
+      "duration": 50,
+      "result": {
+        "won": true,
+        "reason": "p2_down",
+        "summary": "P2 hull destroyed",
+        "winner": "P1",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 139,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2462,
+          "p2": 2484,
+          "dist": 516,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1854,
+          "p2": 1852,
+          "dist": 165,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1337,
+          "p2": 1210,
+          "dist": 220,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 815,
+          "p2": 655,
+          "dist": 281,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 139,
+          "p2": 0,
+          "dist": 199,
+          "p2fleet": 1,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P1"
+    },
+    {
+      "label": "dmnd0",
+      "duration": 50,
+      "result": {
+        "won": true,
+        "reason": "p2_down",
+        "summary": "P2 hull destroyed",
+        "winner": "P1",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 295,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2568,
+          "p2": 2502,
+          "dist": 516,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1973,
+          "p2": 1746,
+          "dist": 164,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1439,
+          "p2": 1071,
+          "dist": 224,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 897,
+          "p2": 511,
+          "dist": 292,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 295,
+          "p2": 0,
+          "dist": 251,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P1"
+    },
+    {
+      "label": "dmnd1",
+      "duration": 43,
+      "result": {
+        "won": false,
+        "reason": "death",
+        "summary": "P1 hull destroyed",
+        "winner": "P2",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 0,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2399,
+          "p2": 2455,
+          "dist": 516,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1617,
+          "p2": 1674,
+          "dist": 164,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 854,
+          "p2": 1079,
+          "dist": 215,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 116,
+          "p2": 222,
+          "dist": 290,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 43,
+          "p1": 0,
+          "p2": 0,
+          "dist": 191,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P2"
+    },
+    {
+      "label": "dmnd2",
+      "duration": 67,
+      "result": {
+        "won": false,
+        "reason": "death",
+        "summary": "P1 hull destroyed",
+        "winner": "P2",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 105,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2540,
+          "p2": 2483,
+          "dist": 516,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1838,
+          "p2": 2057,
+          "dist": 165,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1320,
+          "p2": 1400,
+          "dist": 227,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 753,
+          "p2": 800,
+          "dist": 294,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 175,
+          "p2": 204,
+          "dist": 209,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 60,
+          "p1": 109,
+          "p2": 6,
+          "dist": 187,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 67,
+          "p1": 105,
+          "p2": 0,
+          "dist": 250,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P2"
+    },
+    {
+      "label": "dmnd3",
+      "duration": 56,
+      "result": {
+        "won": false,
+        "reason": "death",
+        "summary": "P1 hull destroyed",
+        "winner": "P2",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 0,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2460,
+          "p2": 2579,
+          "dist": 516,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1819,
+          "p2": 2041,
+          "dist": 162,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1311,
+          "p2": 1472,
+          "dist": 216,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 710,
+          "p2": 951,
+          "dist": 291,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 135,
+          "p2": 347,
+          "dist": 267,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 56,
+          "p1": 0,
+          "p2": 0,
+          "dist": 180,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P2"
+    },
+    {
+      "label": "dmnd4",
+      "duration": 55,
+      "result": {
+        "won": false,
+        "reason": "death",
+        "summary": "P1 hull destroyed",
+        "winner": "P2",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 0,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 2,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2488,
+          "p2": 2463,
+          "dist": 516,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 1871,
+          "p2": 1908,
+          "dist": 162,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1329,
+          "p2": 1346,
+          "dist": 220,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 757,
+          "p2": 736,
+          "dist": 289,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 231,
+          "p2": 224,
+          "dist": 193,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 55,
+          "p1": 0,
+          "p2": 0,
+          "dist": 188,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P2"
+    },
+    {
+      "label": "dmnd5",
+      "duration": 83,
+      "result": {
+        "won": true,
+        "reason": "p2_down",
+        "summary": "P2 hull destroyed",
+        "winner": "P1",
+        "kills": 0,
+        "outposts": 0,
+        "p1Ehp": 1073,
+        "p2Ehp": 0,
+        "hullKey": "vulture"
+      },
+      "radarPings": 3,
+      "timeline": [
+        {
+          "t": 0,
+          "p1": 2700,
+          "p2": 2700,
+          "dist": 2509,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 10,
+          "p1": 2544,
+          "p2": 2504,
+          "dist": 516,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 20,
+          "p1": 2082,
+          "p2": 1874,
+          "dist": 166,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 30,
+          "p1": 1625,
+          "p2": 1337,
+          "dist": 229,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 40,
+          "p1": 1007,
+          "p2": 795,
+          "dist": 288,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 50,
+          "p1": 602,
+          "p2": 260,
+          "dist": 212,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 60,
+          "p1": 451,
+          "p2": 102,
+          "dist": 188,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 70,
+          "p1": 723,
+          "p2": 94,
+          "dist": 276,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 80,
+          "p1": 1007,
+          "p2": 12,
+          "dist": 263,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "match"
+        },
+        {
+          "t": 83,
+          "p1": 1073,
+          "p2": 0,
+          "dist": 247,
+          "p2fleet": 0,
+          "p1fleet": 1,
+          "phase": "result"
+        }
+      ],
+      "winner": "P1"
+    }
+  ],
+  "read": [
+    "2x2 full homes passive AI: ownership ΔP=1 ΔR=1 over 140s (still fighting)",
+    "2x2 maintain factory: ownership ΔP=1 ΔR=1 over 140s (still fighting)",
+    "2x2 starve rival: ownership ΔP=2 ΔR=0 over 140s (still fighting)",
+    "3x3 full homes: ownership ΔP=2 ΔR=2 over 160s (still fighting)",
+    "Radar: control matches saw 5/5/5/6 pings (expect ~1 per 30s of fight)",
+    "Duel with drones: {\"P1\":5,\"P2\":3,\"none\":0} over 8 bouts",
+    "Duel pilot-only: {\"P1\":2,\"P2\":4,\"none\":0} over 6 bouts",
+    "Control ended by pilot kill in 0/4 scenarios (kill still dominates long games)"
+  ]
+}

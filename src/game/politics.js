@@ -162,6 +162,9 @@ Object.assign(GAME, {
     if (!s.politicsEvents) s.politicsEvents = [];
     s.politicsEvents.unshift({ msg, col: col || "#c7d2e0", t: 0 });
     if (s.politicsEvents.length > POLITICS.maxEvents) s.politicsEvents.length = POLITICS.maxEvents;
+    // Also stream to radio (local net) so headlines never need the top vitals strip
+    if (this.radioSay)
+      try { this.radioSay("local", "Wire — " + msg, col || "#c8a96e"); } catch (e) { /* soft */ }
   },
   _polOutpostName(o) {   // every outpost already has a map identity — reuse it
     return "outpost " + this.regionLabel(this.regionGet(o.regionId));
@@ -288,25 +291,9 @@ Object.assign(GAME, {
         POLITICS.factionCol[pr.controller]);
   },
 
-  // ---- HUD news ticker ----------------------------------------------------------
-  // Latest newsline, top-center of the flight HUD: fades in, holds 8s, fades out.
+  // Politics headlines go to radio (pushEvent). No top-strip ticker over vitals.
   drawPoliticsTicker(g) {
-    if (HEADLESS) return;
-    const s = this.state, ev = s.politicsEvents && s.politicsEvents[0];
-    if (!ev || ev.t > POLITICS.eventLife) return;
-    const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
-    const a = Math.min(Math.min(1, ev.t / 0.5), Math.min(1, Math.max(0, (POLITICS.eventLife - ev.t) / 1)));
-    const w = 300 * k, cx = CONFIG.W / 2, cy = 74 * k;
-    g.save(); g.globalAlpha = a;
-    g.fillStyle = "rgba(5,7,13,0.55)";
-    g.beginPath(); g.roundRect(cx - w / 2, cy - 9 * k, w, 16 * k, 5 * k); g.fill();
-    g.font = `${Math.max(8, 9 * k) | 0}px monospace`; g.textAlign = "center";
-    g.fillStyle = ev.col || "#c7d2e0";
-    let txt = "✦ " + ev.msg;
-    while (txt.length > 8 && g.measureText(txt).width > w - 14 * k) txt = txt.slice(0, -2);
-    if (txt.length < ev.msg.length + 2) txt += "…";
-    g.fillText(txt, cx, cy + 3 * k);
-    g.textAlign = "left"; g.restore();
+    // intentionally empty — news is on the local net / radio log
   },
 
   // ---- simulation: instant N-round war for testing faction balance -----------

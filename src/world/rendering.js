@@ -229,6 +229,29 @@ Object.assign(GAME, {
     // to the 80px player hull. Fighter 41 / raider 58 / gunship 82 / carrier
     // 129px @ z=1 — a carrier now clearly outclasses the player's Vulture.
     const sprW = { fighter: 3.4, raider: 3.6, gunship: 3.9, carrier: 4.6 }[cls] || 3.4;
+
+    // Warp-in portal (staggered arrivals from quest skirmish / ambush).
+    if (al._warpIn && (al._warpIn.t || 0) >= 0) {
+      const k = Math.max(0, Math.min(1, al._warpIn.t / (al._warpIn.dur || 0.9)));
+      const ringR = (18 + 42 * (1 - k)) * z;
+      g.globalAlpha = 0.35 + 0.55 * (1 - k);
+      g.strokeStyle = "#ff8a3c"; g.lineWidth = Math.max(1.2, 2.2 * z * (1 - k * 0.5));
+      g.beginPath(); g.arc(p.x, p.y, ringR, 0, TAU); g.stroke();
+      g.strokeStyle = "#57e6ff"; g.lineWidth = Math.max(1, 1.4 * z);
+      g.beginPath(); g.arc(p.x, p.y, ringR * 0.55, 0, TAU); g.stroke();
+      g.globalAlpha = Math.min(1, k * 1.15);
+      g.save();
+      g.translate(p.x, p.y);
+      const sc = 0.2 + 0.8 * k;
+      g.scale(sc, sc);
+      const drewW = ART.draw(g, "ship_" + (al.faction || "vex") + "_" + cls, 0, 0, R * sprW, al.angle || 0);
+      g.restore();
+      g.globalAlpha = 1;
+      if (drewW) return;
+      // fall through to procedural at full opacity path if art missing —
+      // still gated by warp scale below via early return after procedural
+    }
+
     if (ART.draw(g, "ship_" + (al.faction || "vex") + "_" + cls, p.x, p.y, R * sprW, al.angle || 0))
       return;
     const pulse = 0.55 + 0.45 * Math.sin((s.t || 0) * 8 + (al._jitter || 0) * 9);
@@ -415,38 +438,88 @@ Object.assign(GAME, {
   // drawFogOverlay lives in world/fog.js (inked star-chart) — it loads after this
   // file so its version wins the Object.assign. Call site is unchanged.
 
+  // Battle sky: full-screen nebula plate instead of the bright campaign sun.
+  // Parallax drifts slowly with the camera so the plate feels like deep space.
+  drawBattleSky(g) {
+    if (HEADLESS) return;
+    const s = this.state, sky = s.battle && s.battle.sky;
+    const W = CONFIG.W, H = CONFIG.H;
+    g.fillStyle = (sky && sky.fill) || "#050816";
+    g.fillRect(0, 0, W, H);
+    const plate = (sky && sky.plate) || "nebula_blue";
+    const sc = (sky && sky.scale) || 1.2;
+    const px = (sky && sky.px) || 0, py = (sky && sky.py) || 0;
+    // gentle parallax from camera
+    const driftX = -(s.cam.x || 0) * 0.012 + px;
+    const driftY = -(s.cam.y || 0) * 0.012 + py;
+    const wPx = Math.max(W, H) * sc * 1.35;
+    let drew = false;
+    if (typeof ART !== "undefined" && ART.draw) {
+      g.globalAlpha = 0.72;
+      drew = ART.draw(g, plate, W * 0.5 + driftX, H * 0.45 + driftY, wPx, 0);
+      // second softer plate offset for depth
+      if (drew) {
+        g.globalAlpha = 0.28;
+        ART.draw(g, plate, W * 0.62 - driftX * 0.4, H * 0.58 - driftY * 0.4, wPx * 0.85, 0.3);
+      }
+      g.globalAlpha = 1;
+    }
+    if (!drew) {
+      // procedural fall-back wash
+      const col = (sky && sky.glow) || "rgba(70,120,220,0.22)";
+      const grd = g.createRadialGradient(W * 0.5 + driftX, H * 0.4 + driftY, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.7);
+      grd.addColorStop(0, col);
+      grd.addColorStop(0.55, "rgba(20,30,60,0.25)");
+      grd.addColorStop(1, "rgba(0,0,0,0)");
+      g.fillStyle = grd; g.fillRect(0, 0, W, H);
+    }
+    // soft vignette so the plate doesn't wash out ships
+    const vig = g.createRadialGradient(W * 0.5, H * 0.5, Math.min(W, H) * 0.25, W * 0.5, H * 0.5, Math.max(W, H) * 0.72);
+    vig.addColorStop(0, "rgba(0,0,0,0)");
+    vig.addColorStop(1, "rgba(0,0,0,0.45)");
+    g.fillStyle = vig; g.fillRect(0, 0, W, H);
+  },
+
   drawWorld(g) {
     if (HEADLESS) return;
     const s = this.state, c = s.cam, z = c.zoom, P = CONFIG.pitch, cam = this.drawCamera();
+    const inBattle = s.playMode === "battle";
     const isWorldVisible = (wx, wy, radius = 50) => {
       const dx = wx - s.cam.x, dy = wy - s.cam.y;
       const viewRadius = (Math.max(CONFIG.W, CONFIG.H) * 0.6 / s.cam.zoom) + radius + 220;
       return (dx * dx + dy * dy) <= viewRadius * viewRadius;
     };
-    g.fillStyle = "#05070d"; g.fillRect(0, 0, CONFIG.W, CONFIG.H);
+    if (inBattle) {
+      this.drawBattleSky(g);
+    } else {
+      g.fillStyle = "#05070d"; g.fillRect(0, 0, CONFIG.W, CONFIG.H);
+    }
     // 3-layer parallax star field
+    const starCol = (inBattle && s.battle && s.battle.sky && s.battle.sky.star) || "#bfd0e8";
     for (const st of STARS) {
       const sx = (st.x - c.x * st.z) * z + CONFIG.W / 2, sy = (st.y - c.y * st.z) * z + CONFIG.H / 2;
       const wx = ((sx % CONFIG.W) + CONFIG.W) % CONFIG.W, wy = ((sy % CONFIG.H) + CONFIG.H) % CONFIG.H;
-      g.globalAlpha = st.b * (0.3 + st.z * 0.7); g.fillStyle = "#bfd0e8";
+      g.globalAlpha = st.b * (0.3 + st.z * 0.7) * (inBattle ? 0.85 : 1); g.fillStyle = starCol;
       const px = st.z > 0.7 ? 2 : 1; g.fillRect(wx, wy, px, px);
     }
     g.globalAlpha = 1;
 
-    // central star (always visible through fog)
-    this.drawStar(g, z);
+    // Campaign: bright central sun. Battle: nebula sky only (no washed-out sun).
+    if (!inBattle) this.drawStar(g, z);
 
-    // orbital ring guides (faint)
-    const starS = this.S(0, 0);
-    for (const pdef of CONFIG.solarPlanets) {
-      const rr = pdef.orbit * z;
-      if (rr < 2) continue;
-      g.strokeStyle = "rgba(60,80,110,0.08)"; g.lineWidth = 1;
-      g.beginPath(); g.ellipse(starS.x, starS.y, rr, rr * P, 0, 0, TAU); g.stroke();
+    // orbital ring guides (faint) — campaign solar system only
+    if (!inBattle) {
+      const starS = this.S(0, 0);
+      for (const pdef of CONFIG.solarPlanets) {
+        const rr = pdef.orbit * z;
+        if (rr < 2) continue;
+        g.strokeStyle = "rgba(60,80,110,0.08)"; g.lineWidth = 1;
+        g.beginPath(); g.ellipse(starS.x, starS.y, rr, rr * P, 0, 0, TAU); g.stroke();
+      }
     }
 
-    // nebula clouds (ForgeWorld)
-    for (const neb of ForgeWorld.getNebulas()) {
+    // nebula clouds (ForgeWorld) — campaign atmosphere; battle uses full-screen plate
+    if (!inBattle) for (const neb of ForgeWorld.getNebulas()) {
       const col = this.nebulaHex(neb.color), np = this.S(neb.pos.x, neb.pos.y), rr = neb.radius * z;
       if (np.x < -rr || np.x > CONFIG.W + rr || np.y < -rr || np.y > CONFIG.H + rr) continue;
       const grd = g.createRadialGradient(np.x, np.y, 0, np.x, np.y, rr);
@@ -516,9 +589,24 @@ Object.assign(GAME, {
           g.fillText((st.id === s.homeStationId ? "⌂ " : "") + st.name, pt.x, pt.y - 142 * z - 4); g.textAlign = "left"; }   // clear the taller sprite
       } });
     }
-    for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i];
-      if (!r.active || !isWorldVisible(r.x, r.y, r.size * 20)) continue;
+    const battleRocks = s.playMode === "battle";
+    for (let i = 0; i < s.rocks.length; i++) {
+      const r = s.rocks[i];
+      if (!r || r.active === false || !isWorldVisible(r.x, r.y, r.size * 20)) continue;
       const pt = this.S(r.x, r.y);
+      // Battle scenery: skip tint/gradient path (fill-rate + CPU on iOS)
+      if (battleRocks && r.battle) {
+        items.push({ y: r.y, f: () => {
+          const rh = (parseInt(String(r.id).slice(2), 10) || 0);
+          const rKey = "asteroid_" + "abc"[rh % 3];
+          if (!ART.draw(g, rKey, pt.x, pt.y, r.size * 40 * z, r.rot || 0) &&
+              !ART.draw(g, "asteroid", pt.x, pt.y, r.size * 40 * z, r.rot || 0)) {
+            g.fillStyle = r.col || "#8a8070";
+            g.beginPath(); g.arc(pt.x, pt.y, Math.max(3, r.size * 14 * z), 0, TAU); g.fill();
+          }
+        } });
+        continue;
+      }
       items.push({ y: r.y, f: () => {
         if (r.outer) {
           const gr = Math.max(6, r.size * 30 * z);
@@ -526,23 +614,14 @@ Object.assign(GAME, {
           grd.addColorStop(0, hexA(r.col, 0.3)); grd.addColorStop(1, "rgba(0,0,0,0)");
           g.fillStyle = grd; g.beginPath(); g.arc(pt.x, pt.y, gr, 0, TAU); g.fill();
         }
-        // Clay asteroid variants (neutral grey art) recoloured per ore type
-        // (r.col from CONFIG.rings). Variant is hashed off the stable rock id so
-        // it never flickers; exotic/elite ores get the crystal-studded rock, the
-        // very largest rocks read as planetoids ("large terrain bodies"). Tints
-        // are baked per (key,color) — a handful of cached canvases, no per-frame
-        // cost. Legacy single-PNG then procedural as fallbacks.
         const rh = (parseInt(String(r.id).slice(2), 10) || 0);
         const rKey = r.size >= 1.7 ? "planetoid_" + "abc"[rh % 3]
           : (r.type === "gold" || r.type === "platinum" || r.type === "iridium" ||
              r.type === "cryonite" || r.type === "solarite") ? "asteroid_crystal"
           : "asteroid_" + "abc"[rh % 3];
-        // ×44 (was ×54, 2026-07-17 look/feel pass): visual radius ≈ size*22 now
-        // sits on the size*20 physics/tow radius instead of 35% fat — rocks read
-        // lighter and grabs land where the pixels are.
         if (!ART.drawTint(g, rKey, pt.x, pt.y, r.size * 44 * z, r.rot, hexA(r.col, 0.45)) &&
             !ART.drawTint(g, "asteroid", pt.x, pt.y, r.size * 44 * z, r.rot, hexA(r.col, 0.45)))
-          SPRITES.draw(g, this.spriteKey(r), pt.x, pt.y, r.size * 20 / 26 * z, r.rot);   // procedural fallback
+          SPRITES.draw(g, this.spriteKey(r), pt.x, pt.y, r.size * 20 / 26 * z, r.rot);
         if (r.hitFlash > 0) { g.globalAlpha = r.hitFlash * 2.5; g.fillStyle = "#ffffff";
           g.beginPath(); g.arc(pt.x, pt.y, r.size * 20 * z, 0, TAU); g.fill(); g.globalAlpha = 1; }
         if (r.hp < r.maxHp) { const bw = Math.max(16, r.size * 34 * z), by = pt.y - r.size * 22 * z - 6;
@@ -626,7 +705,10 @@ Object.assign(GAME, {
       this.drawEnemyShip(g, al, ap, z);   // class-shaped, faction-tinted procedural hull
       this.drawAlienStatus(g, al, ap, z, al.id === lockId);   // shield ring + hull bar / leader name
     }
-    ForgeCombat.drawCombat(g, cam, { targets: s.aliens });
+    // Pass live lock target so P2 / drones / bases get a reticle even when not in s.aliens
+    const lockT = lockId != null ? this.findCombatTarget(lockId) : null;
+    ForgeCombat.drawCombat(g, cam, { targets: s.aliens, lockTarget: lockT });
+    if (this.drawScanTargetMarkers) this.drawScanTargetMarkers(g);
     this.drawLockedHealthBar(g);   // rich shield→armor→hull bar for the locked enemy / outpost
 
     // loot orbs
@@ -642,6 +724,20 @@ Object.assign(GAME, {
 
     // outpost turret shots
     if (s.outpostShots) for (const sh of s.outpostShots) {
+      if (sh.type === "laser") {
+        const a = this.SF(sh.x0, sh.y0), b = this.SF(sh.x1, sh.y1);
+        const fade = Math.max(0.15, Math.min(1, (sh.life || 0) / 140));
+        g.globalAlpha = 0.35 + 0.55 * fade;
+        g.strokeStyle = sh.friendly ? "#ffd24a" : "#ff5060";
+        g.lineWidth = Math.max(1.5, 2.8 * z);
+        g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+        g.globalAlpha = 0.5 * fade;
+        g.lineWidth = Math.max(1, 1.2 * z);
+        g.strokeStyle = "#fff0e0";
+        g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+        g.globalAlpha = 1; g.lineWidth = 1;
+        continue;
+      }
       if (!isWorldVisible(sh.x, sh.y, 6)) continue;
       const sp = this.SF(sh.x, sh.y);
       g.fillStyle = sh.friendly ? "#ffd24a" : "#ff3030"; g.beginPath(); g.arc(sp.x, sp.y, Math.max(2, 3 * z), 0, TAU); g.fill();

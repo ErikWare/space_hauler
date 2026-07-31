@@ -405,6 +405,9 @@ for (const k of ['asteroid_chunk_1', 'asteroid_chunk_2', 'asteroid_chunk_3',
                  // two looks per weapon, picked off the site hash in sites.js
                  'emp_laser_a', 'emp_laser_b', 'emp_missile_a', 'emp_missile_b'])
   SPACE_CLAY_KEYS.add(k);
+// Battle / sky nebula plates (parallax backgrounds — not gameplay hero shots)
+for (const k of ['nebula_blue', 'nebula_red', 'nebula_green'])
+  SPACE_CLAY_KEYS.add(k);
 
 // Fetch-gate the dormant gameplay art: draw()/drawTint() refuse these keys while
 // GAMEPLAY_SPRITES is false, so fetching them would spend ~18 MB of boot

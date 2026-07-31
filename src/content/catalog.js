@@ -165,8 +165,8 @@ const SPACE_HAULER_CATALOG = {
     "laser":   { "cat": "weapons", "slot": "high", "name": "Laser",   "base_value": 140,
       "stats": {},
       "weapon": { "type": "laser",   "dmgShield": 1.6, "dmgArmor": 0.6, "dmgHull": 1.0,
-                  "range": 600, "fuelPerShot": 8, "aoe": 0, "ammo": null,
-                  "fireRate_ms": 400,  "projSpeed": 1600, "color": "#4ad2ff" },
+                  "range": 950, "fuelPerShot": 8, "aoe": 0, "ammo": null,
+                  "fireRate_ms": 400,  "projSpeed": 1800, "color": "#4ad2ff" },
       "affix_pool": ["damage_pct","weapon_range_pct","fuel_eff_pct","rof_pct"],
       "variants": [
         { "name": "Beam Cutter",  "mods": { "dmgShield": 0.3, "dmgArmor": 0.1, "dmgHull": 0.2, "range": -150 } },
@@ -180,8 +180,8 @@ const SPACE_HAULER_CATALOG = {
     "cannon":  { "cat": "weapons", "slot": "high", "name": "Cannon",  "base_value": 140,
       "stats": {},
       "weapon": { "type": "cannon",  "dmgShield": 1.5, "dmgArmor": 4.0, "dmgHull": 2.5,
-                  "range": 900, "fuelPerShot": 5, "aoe": 0, "ammo": null,
-                  "fireRate_ms": 1000, "projSpeed": 1200, "color": "#ffb040" },
+                  "range": 1250, "fuelPerShot": 5, "aoe": 0, "ammo": null,
+                  "fireRate_ms": 1000, "projSpeed": 1300, "color": "#ffb040" },
       "affix_pool": ["damage_pct","weapon_range_pct","fuel_eff_pct","rof_pct"],
       "variants": [
         { "name": "Rail Driver",  "mods": { "range": 300, "fireRate_ms": 400, "fuelPerShot": 3 } },
@@ -195,8 +195,8 @@ const SPACE_HAULER_CATALOG = {
     "missile": { "cat": "weapons", "slot": "high", "name": "Missile", "base_value": 150,
       "stats": {},
       "weapon": { "type": "missile", "dmgShield": 5.0, "dmgArmor": 5.0, "dmgHull": 5.0,
-                  "range": 1400, "fuelPerShot": 3, "aoe": 120, "ammo": null,
-                  "fireRate_ms": 2200, "projSpeed": 700, "color": "#57d1c9" },
+                  "range": 1900, "fuelPerShot": 3, "aoe": 220, "ammo": null,
+                  "fireRate_ms": 2200, "projSpeed": 520, "color": "#57d1c9" },
       "affix_pool": ["damage_pct","aoe_radius_pct","fuel_eff_pct","rof_pct"],
       "variants": [
         { "name": "Torpedo",      "mods": { "dmgShield": 1.5, "dmgArmor": 1.5, "dmgHull": 1.5, "fireRate_ms": 600, "fuelPerShot": 1, "aoe": -60 } },

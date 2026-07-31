@@ -41,8 +41,15 @@ Object.assign(GAME, {
       // ---- world ----
       outposts: s.outposts.map(o => ({ id: o.id, owner: o.owner, faction: o.faction,
         discovered: !!o.discovered, shield: o.shield, armor: o.armor, hull: o.hull,
-        modules: o.modules || [], stationedDrones: o.stationedDrones || [] })),
+        modules: o.modules || [], stationedDrones: o.stationedDrones || [],
+        // Per-network reinforce backlog lives on the network root outpost
+        reinforceQueue: o.reinforceQueue || [],
+        reinforceTransit: (o.reinforceTransit || []).map(t => ({
+          drone: t.drone, path: t.path, hop: t.hop, destId: t.destId, originId: t.originId,
+        })),
+      })),
       sites: (s.sites || []).map(t => ({ id: t.id, discovered: !!t.discovered,
+        lootScanned: !!t.lootScanned,
         guardRecs: t.guardRecs.map(r => ({ frac: r.frac, alive: !!r.alive })),
         emp: t.emplacement ? { destroyed: !!t.emplacement.destroyed,
           armor: t.emplacement.hp.armor, hull: t.emplacement.hp.hull } : null })),
@@ -161,6 +168,23 @@ Object.assign(GAME, {
         delete d.route; d.state = "stationed"; d.tradeDwellT = 0;
         d.x = o.x; d.y = o.y; d.vx = d.vy = 0; d.targetAlienId = null;
       }
+      // Network reinforce queue (parked at root) + mid-flight requeues to berth
+      o.reinforceQueue = Array.isArray(rec.reinforceQueue) ? rec.reinforceQueue : [];
+      for (const d of o.reinforceQueue) {
+        d.role = "reinforce"; d.state = "queued"; d.formationIdx = null;
+        d.x = o.x; d.y = o.y; d.vx = d.vy = 0;
+      }
+      // In-flight legs are ephemeral — snap mid-transit drones back into the queue
+      o.reinforceTransit = [];
+      if (Array.isArray(rec.reinforceTransit)) {
+        for (const t of rec.reinforceTransit) {
+          if (!t || !t.drone) continue;
+          const d = t.drone;
+          d.role = "reinforce"; d.state = "queued";
+          d.x = o.x; d.y = o.y; d.vx = d.vy = 0;
+          o.reinforceQueue.push(d);
+        }
+      }
       const region = this.regionGet(o.regionId);
       if (o.owner === "player") {
         o.capturable = false; o.provoked = false;
@@ -178,6 +202,7 @@ Object.assign(GAME, {
       const t = this.siteById(rec.id);
       if (!t) continue;
       t.discovered = !!rec.discovered;
+      t.lootScanned = !!rec.lootScanned;
       if (Array.isArray(rec.guardRecs)) t.guardRecs.forEach((r, i) => {
         const rr = rec.guardRecs[i];
         if (rr) { r.frac = clamp(+rr.frac || 0, 0, 1); r.alive = !!rr.alive; }
@@ -404,6 +429,7 @@ Object.assign(GAME, {
   saveGame() {
     if (HEADLESS || this._selfTesting) return false;   // the test harness must never clobber a real save
     if (this.state && this.state.titleOpen) return false;   // no run to save while the title screen is up
+    if (this.state && this.state.playMode === "battle") return false;   // battle sessions never write campaign slots
     // Manual save points: banking a run requires a berth. Every ambient
     // autosave in the codebase funnels through here, so this one gate is what
     // makes exploration risky — fly out far and you fly back to bank it.

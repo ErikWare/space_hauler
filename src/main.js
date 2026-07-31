@@ -98,6 +98,8 @@ Object.assign(GAME, {
       mercenary: false,      // set once, by the Q10 catastrophe (game/onboarding.js): employed → free agent
 
       titleOpen: false,      // world idles under the title screen (session-only; set by showTitleScreen)
+      playMode: "campaign",  // "campaign" | "battle" — battle never writes campaign saves
+      battle: null,          // battle session blob (game/battle_mode.js); null in campaign
       tows: [], rocks: [], rockFree: [], junk: [], junkFree: [], planets: planets, loot: [], miners: [], aliens: [],
       fields: [], nextFieldId: 1,
       onPlanet: false, nearPlanetName: null, currentPlanetName: null, planetProgress: {},
@@ -108,7 +110,7 @@ Object.assign(GAME, {
       obstacles: [], nextObstacleId: 1,   // large non-minable terrain bodies (world/obstacles.js)
       sites: [], nextSiteId: 1,           // region landmark sites (game/sites.js)
       empShots: [], empTorpedoes: [], nextTorpedoId: 1,   // site base-emplacement projectiles (game/sites.js)
-      nextRockId: 1, weaponCd: 0,
+      nextRockId: 1, weaponCd: 0, weaponCds: [],
       atStation: false, docked: false, dockStationId: stations[0].id, dockTab: "loadout", warpOverlay: false,
       markedStations: [],   // station ids flagged from the warp screen → waypoints on the galaxy map (persisted)
       won: false, tradeNetworkComplete: false,
@@ -134,6 +136,8 @@ Object.assign(GAME, {
       // both the reload spawn and the death respawn. null = never saved → home.
       savePoint: null,
       thrustPower: 0.75,
+      tapFly: false,          // rocket-icon toggle: tap empty space to set a course (mobile)
+      tapFlyDest: null,       // {x,y} world waypoint while tap-fly is en route
       tutorialDone: false, tutorialActive: false, tutorialStep: 0,   // first-run coach marks (done flag persisted; armed by initTutorial after loadGame)
       audioMuted: false,   // HUD speaker toggle (persisted by the save system)
       // multi-ship: owned hulls + per-ship persistent loadouts; the active
@@ -187,6 +191,12 @@ Object.assign(GAME, {
     if (!HEADLESS && typeof localStorage !== "undefined") {
       const tp = parseFloat(localStorage.getItem("sh_thrustPower"));
       if (tp >= 0.25 && tp <= 1) this.state.thrustPower = tp;
+      // Prefer tap-fly on touch-ish devices; still honor an explicit user choice.
+      const savedFly = localStorage.getItem("sh_tapFly");
+      if (savedFly === "1") this.state.tapFly = true;
+      else if (savedFly === "0") this.state.tapFly = false;
+      else if (typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in globalThis))
+        this.state.tapFly = true;
     }
     toasts.length = 0;
   },
@@ -287,22 +297,31 @@ Object.assign(GAME, {
     const s = this.state;
     if (s.titleOpen) return;     // boot menu up — the sim (and its clocks) wait for NEW GAME / LOAD GAME
     if (s.victoryOpen) return;   // EMPIRE ESTABLISHED — world frozen under the victory overlay
-    if (input.warpToggle) { input.warpToggle = false; if (!s.warpOverlay) this.openWarpOverlay(); else this._closeWarpOverlay(); }
-    if (input.mapToggle && !s.onPlanet) { input.mapToggle = false; this.toggleGalaxyMap(); }   // Phase 6 (on a planet, M is "launch" — handled in PLANET.tick)
-    if (input.radioToggle) { input.radioToggle = false; if (this.toggleRadio) this.toggleRadio(); }
-    if (input.radioCycle) { input.radioCycle = false; if (this.cycleRadioChannel) this.cycleRadioChannel(1); }
+    const inBattle = s.playMode === "battle";
+    if (input.warpToggle) {
+      input.warpToggle = false;
+      if (!inBattle) { if (!s.warpOverlay) this.openWarpOverlay(); else this._closeWarpOverlay(); }
+    }
+    if (input.mapToggle && !s.onPlanet) {
+      input.mapToggle = false;
+      if (!inBattle) this.toggleGalaxyMap();
+    }
+    if (input.radioToggle) { input.radioToggle = false; if (!inBattle && this.toggleRadio) this.toggleRadio(); }
+    if (input.radioCycle) { input.radioCycle = false; if (!inBattle && this.cycleRadioChannel) this.cycleRadioChannel(1); }
     if (input.deepScan) { input.deepScan = false; this.startRegionScan(); }   // K / SURVEY → region sensor sweep
-    s.timePlayed += dt;   // lifetime clock — ticks docked/warping too, frozen only by the victory pause
+    if (!inBattle) s.timePlayed += dt;   // lifetime clock — frozen in battle (session clone)
     if (s.credits > s._lastCredits) { s.creditsEarned += s.credits - s._lastCredits;   // lifetime earnings = summed positive purse deltas (spends ignored)
       AUDIO.play("credits"); }   // any purse gain chimes (sell, salvage, trade run, spoils)
     s._lastCredits = s.credits;
     this.updateAudio(dt);   // hit/tractor/low-shield watches — runs docked too so the hum can stop
-    this.updateDrones(dt);   // Phase 3: trade drones keep flying while docked/warping
-    this.updateNpcTraders(dt, s);   // Phase 6: convoys + ambient piracy keep running too
-    this.updateTradeRoutes(dt);     // outpost trade lanes: freighter loops fly while docked too
-    this.updateTradeRaids(dt);      // …and pirates keep scheming against them
-    this.updatePolitics(s, dt);     // faction politics: borders keep shifting while docked too
-    this.updateTutorial(s);         // first-run coach marks: tip 1 auto-advances on movement
+    if (!inBattle) {
+      this.updateDrones(dt);   // Phase 3: trade drones keep flying while docked/warping
+      this.updateNpcTraders(dt, s);   // Phase 6: convoys + ambient piracy keep running too
+      if (s.playMode !== "battle") this.updateTradeRoutes(dt); // campaign freighter loops only
+      this.updateTradeRaids(dt);      // …and pirates keep scheming against them
+      this.updatePolitics(s, dt);     // faction politics: borders keep shifting while docked too
+      this.updateTutorial(s);         // first-run coach marks: tip 1 auto-advances on movement
+    }
 
     // ── planet surface mode ────────────────────────────────────────────────────
     // When on a planet surface, the planet engine handles the whole update and we
@@ -358,6 +377,10 @@ Object.assign(GAME, {
       stepToasts(dt); return;
     }
 
+    // Dock / overlays cancel an in-flight tap-fly course (ship is no longer free-flying)
+    if (s.docked || s.onPlanet || s.galaxyMapOpen || s.warpOverlay) {
+      if (s.tapFlyDest) s.tapFlyDest = null;
+    }
     if (input.dock) { input.dock = false;
       if (!s.docked) {
         if (s.atStation) this.openDock(s.dockStationId);
@@ -376,33 +399,74 @@ Object.assign(GAME, {
       s.hp.shield = Math.min(s.hp.shieldMax, s.hp.shield + CONFIG.dockHeal * 3 * dt);
       s.hp.armor = Math.min(s.hp.armorMax, s.hp.armor + CONFIG.dockHeal * 1.5 * dt);
       s.hp.hull = Math.min(s.hp.hullMax, s.hp.hull + CONFIG.dockHeal * 2 * dt);
+      // Battle: keep match clock + menu-gank alive while the player is in loadout/hangar
+      if (inBattle && this.updateBattleMatch) this.updateBattleMatch(dt);
       ForgeWorld.tickWarp(dt); stepToasts(dt); return;
     }
 
     if (input.refuel) { input.refuel = false; if (s.atStation) this.refuel(); }
     if (input.toggleMode) { input.toggleMode = false; s.mode = s.mode === "constant" ? "burst" : "constant";
       s.holdT = 0; s.charge = 0; s.thrusting = false; toast(s.mode === "constant" ? "engine: CONSTANT" : "engine: BURST"); sfx("buy"); }
-    if (input.returnToBase) { input.returnToBase = false; const home = this.homeStationObj();
-      s.x = home.pos.x; s.y = home.pos.y; s.vx = 0; s.vy = 0; s.holdT = 0; s.charge = 0; s.thrusting = false; toast("↩ RETURNED HOME"); sfx("grab"); }
+    if (input.returnToBase) {
+      input.returnToBase = false;
+      if (inBattle) {
+        // No "return home" in battle — fight until kill or zone/timer. B is a
+        // campaign convenience, not a mid-match escape.
+        if (this.isBattleMatch && this.isBattleMatch())
+          toast("no home berth — fight until one pilot falls", "#ffd27a", 2);
+        else
+          toast("exit from the battle menu", "#ffd27a", 2);
+        if (typeof sfx === "function") sfx("warn");
+      } else {
+        const home = this.homeStationObj();
+        s.x = home.pos.x; s.y = home.pos.y; s.vx = 0; s.vy = 0; s.holdT = 0; s.charge = 0; s.thrusting = false; toast("↩ RETURNED HOME"); sfx("grab");
+      }
+    }
     if (input.zoomEdge) { this.applyZoom(input.zoomEdge); input.zoomEdge = 0; }
 
     s.t += dt;
     this.tickCamera(dt);
     stepParticles(dt); stepToasts(dt);
-    if (s.dead) return;
+    if (s.dead) {
+      if (inBattle && this.isBattleMatch && this.isBattleMatch()) this.endBattleMatch("death");
+      return;
+    }
 
-    this.recomputeDerived();
+    // Campaign: recompute every frame. Battle: throttle — fit rarely changes mid-fight
+    // and full recompute was a measurable cost on control maps.
+    if (!inBattle) this.recomputeDerived();
+    else if (!s.derived || (s._battleDerCd = (s._battleDerCd || 0) - dt) <= 0) {
+      s._battleDerCd = 0.4;
+      this.recomputeDerived();
+    }
 
     // engine + nebula-modified drag + gravity
-    const towing = this.tickEngine(dt);
-    const mods = ForgeWorld.getNebulaModifiers({ x: s.x, y: s.y }); s._nebMods = mods;
-    const drag = Math.pow(towing ? mods.dragTowing : mods.dragFree, dt * 60);
-    s.vx *= drag; s.vy *= drag;
-    this.applyGravity(dt);
-    s.x += s.vx * dt; s.y += s.vy * dt;
+    // Battle AI-pilot sims: movement is owned by updateBattleDuel — skip engine
+    // so P1 doesn't get a free extra thrust stack vs P2.
+    const aiPilotP1 = inBattle && s.battle && s.battle.aiPilotP1;
+    let towing = false;
+    if (!aiPilotP1) {
+      towing = this.tickEngine(dt);
+      const mods = ForgeWorld.getNebulaModifiers({ x: s.x, y: s.y }); s._nebMods = mods;
+      // fuelOut: heavier drag so a dry ship bleeds speed and can't coast to safety
+      let dragBase = towing ? mods.dragTowing : mods.dragFree;
+      if (s.fuelOut && CONFIG.fuelOutDrag) dragBase = Math.min(dragBase, CONFIG.fuelOutDrag);
+      const drag = Math.pow(dragBase, dt * 60);
+      s.vx *= drag; s.vy *= drag;
+      if (!inBattle) this.applyGravity(dt);
+      s.x += s.vx * dt; s.y += s.vy * dt;
+      if (this.clampBattleBounds) this.clampBattleBounds();
+    } else {
+      // still expose nebula mods for HUD/consistency
+      s._nebMods = ForgeWorld.getNebulaModifiers({ x: s.x, y: s.y });
+    }
 
-    this.tickFuel(dt);
-    this.tickHealth(dt);
+    // AI duel sims: fuel/health regen is owned by _battlePilotTick for both sides
+    // so P1 doesn't get a free tickHealth stack P2 lacks.
+    if (!(inBattle && s.battle && s.battle.aiPilotP1)) {
+      this.tickFuel(dt);
+      this.tickHealth(dt);
+    }
 
     if (input.tractorEdge) { input.tractorEdge = false;
       const g = this.nearestGrabbable(s.derived.tractorRange);
@@ -413,30 +477,70 @@ Object.assign(GAME, {
     if (input.pickX != null) { this.resolveTap(input.pickX, input.pickY); input.pickX = input.pickY = null; }
 
     this.updateRegions();  // track the ship's current region (Region Event Manager)
-    this.tickFields(dt);   // stream mining fields in/out around the ship
-    for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i]; if (!r.active) continue;
-      r.rot += r.spinV * dt; r.x += r.vx * dt; r.y += r.vy * dt;
-      if (r.hitFlash > 0) r.hitFlash = Math.max(0, r.hitFlash - dt); }
-    for (const j of s.junk) { if (!j.active) continue; j.x += j.vx * dt; j.y += j.vy * dt; j.rot += j.spinV * dt; }
+    // Campaign mining stream — skip in battle (arena rocks are static scenery)
+    if (!inBattle) this.tickFields(dt);
+    for (let i = 0; i < s.rocks.length; i++) {
+      const r = s.rocks[i]; if (!r || r.active === false) continue;
+      // Battle clutter is frozen in place (still collides / drawable)
+      if (inBattle && r.battle) {
+        if (r.hitFlash > 0) r.hitFlash = Math.max(0, r.hitFlash - dt);
+        continue;
+      }
+      r.rot += (r.spinV || 0) * dt; r.x += (r.vx || 0) * dt; r.y += (r.vy || 0) * dt;
+      if (r.hitFlash > 0) r.hitFlash = Math.max(0, r.hitFlash - dt);
+    }
+    for (const j of s.junk) {
+      if (!j || j.active === false) continue;
+      if (inBattle && j.battle) { j.rot += (j.spinV || 0) * dt * 0.25; continue; }
+      j.x += (j.vx || 0) * dt; j.y += (j.vy || 0) * dt; j.rot += (j.spinV || 0) * dt;
+    }
     this.tickTows(dt);
 
     if (input.skillTap != null) { this.toggleSkill(input.skillTap); input.skillTap = null; }
     this.tickSkills(dt);
     this.updateLock(dt);
-    if (!s.galaxyMapOpen) { this.tryFireWeapon(dt); this.updatePiracy(dt); }   // Phase 6: no fire while mapping
-    else s.weaponCd = Math.max(0, (s.weaponCd || 0) - dt * 1000);
+    // Battle AI-pilot sims drive fire through updateBattleDuel — skip normal
+    // auto-fire so P1 doesn't double-spend fuel/cooldowns vs P2.
+    const aiP1 = s.playMode === "battle" && s.battle && s.battle.aiPilotP1;
+    if (!s.galaxyMapOpen) {
+      if (!aiP1) this.tryFireWeapon(dt);
+      if (s.playMode !== "battle") this.updatePiracy(dt);
+    } else s.weaponCd = Math.max(0, (s.weaponCd || 0) - dt * 1000);
     ForgeCombat.updateProjectiles(dt);
+    // Missile impact mutates the shared drone combat shell — push back to flat pools
+    if (this.syncP2DroneCombatShells) this.syncP2DroneCombatShells();
     this.updateAliens(dt);
-    this.updateFleet(dt);   // Phase 5: formation following + fleet combat AI
-    this.updateEnemyBases(dt);
+    this.updateFleet(dt);   // Phase 5: formation following + drone combat AI
+    if (!inBattle) this.updateEnemyBases(dt);
     this.updateOutposts(dt);
-    this.updateSites(dt);   // site discovery + garrison streaming (game/sites.js)
-    // outpost turret shots: move + hit player (hostile) or aliens (friendly —
-    // fired by captured platforms; kills settle via updateAliens' loot sweep)
+    // Per-network reinforce queues (campaign + battle): undock drains into berths
+    if (typeof this.updateNetworkReinforcements === "function"
+        && !(typeof this.isBattleControl === "function" && this.isBattleControl()))
+      this.updateNetworkReinforcements(dt);
+    // Sites: full sim in campaign; battle only when near a site
+    if (!inBattle) this.updateSites(dt);
+    else if (s.sites && s.sites.length) {
+      let nearSite = false;
+      const sx = s.x, sy = s.y;
+      for (let i = 0; i < s.sites.length; i++) {
+        const t = s.sites[i]; if (!t) continue;
+        const dx = t.x - sx, dy = t.y - sy;
+        if (dx * dx + dy * dy < 4.5e6) { nearSite = true; break; }
+      }
+      if (nearSite) this.updateSites(dt);
+    }
+    if (this.updateBattleMatch) this.updateBattleMatch(dt); // includes P1/P2 duel AI
+    // Outpost laser flashes: damage already applied on fire; just age the beam.
     if (s.outpostShots) {
       for (let i = s.outpostShots.length - 1; i >= 0; i--) {
         const sh = s.outpostShots[i];
-        sh.x += sh.vx * dt; sh.y += sh.vy * dt;
+        if (sh.type === "laser") {
+          sh.life -= dt * 1000;
+          if (sh.life <= 0) s.outpostShots.splice(i, 1);
+          continue;
+        }
+        // Legacy ball projectiles (old saves / stray) — still resolve
+        sh.x += (sh.vx || 0) * dt; sh.y += (sh.vy || 0) * dt;
         sh.life -= dt * 1000;
         if (sh.life <= 0) { s.outpostShots.splice(i, 1); continue; }
         if (sh.friendly) {
@@ -457,55 +561,70 @@ Object.assign(GAME, {
         }
       }
     }
-    ForgeNPC.updateMiners(s.miners, s.rocks, dt);
-    ForgeNPC.updateStationTurrets(s._npcStations, { x: s.x, y: s.y, hp: s.hp }, dt);
+    if (!inBattle) {
+      ForgeNPC.updateMiners(s.miners, s.rocks, dt);
+      ForgeNPC.updateStationTurrets(s._npcStations, { x: s.x, y: s.y, hp: s.hp }, dt);
+    }
     if (s.hp.hull <= 0 && !s.dead) this.onShipDestroyed();
     this.updateLoot(dt);
-    this.updateEncounters(dt, s);
-    this.updateContracts(dt);   // Phase 4: escort convoys + defense raid waves
-    this.updateQuests(dt);      // Phase 5: quest objectives + active-quest waypoint/boost
+    if (!inBattle) {
+      this.updateEncounters(dt, s);
+      this.updateContracts(dt);   // Phase 4: escort convoys + defense raid waves
+      this.updateQuests(dt);      // Phase 5: quest objectives + active-quest waypoint/boost
+      this.updateObjectives(dt);  // Phase 6: territory objectives
+    }
     if (this.updateRadio) this.updateRadio(dt);   // cockpit radio channels (game/radio.js)
+    if (this.updateCritChat) this.updateCritChat(dt);  // lower-left critical alerts
     this.updateRegionScan(dt);  // region sensor survey + echo rings (game/scan.js)
-    this.updateObjectives(dt);  // Phase 6: territory objectives — battle windows + milestone sweep
-    for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i]; if (!r.active || !r.mined) continue;
-      r.mined = false; r.towedBy = null;
-      // An NPC miner's haul depletes the world exactly like the player's. The
-      // per-station "junk" patch used to refill here to keep local miners fed —
-      // it no longer does, so a picked-over home system stays picked over.
-      this.consumeRock(i); }
+    if (!inBattle) {
+      for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i]; if (!r.active || !r.mined) continue;
+        r.mined = false; r.towedBy = null;
+        this.consumeRock(i); }
 
-    const discEvents = ForgeWorld.updateDiscovery({ x: s.x, y: s.y });
-    for (const ev of discEvents) if (ev.type === "discover" && ev.station) {
-      ev.station.warpActive = true;   // fly-to-once unlocks warp — no gate to build
-      const mi = s.markedStations ? s.markedStations.indexOf(ev.station.id) : -1;
-      if (mi >= 0) s.markedStations.splice(mi, 1);   // reached a marked target → clear its waypoint
-      if (this.radioSay)
-        this.radioSay("local", "⌘ WARP UNLOCKED — " + ev.station.name, "#8fd0ff");
-      else toast("⌘ WARP UNLOCKED — " + ev.station.name, "#8fd0ff");
-      this.checkWin();   // discovering the last station now also completes the trade network
+      const discEvents = ForgeWorld.updateDiscovery({ x: s.x, y: s.y });
+      for (const ev of discEvents) if (ev.type === "discover" && ev.station) {
+        ev.station.warpActive = true;
+        const mi = s.markedStations ? s.markedStations.indexOf(ev.station.id) : -1;
+        if (mi >= 0) s.markedStations.splice(mi, 1);
+        if (this.radioSay)
+          this.radioSay("local", "⌘ WARP UNLOCKED — " + ev.station.name, "#8fd0ff");
+        else toast("⌘ WARP UNLOCKED — " + ev.station.name, "#8fd0ff");
+        this.checkWin();
+      }
     }
     this._exploreTilesAround(s.x, s.y);
 
-    // collisions — the rock passes run only on the neighborhood around the ship
-    // (distant rocks are static, so far pairs can never matter). The rock–rock
-    // pair pass is grid-bucketed in rockPairPass; a flat loop over the near set
-    // is quadratic and caps local rock density at ~300.
-    const nearRocks = [], nearR2 = CONFIG.collNear * CONFIG.collNear;
-    for (let i = 0; i < s.rocks.length; i++) { const r = s.rocks[i]; if (!r.active) continue;
+    // collisions — neighborhood of the ship only. Battle rocks are static scenery:
+    // skip rock–rock pair pass (big win on iOS with belt clusters).
+    const nearRocks = [], nearR2 = (inBattle ? 900 * 900 : CONFIG.collNear * CONFIG.collNear);
+    for (let i = 0; i < s.rocks.length; i++) {
+      const r = s.rocks[i]; if (!r || r.active === false) continue;
       const ndx = r.x - s.x, ndy = r.y - s.y;
-      if (ndx * ndx + ndy * ndy < nearR2) nearRocks.push(i); }
-    // per-hull mass: heavy faction hulls blow rocks/junk out of the way with a
-    // small bounce and take proportionally less ram damage (shipRamMult);
-    // a maxed carrier barely notices junk at all.
+      if (ndx * ndx + ndy * ndy < nearR2) nearRocks.push(i);
+    }
     const sMass = this.shipMass(), ramK = this.shipRamMult(2);
-    for (const i of nearRocks) { if (this.isTowed("rocks", i)) continue; const r = s.rocks[i];
+    for (let k = 0; k < nearRocks.length; k++) {
+      const i = nearRocks[k];
+      if (this.isTowed("rocks", i)) continue;
+      const r = s.rocks[i];
       if (this.circleHit(s, CONFIG.shipR, sMass, r, r.size * 20, r.mass) && s.invuln <= 0 && !s.atStation) {
         const dmg = (5 + r.mass * 3) * ramK;
-        if (dmg >= 1) this.damageShip(dmg); } }
-    for (let i = 0; i < s.junk.length; i++) { const j = s.junk[i]; if (!j.active || this.isTowed("junk", i)) continue;
-      if (this.circleHit(s, CONFIG.shipR, sMass, j, j.r, CONFIG.junkMass) && s.invuln <= 0 && !s.atStation && sMass < 5) this.damageShip(1); }
-    this.rockPairPass(nearRocks);
-    this.updateObstacles(dt);   // drift the terrain bodies + bounce the ship off any it hits
+        if (dmg >= 1) this.damageShip(dmg);
+      }
+    }
+    // Junk: only near ship in battle (full scan is fine for small counts)
+    const junkR2 = inBattle ? 500 * 500 : 1e15;
+    for (let i = 0; i < s.junk.length; i++) {
+      const j = s.junk[i]; if (!j || j.active === false || this.isTowed("junk", i)) continue;
+      if (inBattle) {
+        const jdx = j.x - s.x, jdy = j.y - s.y;
+        if (jdx * jdx + jdy * jdy > junkR2) continue;
+      }
+      if (this.circleHit(s, CONFIG.shipR, sMass, j, j.r, CONFIG.junkMass) && s.invuln <= 0 && !s.atStation && sMass < 5)
+        this.damageShip(1);
+    }
+    if (!inBattle) this.rockPairPass(nearRocks);
+    this.updateObstacles(dt);
 
     // nav waypoint reached → clear it (and its HUD arrow)
     if (s.navWaypoint && Math.hypot(s.x - s.navWaypoint.x, s.y - s.navWaypoint.y) < 240) {
@@ -532,17 +651,30 @@ Object.assign(GAME, {
   draw(g) {
     if (HEADLESS) return;
     const s = this.state;
-    this.syncLoadoutDOM();   // show/hide the #loadoutPanel DOM overlay from dock state
-    this.syncDroneDOM();  // show/hide + refresh the #dronePanel DOM overlay
-    this.syncContractsDOM();   // show/hide + first-show render of #contractsPanel
-    this.syncFleetDOM();  // Phase 5: show/hide + first-show render of #fleetPanel
-    this.syncStoreDOM();  // show/hide + first-show render of #storePanel
-    this.syncWarpDOM();   // show/hide + first-show render of #warpPanel
-    this.syncShipsDOM();  // show/hide + first-show render of #shipsPanel (ship market)
-    this.syncSkillsDOM();    // show/hide the #skillsPanel skill-tree overlay (game/skills.js)
-    this.syncFortifyDOM();   // show/hide + first-show render of #fortifyPanel (outpost dock)
-    this.syncVictoryDOM();   // show/hide the #victoryPanel EMPIRE ESTABLISHED overlay
-    this.syncTutorialDOM();  // show/hide + re-place the #tutPanel first-run coach mark
+    const inBattle = s.playMode === "battle";
+    // DOM sync: only while docked / title overlays — undocked battle was paying
+    // full panel walk every frame (expensive on iOS WebKit).
+    if (s.docked || s.titleOpen || s.victoryOpen) {
+      this.syncLoadoutDOM();
+      this.syncDroneDOM();
+      this.syncContractsDOM();
+      this.syncFleetDOM();
+      this.syncStoreDOM();
+      this.syncWarpDOM();
+      this.syncShipsDOM();
+      this.syncSkillsDOM();
+      this.syncFortifyDOM();
+      if (this.syncBattleDOM) this.syncBattleDOM();
+      this.syncVictoryDOM();
+      this.syncTutorialDOM();
+    } else if (this.syncBattleDOM && inBattle) {
+      // result/hub panel only
+      this.syncBattleDOM();
+    } else if (!inBattle) {
+      // campaign flight: light sync (tutorial / victory only)
+      this.syncVictoryDOM();
+      this.syncTutorialDOM();
+    }
     if (s.warpOverlay) { ForgeWorld.drawWarpUI(this._ctx, { width: CONFIG.W, height: CONFIG.H }); return; }
     if (s.onPlanet) { PLANET.draw(g, s); return; }
     if (s.docked) {
@@ -550,52 +682,75 @@ Object.assign(GAME, {
       return;
     }
     this.drawWorld(g);
-    this.drawEmpProjectiles(g);   // site emplacement missiles / torpedoes / beams (game/sites.js)
-    this.drawDronesWorld(g);      // Phase 3: in-flight trade drones (flat plane)
-    this.drawFleetWorld(g);       // Phase 5: teal fleet wingmen (flat plane)
-    this.drawTradeRoutesWorld(g);    // dashed outpost trade lanes (under the freighters)
-    this.drawOutpostDroneWorld(g);   // FORTIFY-stationed drones at player outposts
-    this.drawTradersWorld(g);     // Phase 6: NPC cargo wedges (flat plane)
-    this.drawEncounterMarkers(g);
-    this.drawContractWorld(g);    // Phase 4: escort freighter + bounty flagship dressing
-    this.drawQuestWorld(g);       // Phase 5: pulsing reticles on the active quest's objectives
-    if (this.drawTutorObjectives) this.drawTutorObjectives(g); // survey bodies
-    if (this.drawTutorWing) this.drawTutorWing(g);  // onboarding wing lead
-    this.drawScanWorld(g);        // region survey echo rings (game/scan.js)
-    ForgeHUD.drawHUD(this.buildHudState());
-    this.drawXpBar(g);            // ambient global-XP hairline atop the HUD (game/skills.js)
-    this.drawEncounterIcons(g);   // overlays ForgeHUD's minimap
-    this.drawEnemyBasesMinimap(g);   // hostile red triangles on the same disc
-    this.drawDronesMinimap(g);    // cyan trade-drone dots on the same disc
-    this.drawFleetMinimap(g);     // Phase 5: teal fleet triangles on the same disc
-    this.drawObstaclesMinimap(g); // grey terrain-body blips on the same disc
-    this.drawTradersMinimap(g);   // Phase 6: white trader squares on the same disc
-    this.drawContractMinimap(g);  // gold escort dot + bounty reticle on the same disc
-    this.drawTradeMarkers(g);     // Phase 7: on-screen ring / edge arrow + ETA for trade runs
-    this.drawWaypointHUD(g);      // light edge arrow toward the user's nav waypoint (galaxy_map.js)
-    this.drawControls(g);
-    this.drawScanHUD(g);          // survey progress arc on the minimap rim (game/scan.js)
-    this.drawSecBadge(g);         // SEC danger level near minimap
-    this.drawShipBadge(g);        // current hull name under the top-strip bars
-    this.drawMercBadge(g);        // "MERCENARY — NO AFFILIATION" after the Q10 wipe (game/onboarding.js)
-    this.drawContractHUD(g);      // Phase 4: active-contract box, top-right
-    this.drawQuestHUD(g);         // Phase 5: active-quest tracker (bottom-center / thrust band)
-    if (this.drawWingChatHUD) this.drawWingChatHUD(g);  // Reva/Cade/Lira subtitles
-    if (this.drawRadioHUD) this.drawRadioHUD(g);  // cockpit radio log (game/radio.js)
-    this.drawTraderAlert(g);      // Phase 6: blinking "trader under attack" edge note
-    this.drawTradeRouteAlert(g);  // blinking "trade route under attack" edge note (trade_routes.js)
-    this.drawEmpAlert(g);         // emplacement "LOCKED ON" klaxon + torpedo-inbound count (game/sites.js)
-    this.drawPoliticsTicker(g);   // faction politics: news ticker, top-center
-    if (s.flash > 0) { g.fillStyle = `rgba(255,60,60,${(s.flash / CONFIG.flashT) * 0.32})`; g.fillRect(0, 0, CONFIG.W, CONFIG.H); }
-    if (s.tradeNetworkComplete) {
-      g.fillStyle = "rgba(5,7,13,.62)"; g.fillRect(0, CONFIG.H / 2 - 46, CONFIG.W, 66);
-      g.fillStyle = "#ffd27a"; g.font = "bold 16px monospace"; g.textAlign = "center";
-      g.fillText("★ TRADE NETWORK COMPLETE ★", CONFIG.W / 2, CONFIG.H / 2 - 18);
-      g.font = "11px monospace"; g.fillStyle = "#e8edf4"; g.fillText(`${s.credits}cr banked · game continues`, CONFIG.W / 2, CONFIG.H / 2 + 4); g.textAlign = "left";
+    if (this.drawBattleBounds) this.drawBattleBounds(g);
+    if (this.drawBattleP2) this.drawBattleP2(g);
+    if (!inBattle) this.drawEmpProjectiles(g);
+    else if (s.sites && s.sites.length) this.drawEmpProjectiles(g);
+    if (!inBattle) this.drawDronesWorld(g);      // trade drones — campaign only
+    this.drawFleetWorld(g);
+    if (!inBattle) this.drawTradeRoutesWorld(g);
+    if (this.drawBattleControlLanes) this.drawBattleControlLanes(g);
+    this.drawOutpostDroneWorld(g);
+    if (this.drawNetworkReinforceWorld) this.drawNetworkReinforceWorld(g);
+    if (this.drawBattleReinforceDrones) this.drawBattleReinforceDrones(g);
+    if (!inBattle) {
+      this.drawTradersWorld(g);
+      this.drawEncounterMarkers(g);
+      this.drawContractWorld(g);
+      this.drawQuestWorld(g);
+      if (this.drawTutorObjectives) this.drawTutorObjectives(g);
+      if (this.drawTutorWing) this.drawTutorWing(g);
     }
-    if (s.galaxyMapOpen) this.drawGalaxyMap(g);   // Phase 6: topmost overlay
-    // Planet proximity is radio-only now (see update near-body radioSayCd) so
-    // the bottom strip never covers quest/radio HUD. LAND button still works.
+    if (this.drawSiteLoot) this.drawSiteLoot(g);
+    this.drawScanWorld(g);
+    if (!inBattle && this.drawSurveyPOIs) this.drawSurveyPOIs(g);
+    ForgeHUD.drawHUD(this.buildHudState());
+    if (!inBattle) this.drawXpBar(g);
+    if (!inBattle) {
+      this.drawEncounterIcons(g);
+      this.drawEnemyBasesMinimap(g);
+      this.drawDronesMinimap(g);
+      this.drawTradersMinimap(g);
+      this.drawContractMinimap(g);
+    }
+    this.drawFleetMinimap(g);
+    this.drawObstaclesMinimap(g);
+    if (!inBattle) {
+      this.drawTradeMarkers(g);
+      this.drawWaypointHUD(g);
+    }
+    this.drawControls(g);
+    this.drawScanHUD(g);
+    if (!inBattle) this.drawSecBadge(g);
+    this.drawShipBadge(g);
+    if (this.drawBattleHUD) this.drawBattleHUD(g);
+    if (!inBattle) {
+      this.drawMercBadge(g);
+      this.drawContractHUD(g);
+      this.drawQuestHUD(g);
+      if (this.drawWingChatHUD) this.drawWingChatHUD(g);
+      this.drawTraderAlert(g);
+      this.drawTradeRouteAlert(g);
+      if (s.tradeNetworkComplete) {
+        g.fillStyle = "rgba(5,7,13,.62)"; g.fillRect(0, CONFIG.H / 2 - 46, CONFIG.W, 66);
+        g.fillStyle = "#ffd27a"; g.font = "bold 16px monospace"; g.textAlign = "center";
+        g.fillText("★ TRADE NETWORK COMPLETE ★", CONFIG.W / 2, CONFIG.H / 2 - 18);
+        g.font = "11px monospace"; g.fillStyle = "#e8edf4";
+        g.fillText(`${s.credits}cr banked · game continues`, CONFIG.W / 2, CONFIG.H / 2 + 4);
+        g.textAlign = "left";
+      }
+      if (s.galaxyMapOpen) this.drawGalaxyMap(g);
+    }
+    if (this.drawCritChatHUD) this.drawCritChatHUD(g);
+    // Radio draws in BOTH modes — updateRadio already runs in battle, and the
+    // contact list bottom-anchors above this card, so suppressing it here left
+    // a dead gap in the battle HUD and made the two modes look different.
+    if (this.drawRadioHUD) this.drawRadioHUD(g);
+    if (!inBattle) this.drawEmpAlert(g);
+    if (s.flash > 0) {
+      g.fillStyle = `rgba(255,60,60,${(s.flash / CONFIG.flashT) * 0.32})`;
+      g.fillRect(0, 0, CONFIG.W, CONFIG.H);
+    }
   },
 
   // dock tab bar (game-owned chrome over the Forge overlays)
@@ -1391,7 +1546,7 @@ Object.assign(GAME, {
     if (s.drones.length !== 1) throw new Error("drone not pushed to s.drones");
     const dr = s.drones[0];
     if (dr.fromId !== 0 || dr.toId === 0 || dr.tier !== 0 || dr.payout !== 125) throw new Error("drone fields: " + JSON.stringify([dr.fromId, dr.toId, dr.tier, dr.payout]));
-    if (dr.hp !== 40 || dr.shield !== 20 || dr.fuel !== 80 || Math.abs(dr.successRate - 0.72) > 1e-9) throw new Error("tier-0 stat block");
+    if (dr.hp !== DRONES.tiers[0].maxHp || dr.shield !== DRONES.tiers[0].maxShield || dr.fuel !== 80 || Math.abs(dr.successRate - 0.72) > 1e-9) throw new Error("tier-0 stat block");
     if (!dr.loadout.length || dr.loadout[0].type !== "weapon") throw new Error("tier-0 loadout");
     // travel: progress → 1 arrives + pays out exactly once
     dr.pirateClock = 9999; dr.progress = 0.999; dr.travelTime = 4;
@@ -1707,7 +1862,7 @@ Object.assign(GAME, {
     if (this.setDroneRole(s.playerFleet.indexOf(s.playerFleet.find(d => d.role === "hangar")), "escort").ok)
       throw new Error("4th escort must be blocked at the wing cap");
     // one-way trade run: dispatch to a chosen station, payout ∝ distance, and on
-    // arrival the drone banks the payout and parks free in the bay (no return leg)
+    // arrival the drone parks as "claim" until the player banks the payout
     s.docked = true;
     // all 8 outposts are tradeable even while UNCHARTED (follow the convoy to
     // discover them); the picker just flags the undiscovered ones. Prove it with
@@ -1742,17 +1897,26 @@ Object.assign(GAME, {
     this.updateFleet(0.05, s);
     if (!(escDr.progress > 0.3 && escDr.progress < 0.7)) throw new Error("wall-clock progress mid-flight: " + escDr.progress);
     if (s.credits !== creditsPre) throw new Error("payout must not bank before arrival");
-    // force arrival → payout banked, drone parked free in the bay at the destination
+    // force arrival → payout held, drone parks as claim (not auto-banked)
     // (surviveP pinned like the convoy test below — the parking contract must not
     //  flake on the global rnd stream, which any content addition shifts)
     escDr.surviveP = 1;
     escDr.arriveMs = this._nowMs() - 1;
     this.updateFleet(0.05, s);
-    if (escDr.role !== "hangar" || escDr.state !== "follow") throw new Error("arrived trade drone should park free in the bay");
+    if (escDr.role !== "claim" || escDr.state !== "follow") throw new Error("arrived trade drone should await claim: " + escDr.role);
     if (escDr.stationId !== farDst.id) throw new Error("arrived drone should note its destination station");
-    if (s.credits !== creditsPre + farDst.payout) throw new Error("arrival must bank exactly the payout");
-    if (escDr.toId != null || escDr.arriveMs != null) throw new Error("trade fields not cleared on arrival");
+    if (s.credits !== creditsPre) throw new Error("arrival must NOT auto-bank — player claims later");
+    if (escDr.payout !== farDst.payout) throw new Error("claim holds the route payout");
+    if (escDr.arriveMs != null) throw new Error("flight clocks should clear on arrival");
     if (this.escorts(s).some((d, k) => d.formationIdx !== k)) throw new Error("formation not re-packed on arrival");
+    // claim → bank + park hangar
+    const claimIdx = s.playerFleet.indexOf(escDr);
+    const claimR = this.claimTradePayout(claimIdx);
+    if (!claimR.ok || claimR.payout !== farDst.payout) throw new Error("claimTradePayout failed: " + JSON.stringify(claimR));
+    if (s.credits !== creditsPre + farDst.payout) throw new Error("claim must bank exactly the payout");
+    if (escDr.role !== "hangar") throw new Error("claim should park the drone in the hangar");
+    if (escDr.payout != null || escDr.toId != null) throw new Error("trade fields not cleared on claim");
+    if (this.claimTradePayout(claimIdx).ok) throw new Error("double-claim must fail");
     // reversible drone modules: any module fits any free slot (untyped), the
     // module remembers its source item, and unfit returns it to cargo
     const modItem = ForgeItemSystem.generateItem("laser", "rare", { ilvl: 2, rng: ForgeItemSystem.seedRng(5) });
@@ -1889,12 +2053,21 @@ Object.assign(GAME, {
     if (flying.some(d => d.payout !== expectShare)) throw new Error("each convoy ship should carry an equal share");
     if (flying.some(d => d.laneOffset === undefined)) throw new Error("convoy ships need a lane offset for spread");
     if (this.launchTradeConvoy([0], dest.id).ok) throw new Error("a flying (non-hangar) drone can't be re-convoyed");
-    // arrival, all survive → banks the full stacked total, both park free
+    // arrival, all survive → both await claim with shares held (not auto-banked)
     const credB = s.credits;
     flying.forEach(d => { d.surviveP = 1; d.departMs = this._nowMs() - 1000; d.arriveMs = this._nowMs() - 1; });
     this.updateFleet(0.05, s);
-    if (s.credits !== credB + expectShare * 2) throw new Error("surviving convoy should bank both shares: " + (s.credits - credB));
-    if (s.playerFleet.filter(d => d.role === "hangar").length !== DRONES.ownedMax) throw new Error("arrived convoy should park (all " + DRONES.ownedMax + " hangar drones)");
+    if (s.credits !== credB) throw new Error("surviving convoy must not auto-bank: " + (s.credits - credB));
+    const claimers = s.playerFleet.filter(d => d.role === "claim");
+    if (claimers.length !== 2) throw new Error("arrived convoy should await claim (2): " + claimers.length);
+    if (claimers.some(d => d.payout !== expectShare)) throw new Error("claim holds should match share");
+    // claim each → bank both shares, both park hangar
+    while (s.playerFleet.some(d => d.role === "claim")) {
+      const i = s.playerFleet.findIndex(d => d.role === "claim");
+      if (!this.claimTradePayout(i).ok) throw new Error("convoy claim failed at " + i);
+    }
+    if (s.credits !== credB + expectShare * 2) throw new Error("claiming convoy should bank both shares: " + (s.credits - credB));
+    if (s.playerFleet.filter(d => d.role === "hangar").length !== DRONES.ownedMax) throw new Error("claimed convoy should park (all " + DRONES.ownedMax + " hangar drones)");
     // a doomed run destroys the ship (no bank, removed from the fleet)
     const owned0 = s.playerFleet.length, cred1 = s.credits;
     const solo = this.sendOnTradeRun(0, dest.id);
@@ -2441,6 +2614,72 @@ Object.assign(GAME, {
     this.init(); s = this.state; this.applySaveData(tutSnap); this.initTutorial(s);
     if (!s.tutorialDone || s.tutorialActive) throw new Error("pre-tutorial saves must skip the tutorial");
 
+    // ===== 21g) BATTLE MODE: hub · duel · AI tiers · multi-hull · save isolation =====
+    this.init(); s = this.state;
+    if (s.playMode !== "campaign" || s.battle !== null) throw new Error("boot playMode must be campaign");
+    if (!this.startBattleSandbox) throw new Error("battle_mode not loaded");
+    // AI profiles exist
+    if (!this.battleAiProfile("easy") || !this.battleAiProfile("boss")) throw new Error("BATTLE_AI tiers missing");
+    // Sandbox hub (profile slot) — sessionReady, no career writeback
+    if (!this.enterBattleSandboxHub) throw new Error("enterBattleSandboxHub missing");
+    this._selfTesting = true;   // don't touch real localStorage sandbox keys
+    const rHub = this.enterBattleSandboxHub(1, { seed: 111, fresh: true });
+    if (!rHub.ok) throw new Error("enterBattleSandboxHub failed");
+    s = this.state;
+    if (s.playMode !== "battle" || !s.battle || s.battle.phase !== "hub") throw new Error("sandbox hub phase");
+    if (s.battle.lane !== "sandbox" || s.battle.sandboxSlot !== 1) throw new Error("sandbox hub lane/slot");
+    if (!s.battle.sessionReady) throw new Error("hub must mark sessionReady");
+    if (s.credits < 100000) throw new Error("fresh sandbox should start at 100k");
+    if (!s.docked || s.dockTab !== "battle") throw new Error("hub must open docked on matches");
+    // Launch match from hub without wiping fit
+    const fitHull = s.ships && s.ships[0] && s.ships[0].hullKey;
+    const rMatch = this.startBattleMatch("dm_1x1", { aiDifficulty: "normal", noiseGroups: 0 });
+    if (!rMatch.ok) throw new Error("hub → match failed");
+    if (s.battle.phase !== "match") throw new Error("match phase");
+    if (!(s.ships && s.ships[0] && s.ships[0].hullKey === fitHull)) throw new Error("hub fit must survive match start");
+    // Direct free-fit duel (tests / rematch path)
+    const rSb = this.startBattleSandbox({ seed: 424242, noiseGroups: 0, aiDifficulty: "hard" });
+    if (!rSb.ok) throw new Error("startBattleSandbox failed");
+    s = this.state;
+    if (s.playMode !== "battle") throw new Error("sandbox must set playMode battle");
+    if (!s.battle || s.battle.phase !== "match" || s.battle.kind !== "sandbox_1x1") throw new Error("sandbox session shape");
+    if (!s.battle.duel || !s.battle.p2) throw new Error("sandbox must spawn P1 vs P2 duel");
+    if (s.battle.aiDifficulty !== "hard") throw new Error("aiDifficulty not applied");
+    if (s.battle.p2.aiDifficulty !== "hard") throw new Error("P2 AI profile not applied");
+    if (!s.battle.bounds) throw new Error("arena bounds missing");
+    if (!s.regions.length || s.regions.length !== 1) throw new Error("1×1 arena region count: " + s.regions.length);
+    // survey allowed in sandbox/DM (quiet SCAN vs loud SURVEY aggro tradeoff)
+    if (!this.state.battle.rules.surveyAllowed) throw new Error("sandbox should allow survey for contact/aggro flow");
+    // nebula sky plate assigned per arena seed
+    if (!s.battle.sky || !s.battle.sky.plate) throw new Error("battle sky nebula missing");
+    // scan list model exists
+    if (!Array.isArray(s.scanList)) throw new Error("scanList must init as array");
+    // hard walls
+    s.x = s.battle.bounds.maxX + 500; s.vx = 50;
+    this.clampBattleBounds();
+    if (s.x > s.battle.bounds.maxX + 0.01) throw new Error("clampBattleBounds failed high-x");
+    // campaign save must refuse in battle
+    s.docked = true; s.dockKind = "station"; s.dockStationId = 0;
+    s.savePoint = { x: s.x, y: s.y, kind: "station", id: 0, name: "test" };
+    if (this.saveGame() !== false) throw new Error("saveGame must refuse in battle mode");
+    this._selfTesting = false;
+    // pure even-duel sim (all hulls have a key)
+    if (!this.simEvenDuel) throw new Error("simEvenDuel missing");
+    const sim = this.simEvenDuel({ seed: 7, hullKey: "vulture", noDrones: true, maxSec: 5, aDifficulty: "normal", bDifficulty: "normal" });
+    if (!sim.even) throw new Error("even duel must start even");
+    if (!this.battleHullKeys || this.battleHullKeys().length < 8) throw new Error("expected full hull roster");
+    // control map size
+    this.startBattleMatch("ctrl_2x2", { seed: 99, economy: "free", noiseGroups: 0, aiDifficulty: "easy" });
+    if (this.state.regions.length !== 4) throw new Error("2×2 must be 4 regions: " + this.state.regions.length);
+    if (!this.state.battle.rules.surveyAllowed) throw new Error("control map should allow survey");
+    // exit restores campaign world under title flag path
+    this.exitBattleToTitle();
+    s = this.state;
+    if (s.playMode !== "campaign" || s.battle !== null) throw new Error("exitBattle must clear battle session");
+    if (!s.regions || s.regions.length < 10) throw new Error("exitBattle must re-init full world");
+    // leave title closed for remaining tests (HEADLESS has no DOM title)
+    s.titleOpen = false;
+
     // ===== 22) reset =====
     this.init(); const gs = this.getState();
     if (gs.credits !== CONFIG.startCredits || gs.tradeNetworkComplete || gs.hull !== CONFIG.baseShip.hullMax || gs.equipped !== 3 || gs.inventory !== 0) throw new Error("init reset");
@@ -2543,6 +2782,7 @@ if (HEADLESS) {
   addEventListener("orientationchange", () => { setTimeout(fit, 100); setTimeout(fit, 300); });
   if (window.visualViewport) visualViewport.addEventListener("resize", fit);
   GAME.wireUI(canvas, ctx); GAME.wireLoadoutDOM(); GAME.wireDroneDOM(); GAME.wireContractsDOM(); GAME.wireFleetDOM(); GAME.wireStoreDOM(); GAME.wireWarpDOM(); GAME.wireShipsDOM(); GAME.wireFortifyDOM(); GAME.wireSkillsUI(); GAME.wireVictoryDOM(); GAME.wireSaveUI(); GAME.wireTutorialDOM(); GAME.wireTitleDOM();
+  if (GAME.wireBattleDOM) GAME.wireBattleDOM();
   if (GAME.wireRadioLogDOM) GAME.wireRadioLogDOM();
   GAME.init();
   GAME.migrateLegacySave();   // pre-slot space_hauler_save → slot 1 (one-time; logs to console)
@@ -2678,7 +2918,7 @@ if (HEADLESS) {
              y: (e.clientY - r.top - ins.t) / sh * CONFIG.H };
   };
   const ptrs = new Map();
-  let aimPtr = null, aimId = null, pinch0 = 0, pending = null, mapPtr = null;
+  let aimPtr = null, aimId = null, pinch0 = 0, pending = null, mapPtr = null, flyPending = null;
   const MOVE_THRESH = 12, HOLD_MS = 180;
   // gear tab is the #gearPanel DOM overlay (own listeners); it eats canvas pointers while shown
   const overlayActive = () => { const s = GAME.state; return s.warpOverlay || s.docked || s.galaxyMapOpen || s.victoryOpen || s.onPlanet; };
@@ -2703,8 +2943,16 @@ if (HEADLESS) {
     if (ptrs.size === 1) {
       if (GAME.flightTap(p.x, p.y)) { ptrs.delete(e.pointerId); return; }
       if (GAME.pickGrabbableAt(p.x, p.y) || GAME.pickAlienAt(p.x, p.y) || GAME.pickTraderAt(p.x, p.y)) pending = { id: e.pointerId, x: p.x, y: p.y, t: performance.now() };
-      else { aimPtr = p; aimId = e.pointerId; }
-    } else if (ptrs.size === 2) { const a = [...ptrs.values()]; pinch0 = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); aimPtr = aimId = null; pending = null; input.ax = input.ay = 0; }
+      else if (s.tapFly) {
+        // Tap-to-fly: empty-space press becomes a course on clean pointerup
+        // (not hold-to-aim). Drag past MOVE_THRESH still cancels into a no-op.
+        flyPending = { id: e.pointerId, x: p.x, y: p.y, t: performance.now(), moved: false };
+      } else { aimPtr = p; aimId = e.pointerId; }
+    } else if (ptrs.size === 2) {
+      const a = [...ptrs.values()];
+      pinch0 = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+      aimPtr = aimId = null; pending = null; flyPending = null; input.ax = input.ay = 0;
+    }
   });
   addEventListener("pointermove", e => {
     if (!ptrs.has(e.pointerId)) return; const p = toLog(e); ptrs.set(e.pointerId, p);
@@ -2725,6 +2973,9 @@ if (HEADLESS) {
     if (pending && e.pointerId === pending.id) {
       if (Math.hypot(p.x - pending.x, p.y - pending.y) > MOVE_THRESH) { aimPtr = p; aimId = pending.id; pending = null; } else return;
     }
+    if (flyPending && e.pointerId === flyPending.id) {
+      if (Math.hypot(p.x - flyPending.x, p.y - flyPending.y) > MOVE_THRESH) flyPending.moved = true;
+    }
     if (aimId === e.pointerId) aimPtr = p;
   });
   const endPtr = e => {
@@ -2737,14 +2988,23 @@ if (HEADLESS) {
       if (ptrs.size < 2) pinch0 = 0;
       return;
     }
+    const last = ptrs.get(e.pointerId);
     ptrs.delete(e.pointerId);
     if (pending && e.pointerId === pending.id) { input.pickX = pending.x; input.pickY = pending.y; pending = null; }
+    if (flyPending && e.pointerId === flyPending.id) {
+      // Clean tap → set / replace course. Drag cancelled the course set.
+      if (!flyPending.moved && last && GAME.state.tapFly)
+        GAME.setTapFlyDest(flyPending.x, flyPending.y);
+      flyPending = null;
+    }
     if (e.pointerId === aimId) { aimPtr = aimId = null; input.ax = input.ay = 0; applyKeys(); }
     if (ptrs.size < 2) pinch0 = 0;
   };
   addEventListener("pointerup", endPtr); addEventListener("pointercancel", endPtr);
 
   const applyAim = () => {
+    // Hold-to-thrust only — tap-fly never latches aim from a held finger
+    if (GAME.state && GAME.state.tapFly) return;
     if (pending && performance.now() - pending.t > HOLD_MS) { aimPtr = { x: pending.x, y: pending.y }; aimId = pending.id; pending = null; }
     if (!aimPtr) return;
     const v = GAME.aimVector(aimPtr.x, aimPtr.y); input.ax = v.ax; input.ay = v.ay;

@@ -5,7 +5,13 @@
 Object.assign(GAME, {
   // deposit the tow chain: rocks → ore stacks, junk floaters → Forge salvage.
   depositTows() {
-    const s = this.state; let ore = 0, mods = 0;
+    const s = this.state; let ore = 0, mods = 0, fuel = 0;
+    // Battle: salvage cracked at an outpost is reprocessed into propellant. This
+    // is the arena's ONLY fuel source (no refuel button, nothing respawns), so a
+    // pilot has to break off the fight, haul wrecks home, and burn the trip —
+    // that round-trip is the pacing beat between engagements.
+    const battleFuel = s.playMode === "battle"
+      && typeof BATTLE_PACE !== "undefined" ? (BATTLE_PACE.junkFuel || 0) : 0;
     // what physically left the tow chain this dock — the onboarding ladder's
     // only delivery tap (game/quests.js questTutorDeposit). Counts BODIES, not
     // ore yield, so a danger-multiplied haul still reads as "1 rock towed".
@@ -24,12 +30,21 @@ Object.assign(GAME, {
         hauled.junk++;
         const drop = this.rollJunkDrop(s.junk[t.i].key, t.dangerLevel);
         if (drop) { s.inventory.push(drop); mods++; this.onContractItem(drop); }   // Phase 4 salvage hook
+        if (battleFuel) {
+          const before = s.fuel;
+          s.fuel = Math.min(s.fuelMax, s.fuel + battleFuel);
+          fuel += s.fuel - before;
+        }
         this.consumeJunk(t.i);          // ditto for salvage
       }
     }
     s.tows = [];
     this.questTutorDeposit(hauled);   // onboarding counters (game/quests.js)
-    return { ore, mods };
+    if (fuel > 0) {
+      toast("⛽ +" + Math.round(fuel) + " fuel reclaimed from salvage", "#7bd88f", 2.4);
+      if (typeof sfx === "function") sfx("sell");
+    }
+    return { ore, mods, fuel };
   },
   // roll a Forge salvage item from a junk floater type: base from the floater's
   // drop pool, TIER from the danger table (where the junk was grabbed).

@@ -1,0 +1,102 @@
+{
+  "logs": [
+    {
+      "label": "sandbox_boot",
+      "playMode": "battle",
+      "phase": "match",
+      "kind": "sandbox_1x1",
+      "timer": 600,
+      "kills": 0,
+      "hostiles": 9,
+      "fleet": 1,
+      "escorts": 1,
+      "hp": "1100/900/700",
+      "pos": "-646,1075",
+      "regions": 1,
+      "outposts": 0,
+      "sites": 1,
+      "obstacles": 6,
+      "credits": 100000,
+      "hull": "vulture"
+    },
+    {
+      "label": "bounds_fog",
+      "playMode": "battle",
+      "phase": "match",
+      "kind": "sandbox_1x1",
+      "timer": 600,
+      "kills": 0,
+      "hostiles": 14,
+      "fleet": 1,
+      "escorts": 1,
+      "hp": "1100/900/700",
+      "pos": "1960,1600",
+      "regions": 1,
+      "outposts": 0,
+      "sites": 1,
+      "obstacles": 6,
+      "credits": 100000,
+      "hull": "vulture"
+    }
+  ],
+  "report": {
+    "combat": {
+      "host0": 14,
+      "host1": 8,
+      "kills": 6,
+      "maxDmgToPlayer": 2535.7725,
+      "playerEhpStart": 2700,
+      "playerEhpEnd": 164.2275,
+      "droneEhpStart": 260,
+      "droneEhpEnd": 246.4,
+      "phase": "match"
+    },
+    "gank": {
+      "gankWorksInFullUpdate": true
+    },
+    "balance": [
+      {
+        "danger": 2,
+        "hostiles": 6,
+        "hostileEhp": 756,
+        "playerEhp": 5380,
+        "droneEhp": 720,
+        "weaponDmg": 13.3056,
+        "roughSecIfSolo": 114
+      },
+      {
+        "danger": 4,
+        "hostiles": 6,
+        "hostileEhp": 1080,
+        "playerEhp": 5562,
+        "droneEhp": 720,
+        "weaponDmg": 11,
+        "roughSecIfSolo": 196
+      },
+      {
+        "danger": 6,
+        "hostiles": 6,
+        "hostileEhp": 1728,
+        "playerEhp": 5585,
+        "droneEhp": 720,
+        "weaponDmg": 12.98,
+        "roughSecIfSolo": 266
+      },
+      {
+        "danger": 8,
+        "hostiles": 6,
+        "hostileEhp": 2808,
+        "playerEhp": 5380,
+        "droneEhp": 720,
+        "weaponDmg": 11,
+        "roughSecIfSolo": 511
+      }
+    ],
+    "issues": [],
+    "notes": [
+      "Sandbox default Atlas + rare modules vs danger-4 packs is the balance baseline",
+      "Control maps place outposts; capture still awards campaign XP/save path (save blocked)"
+    ]
+  },
+  "at": "2026-07-30T19:47:33.918Z"
+}

@@ -51,6 +51,9 @@
 const GH_RARITY = { normal: "#8a8f98", rare: "#57d1c9", unique: "#ffd24a", elite: "#9b70ff" };
 const GH_RARITY_LABEL = { normal: "Normal", rare: "Rare", unique: "Unique", elite: "Elite" };
 const GH_CAT_COL = { weapon: "#ff5060", shield: "#57d1c9", armor: "#ffd24a", hull: "#7bd88f", skill: "#9b70ff", misc: "#8a8f98" };
+// Scrollable body of every dock panel (build.py <body>) — see _resetDockScroll.
+const DOCK_BODY_IDS = ["loBody", "drBody", "ctBody", "ftBody", "stBody",
+                       "wpBody", "spBody", "skBody", "foBody", "btBody"];
 
 // Map a v4 item to its badge {category-key} — weapons red, skill modules purple,
 // shield/armor/hull by name, everything else (mining/propulsion/cargo/utility/fuel) grey.
@@ -123,6 +126,21 @@ Object.assign(GAME, {
   },
   closeDock() {
     const s = this.state; if (!s.docked) return;
+    // Battle hub (pre-match): do not undock into an empty arena with no P2.
+    // Player must launch a match card / career duel first.
+    if (s.playMode === "battle" && s.battle && s.battle.phase === "hub") {
+      toast("pick a match first — or EXIT TO TITLE", "#ffd27a", 2);
+      if (typeof sfx === "function") sfx("warn");
+      s.dockTab = "battle";
+      if (typeof this.renderBattlePanel === "function") this.renderBattlePanel();
+      return;
+    }
+    // Battle result screen: stay docked on the result panel
+    if (s.playMode === "battle" && s.battle && s.battle.phase === "result") {
+      s.dockTab = "battle";
+      if (typeof this.renderBattlePanel === "function") this.renderBattlePanel();
+      return;
+    }
     this._closeAllOverlays();
     s.docked = false; s.dockKind = "station"; s.outpostDockId = null;
     this.syncLoadoutDOM(); sfx("boost"); toast("launching");
@@ -130,11 +148,15 @@ Object.assign(GAME, {
   setDockTab(tab) {
     const s = this.state; if (!s.docked || s.dockTab === tab) return;
     this._closeAllOverlays(); s.dockTab = tab; this._openTab(tab); this.syncLoadoutDOM();
+    if (typeof this.syncBattleDOM === "function") this.syncBattleDOM();
   },
   // the station-like object the STORE tab trades against (real station, or the
-  // docked outpost's synthetic storefront)
+  // docked outpost's synthetic storefront, or the sandbox armory)
   _dockStation() {
     const s = this.state;
+    if (s.playMode === "battle" && s.battle && s.battle.lane === "sandbox"
+        && typeof this._battleSandboxStore === "function")
+      return this._battleSandboxStore();
     const o = this.dockedOutpost();
     if (o) return this._outpostStore(o);
     return ForgeWorld.getStations().find(x => x.id === s.dockStationId);
@@ -150,26 +172,49 @@ Object.assign(GAME, {
     ForgeStore.restockIfExpired(o._store);
     return o._store;
   },
+  // Dock panels keep their DOM between openings, so a panel left scrolled down
+  // came back scrolled down — the player had no way to "get back to the top"
+  // except swiping. Reset every dock body on tab navigation; only one is
+  // visible, and the others should start at the top next time they open.
+  _resetDockScroll() {
+    if (HEADLESS || typeof document === "undefined") return;
+    for (const id of DOCK_BODY_IDS) {
+      const el = document.getElementById(id);
+      if (el) el.scrollTop = 0;
+    }
+  },
   _openTab(tab) {
     const s = this.state, st = this._dockStation();
+    this._resetDockScroll();
     if (tab === "loadout") { this.renderLoadoutPanel(); this.syncLoadoutDOM(); }
     else if (tab === "fortify") { this.renderFortifyPanel(); }
     else if (tab === "store") {
       ForgeStore.openStore(st, s, {
         onBuy: (item, price) => { s.inventory = s.inventory; sfx("buy"); toast("+1 " + item.name, "#7bd88f"); toast("-" + price + "cr", "#ffd27a");
           // Phase 6: 25-battle territory milestone → 10% refunded at this territory's station
-          const disc = s.dockKind === "station" ? this.territoryDiscount(st) : 0;
+          const disc = s.dockKind === "station" && s.playMode !== "battle" ? this.territoryDiscount(st) : 0;
           const back = Math.round(price * disc);
           if (back > 0) { s.credits += back; toast("◈ territory discount +" + back + "cr", "#57d1c9"); }
-          this.addXpFromCredits(price); this.gainRep("buy"); this.checkWin(); this.renderStorePanel(); },
-        onSell: (item, gain) => { sfx("sell"); toast("+" + gain + "cr", "#ffd27a"); this.addXpFromCredits(gain); this.gainRep("sell"); this.checkWin(); this.renderStorePanel(); },
+          if (s.playMode !== "battle") { this.addXpFromCredits(price); this.gainRep("buy"); this.checkWin(); }
+          if (s.playMode === "battle" && s.battle && s.battle.lane === "sandbox" && this.saveSandboxSession)
+            this.saveSandboxSession({ quiet: true });
+          this.renderStorePanel(); },
+        onSell: (item, gain) => { sfx("sell"); toast("+" + gain + "cr", "#ffd27a");
+          if (s.playMode !== "battle") { this.addXpFromCredits(gain); this.gainRep("sell"); this.checkWin(); }
+          if (s.playMode === "battle" && s.battle && s.battle.lane === "sandbox" && this.saveSandboxSession)
+            this.saveSandboxSession({ quiet: true });
+          this.renderStorePanel(); },
         onBuyFail: () => { sfx("warn"); toast("NOT ENOUGH CREDITS", "#ff5060"); },
-        onSetHome: (sid) => { s.homeStationId = sid; s.refineBonus = 0.10; toast("home port set"); sfx("buy"); this.renderStorePanel(); },
+        onSetHome: (sid) => {
+          if (s.playMode === "battle") return;
+          s.homeStationId = sid; s.refineBonus = 0.10; toast("home port set"); sfx("buy"); this.renderStorePanel();
+        },
       });
       this.renderStorePanel();
     } else if (tab === "warp") { this.renderWarpPanel(); }
     else if (tab === "ships") { this.renderShipsPanel(); }
     else if (tab === "skills") { this.renderSkillsPanel(); }
+    else if (tab === "battle") { if (typeof this.renderBattlePanel === "function") this.renderBattlePanel(); }
   },
   _closeAllOverlays() {
     if (ForgeStore.isOpen()) ForgeStore.closeStore();
@@ -218,16 +263,42 @@ Object.assign(GAME, {
                  stats: $("loStats"), inv: $("loInv") };
     return this._lo;
   },
-  // Station docks show the full 6-tab bar; outpost docks trim each panel's
-  // header to GEAR / STORE / FORTIFY. Cheap: re-walks the buttons only when
-  // the dock kind actually changes.
+  // Station docks show the full tab bar; outpost docks trim. Battle hub splits
+  // sandbox (store + ships) vs career ladder (no store — bring farmed gear).
   _syncDockTabs(panel) {
-    const s = this.state, mode = s.docked && s.dockKind === "outpost" ? "outpost" : "station";
-    if (panel._tabMode === mode) return;
+    const s = this.state;
+    const b = s.battle;
+    const sandboxHub = !!(s.playMode === "battle" && b && b.lane === "sandbox");
+    let mode;
+    if (s.playMode === "battle" && s.docked && s.dockKind === "outpost"
+        && b && b.phase === "match") mode = "battle_outpost";
+    else if (s.playMode === "battle" && sandboxHub) mode = "battle_sandbox";
+    else if (s.playMode === "battle") mode = "battle_career";
+    else if (s.docked && s.dockKind === "outpost") mode = "outpost";
+    else mode = "station";
+    // Always re-apply when playMode / dock kind / lane flips.
+    if (panel._tabMode === mode && panel._tabPlayMode === s.playMode
+        && panel._tabLane === (b && b.lane)) return;
     panel._tabMode = mode;
+    panel._tabPlayMode = s.playMode;
+    panel._tabLane = b && b.lane;
     panel.querySelectorAll(".ghTab").forEach(btn => {
       const t = btn.dataset.tab;
-      const vis = mode === "outpost" ? (t === "loadout" || t === "store" || t === "fortify" || t === "drones") : (t !== "fortify");
+      let vis;
+      if (mode === "battle_sandbox") {
+        // Non-ladder: shop, buy ships, hangar, fit, matches
+        vis = (t === "loadout" || t === "store" || t === "ships" || t === "drones"
+          || t === "fleet" || t === "battle");
+      } else if (mode === "battle_career") {
+        // Ladder: snapshot refit only — no store (farm in campaign)
+        vis = (t === "loadout" || t === "ships" || t === "drones" || t === "fleet" || t === "battle");
+      } else if (mode === "battle_outpost") {
+        vis = (t === "loadout" || t === "store" || t === "fortify" || t === "drones" || t === "fleet");
+      } else if (mode === "outpost") {
+        vis = (t === "loadout" || t === "store" || t === "fortify" || t === "drones");
+      } else {
+        vis = (t !== "fortify" && t !== "battle");
+      }
       btn.style.display = vis ? "" : "none";
     });
   },
@@ -242,11 +313,26 @@ Object.assign(GAME, {
     // tab, or the store's Buy modal gets nuked the same frame it opens.
     if (!s.docked) this._ghCloseModal();
   },
-  // carousel pages: owned ships first, then owned drones
+  // carousel pages: owned ships, personal hangar drones, then every network
+  // reinforcement-queue drone (editable until a berth claims them).
   _loPages() {
     const s = this.state, pages = [];
-    for (const sh of s.ships) pages.push({ kind: "ship", ship: sh });
-    (s.playerFleet || []).forEach((d, fi) => pages.push({ kind: "drone", drone: d, fleetIdx: fi }));
+    // Only the ship you're FLYING. Owned hulls keep their own fitted racks
+    // (switchActiveShip snapshots them) — the SHIPS tab is where you pick which
+    // one to fly. Paging every owned hull here buried the drones behind a long
+    // carousel once the player owned a few ships.
+    const active = s.ships.find(sh => sh.id === s.activeShipId) || s.ships[0];
+    if (active) pages.push({ kind: "ship", ship: active });
+    (s.playerFleet || []).forEach((d, fi) => pages.push({ kind: "drone", drone: d, fleetIdx: fi, source: "fleet" }));
+    if (this.listNetworkQueueEntries) {
+      for (const ent of this.listNetworkQueueEntries()) {
+        pages.push({
+          kind: "drone", drone: ent.drone, source: "reinforce",
+          reinforceIdx: ent.queueIdx, rootId: ent.root && ent.root.id,
+          netLabel: ent.netLabel,
+        });
+      }
+    }
     return pages;
   },
   _loPage() {
@@ -491,15 +577,22 @@ Object.assign(GAME, {
     if (opts.fitDrone) {
       const b = document.createElement("button"); b.className = "eq"; b.textContent = "FIT TO DRONE";
       b.addEventListener("click", () => {
-        const d = this.state.playerFleet[opts.fitDrone.fleetIdx];
-        this.fleetSwapModule(opts.fitDrone.fleetIdx, d ? (d.loadout || []).length : 0, opts.invIdx);
+        // Prefer live drone ref (covers reinforce-queue pages); fleetIdx is legacy hangar
+        const d = opts.fitDrone.drone
+          || this.state.playerFleet[opts.fitDrone.fleetIdx];
+        if (d) this.droneFitModule(d, (d.loadout || []).length, opts.invIdx);
         this._ghCloseModal(); this.renderLoadoutPanel();
       });
       acts.appendChild(b);
     }
     if (opts.unfitDrone) {
       const b = document.createElement("button"); b.className = "eq"; b.textContent = "UNEQUIP";
-      b.addEventListener("click", () => { this.fleetUnequipModule(opts.unfitDrone.fleetIdx, opts.unfitDrone.slotIdx); this._ghCloseModal(); this.renderLoadoutPanel(); });
+      b.addEventListener("click", () => {
+        const d = opts.unfitDrone.drone
+          || this.state.playerFleet[opts.unfitDrone.fleetIdx];
+        if (d) this.droneUnequipModule(d, opts.unfitDrone.slotIdx);
+        this._ghCloseModal(); this.renderLoadoutPanel();
+      });
       acts.appendChild(b);
     }
     if (opts.fortifyEquip) {
@@ -817,10 +910,18 @@ Object.assign(GAME, {
         this._loSlotEl(lo.slotsGrid, ship.slots[i], { slot: String(i) }, "slot " + (i + 1));
     } else {
       const d = page.drone, spec = DRONES.tiers[d.tier];
-      const roleLbl = { escort: "ESCORT WING", hangar: "IN HANGAR", trade: "ON TRADE RUN" }[d.role] || d.role;
+      const roleLbl = {
+        escort: "ESCORT WING", tank: "TANK WING", hangar: "IN HANGAR",
+        trade: "ON TRADE RUN", claim: "CLAIM READY",
+        reinforce: "REINFORCE QUEUE", stationed: "STATIONED", snd: "SEARCH & DESTROY",
+      }[d.role] || d.role;
+      const fromQueue = page.source === "reinforce";
       lo.shipName.textContent = spec.name + " Drone";
       lo.shipName.style.color = (DRONES.tierCol && DRONES.tierCol[d.tier]) || FLEET.trail;
-      lo.shipSub.textContent = "T" + d.tier + " companion · " + roleLbl;
+      lo.shipSub.textContent = "T" + d.tier + " companion · "
+        + (fromQueue
+          ? ("REINFORCE · " + (page.netLabel || "network") + " (editable until berth)")
+          : roleLbl);
       lo.activeBtn.style.display = "none";
       // DRONES.slotCount UNTYPED module slots — any module fits any slot. Each
       // filled slot is labelled by what it actually does (its module's behaviour).
@@ -1093,8 +1194,17 @@ Object.assign(GAME, {
 
     // carousel arrows + SET ACTIVE
     const prev = document.getElementById("loPrev"), next = document.getElementById("loNext");
-    if (prev) prev.addEventListener("click", () => { this._loUI = this._loUI || { idx: 0 }; this._loUI.idx--; sfx("grab"); this.renderLoadoutPanel(); });
-    if (next) next.addEventListener("click", () => { this._loUI = this._loUI || { idx: 0 }; this._loUI.idx++; sfx("grab"); this.renderLoadoutPanel(); });
+    // Flipping to another page shows a different rack — start it at the top.
+    const flip = (dir) => {
+      this._loUI = this._loUI || { idx: 0 };
+      this._loUI.idx += dir;
+      sfx("grab");
+      this.renderLoadoutPanel();
+      const body = document.getElementById("loBody");
+      if (body) body.scrollTop = 0;
+    };
+    if (prev) prev.addEventListener("click", () => flip(-1));
+    if (next) next.addEventListener("click", () => flip(1));
     if (lo.activeBtn) lo.activeBtn.addEventListener("click", () => {
       const page = this._loPage();
       if (page && page.kind === "ship" && this.switchActiveShip(page.ship.id).ok) this.renderLoadoutPanel();
@@ -1126,8 +1236,10 @@ Object.assign(GAME, {
         const full = (page.drone.loadout || []).length >= DRONES.slotCount;
         const rows = m ? [[m.type + " fit", m.type === "weapon" ? m.dmg + " dmg @ " + m.fireRate + "/s" : "+" + m.amount + "/s"]] : [];
         if (full) rows.push(["slots", "full — unfit one first"]);
-        this._ghOpenModal(item, { fitDrone: (m && !full) ? { fleetIdx: page.fleetIdx } : null,
-          sell: true, invIdx: idx, moduleRows: rows });
+        this._ghOpenModal(item, {
+          fitDrone: (m && !full) ? { drone: page.drone, fleetIdx: page.fleetIdx } : null,
+          sell: true, invIdx: idx, moduleRows: rows,
+        });
       }
     });
 
@@ -1150,7 +1262,10 @@ Object.assign(GAME, {
                       ["fuel/tick", mod.fuelCost]];
         // every slot — factory built-in or player-fitted — can be unequipped now
         const modalItem = mod.srcItem || { name: mod.name, tier: "normal", cat: mod.type === "weapon" ? "weapons" : "utility" };
-        this._ghOpenModal(modalItem, { unfitDrone: { fleetIdx: page.fleetIdx, slotIdx: si }, moduleRows: rows });
+        this._ghOpenModal(modalItem, {
+          unfitDrone: { drone: d, fleetIdx: page.fleetIdx, slotIdx: si },
+          moduleRows: rows,
+        });
       }
     };
     lo.slotsGrid.addEventListener("click", onSlotTap);
@@ -1187,13 +1302,25 @@ Object.assign(GAME, {
       document.querySelectorAll(".ddOver").forEach(e => e.classList.remove("ddOver"));
     };
 
+    // Nearest scrollable ancestor that still has room to scroll (or null).
+    const scrollerFor = (el) => {
+      for (let n = el; n && n !== document.body; n = n.parentElement) {
+        if (n.scrollHeight - n.clientHeight <= 2) continue;
+        const oy = getComputedStyle(n).overflowY;
+        if (oy === "auto" || oy === "scroll") return n;
+      }
+      return null;
+    };
+
     // Shared pointer logic — touch and mouse both funnel through these three.
-    const processDragStart = (x, y) => {
+    const processDragStart = (x, y, isTouch) => {
       const el = document.elementFromPoint(x, y);
       if (!el) return;
 
       const tile = el.closest && el.closest(".ghTile");
       const slot = el.closest && el.closest(".ghSlot.loSlot");
+      // Remembered so a touch swipe can be handed back to the list (see move).
+      const scroller = isTouch ? scrollerFor(el) : null;
 
       if (tile && tile.dataset.inv != null) {
         // Inventory tile in loadout panel
@@ -1221,17 +1348,35 @@ Object.assign(GAME, {
         drag = { kind: "bslot", bi, di, name: mod.name, sx: x, sy: y, moved: false };
       } else if (slot && slot.dataset.dslot != null) {
         // Drone module slot → drag to reorder or drop on cargo to unequip
+        // (works for hangar fleetIdx pages and reinforce-queue pages)
         const page = this._loPage();
         if (!page || page.kind !== "drone") return;
         const di = +slot.dataset.dslot;
         const mod = (page.drone.loadout || [])[di]; if (!mod) return;
-        drag = { kind: "dslot", di, fleetIdx: page.fleetIdx, name: mod.name, sx: x, sy: y, moved: false };
+        drag = {
+          kind: "dslot", di, fleetIdx: page.fleetIdx, drone: page.drone,
+          name: mod.name, sx: x, sy: y, moved: false,
+        };
       }
+      if (drag) { drag.touch = !!isTouch; drag.scroller = scroller; }
     };
 
     const processDragMove = (x, y, evt) => {
       if (!drag) return;
-      if (!drag.moved && Math.hypot(x - drag.sx, y - drag.sy) < THRESH) return;
+      const dx = x - drag.sx, dy = y - drag.sy;
+      if (!drag.moved && Math.hypot(dx, dy) < THRESH) return;
+
+      // A vertical touch swipe inside a scrollable list is a SCROLL, not a drag.
+      // The cargo grid fills most of the panel, so without this every swipe that
+      // began on a tile was claimed by the drag below (which preventDefaults the
+      // gesture) and the list could never be scrolled back up. A sideways nudge
+      // still starts a drag, as does a list already pinned at that end.
+      if (!drag.moved && drag.touch && drag.scroller && Math.abs(dy) > Math.abs(dx)) {
+        const sc = drag.scroller;
+        const canScrollUp = sc.scrollTop > 0;
+        const canScrollDown = sc.scrollTop < sc.scrollHeight - sc.clientHeight - 1;
+        if ((dy > 0 && canScrollUp) || (dy < 0 && canScrollDown)) { drag = null; return; }
+      }
 
       drag.moved = true;
       // prevent accidental scroll (touch) / text selection (mouse) during drag
@@ -1292,9 +1437,10 @@ Object.assign(GAME, {
               if (d && this.droneFitModule(d, +dropSlot.dataset.dslot, drag.idx)) this.renderFortifyPanel();
             } else if (dropSlot && dropSlot.dataset.dslot != null) {
               // Drop inventory item onto a drone module slot → fit to that slot
+              // (hangar + reinforce-queue pages both carry page.drone)
               const page = this._loPage();
-              if (page && page.kind === "drone") {
-                this.fleetSwapModule(page.fleetIdx, +dropSlot.dataset.dslot, drag.idx);
+              if (page && page.kind === "drone" && page.drone) {
+                this.droneFitModule(page.drone, +dropSlot.dataset.dslot, drag.idx);
                 this.renderLoadoutPanel();
               }
             } else if (dropSlot && dropSlot.dataset.fslot != null) {
@@ -1330,15 +1476,16 @@ Object.assign(GAME, {
             }
           } else if (kind === "dslot") {
             const dropSlot = under.closest && under.closest(".ghSlot.loSlot");
+            const d = drag.drone || this.state.playerFleet[drag.fleetIdx];
             if (dropSlot && dropSlot.dataset.dslot != null) {
               // Drop drone slot onto another drone slot → reorder
               const targetDi = +dropSlot.dataset.dslot;
-              if (targetDi !== drag.di && this.fleetReorderModule(drag.fleetIdx, drag.di, targetDi))
+              if (d && targetDi !== drag.di && this.droneReorderModule(d, drag.di, targetDi))
                 this.renderLoadoutPanel();
             } else {
               // Drop drone slot onto cargo area → unequip (frees the slot)
               const inv = under.closest && under.closest("#loInvWrap");
-              if (inv) { this.fleetUnequipModule(drag.fleetIdx, drag.di); this.renderLoadoutPanel(); }
+              if (inv && d) { this.droneUnequipModule(d, drag.di); this.renderLoadoutPanel(); }
             }
           } else if (kind === "bslot") {
             const o = this.dockedOutpost(), d = o && o.stationedDrones[drag.bi];
@@ -1365,7 +1512,7 @@ Object.assign(GAME, {
     // ---- Touch ----
     document.addEventListener("touchstart", (e) => {
       const t = e.touches[0];
-      processDragStart(t.clientX, t.clientY);
+      processDragStart(t.clientX, t.clientY, true);
     }, { passive: true });
 
     document.addEventListener("touchmove", (e) => {
@@ -1468,20 +1615,30 @@ Object.assign(GAME, {
       badge.style.width = "30px"; badge.style.height = "30px"; badge.style.fontSize = "12px"; badge.style.borderRadius = "8px";
       badge.style.boxShadow = "0 0 6px " + (GH_RARITY[item.tier] || GH_RARITY.normal);
       tile.appendChild(badge);
+      // Qty stack pip (×N) when the shelf collapses identical modules
+      const qty = item._qty || 1;
+      if (qty > 1) {
+        const q = document.createElement("span");
+        q.className = "ghQty";
+        q.textContent = "×" + qty;
+        q.style.cssText = "position:absolute;top:3px;right:4px;font:bold 9px monospace;color:#ffd27a;background:rgba(0,0,0,.55);padding:1px 4px;border-radius:4px;";
+        tile.style.position = "relative";
+        tile.appendChild(q);
+      }
       const nm = document.createElement("span"); nm.className = "ghTileName";
       nm.style.color = GH_RARITY[item.tier] || "#c7d2e0";
       nm.textContent = item.name;
       tile.appendChild(nm);
       const price = document.createElement("span"); price.className = "ghTileName";
       price.style.color = "#ffd27a"; price.style.fontSize = "9px";
-      price.textContent = ForgeStore.buyPrice(item) + "cr";
+      price.textContent = ForgeStore.buyPrice(item) + "cr" + (qty > 1 ? " · ×" + qty : "");
       tile.appendChild(price);
       tile.style.borderColor = GH_RARITY[item.tier] || "#223047";
       sd.stock.appendChild(tile);
     });
 
-    // ---- home station button (stations only — an outpost can't be home port) ----
-    if (!this.dockedOutpost()) {
+    // ---- home station button (stations only — outpost / battle hub skip) ----
+    if (!this.dockedOutpost() && s.playMode !== "battle") {
       const isHome = s.homeStationId === s.dockStationId;
       const homeBtn = document.createElement("button");
       homeBtn.className = "stHomeBtn" + (isHome ? " active" : "");
@@ -1882,6 +2039,42 @@ Object.assign(GAME, {
       fo.stats.appendChild(hint);
     }
 
+    // ---- Network reinforce queue (this outpost's connected holds) ----
+    if (this.networkReinforceState) {
+      const st = this.networkReinforceState(o, "player");
+      if (st) {
+        const memN = this.outpostNetworkMembers(o, "player").length;
+        const qn = st.queue.length, tn = st.transit.length;
+        const gaps = this.networkFortificationGaps(o, "player");
+        const openBerths = gaps.reduce((a, g) => a + g.open, 0);
+        statLine("Network", memN + " outpost" + (memN > 1 ? "s" : "") + " linked", "#9ab8e0");
+        statLine("Reinforce queue", qn + " waiting · " + tn + " flying · " + openBerths + " berths open", "#57e6ff");
+        const hint = document.createElement("div"); hint.className = "ghNote";
+        hint.textContent = "HANGAR tab → QUEUE adds drones to this network (frees hangar slots). "
+          + "Edit them on LOADOUT while docked. On undock they fill empty fortify berths (3 max each). "
+          + "No open berths? They wait in the queue until one frees.";
+        fo.stats.appendChild(hint);
+      }
+    }
+    // Battle control extras: rally + S&D
+    if (typeof this.isBattleControl === "function" && this.isBattleControl()) {
+      const rf = this._ensureBattleReinforce && this._ensureBattleReinforce();
+      if (rf) {
+        const sn = rf.snD.length;
+        const rally = this.getBattleRally && this.getBattleRally();
+        const isRally = !!(rally && o.id === rally.id);
+        statLine("Rally", rally
+          ? this.regionLabel(this.regionGet(rally.regionId)) + (isRally ? " · HERE" : "")
+          : "— none —", isRally ? "#b06cff" : "#9ab8e0");
+        statLine("S&D countdown", Math.ceil(Math.max(0, rf.snDCd || 0)) + "s · " + sn + " active", "#ff9a3c");
+        const row = this._drEl("flBars", null, fo.stats);
+        const rallyBtn = this._drEl("btn:ghBtn " + (isRally ? "go" : "flToHangar"),
+          isRally ? "★ RALLY POINT" : "SET RALLY HERE", row);
+        rallyBtn.dataset.rfact = "rally";
+        rallyBtn.disabled = isRally;
+      }
+    }
+
     // ---- 3 stationed-drone berths — each a card with editable module slots ----
     fo.drones.innerHTML = "";
     for (let i = 0; i < CONFIG.outpostStationedMax; i++) {
@@ -1997,6 +2190,26 @@ Object.assign(GAME, {
       if (!item) { toast("tap a cargo item to fit this hardpoint"); return; }
       this._ghOpenModal(item, { unfitFortify: { slotIdx: si } });
     });
+    // reinforcement controls (battle control) live on fo.stats
+    if (fo.stats) fo.stats.addEventListener("click", (e) => {
+      const btn = e.target.closest ? e.target.closest("[data-rfact]") : null;
+      if (!btn) return;
+      const o = this.dockedOutpost();
+      if (btn.dataset.rfact === "rally" && o && this.setBattleRally) {
+        this.setBattleRally(o.id);
+      } else if (btn.dataset.rfact === "buildq"
+          && (this.buildDroneToNetworkReinforcement || this.buildDroneToReinforcement)) {
+        const buildFn = (ti) => this.buildDroneToNetworkReinforcement
+          ? this.buildDroneToNetworkReinforcement(ti)
+          : this.buildDroneToReinforcement(ti);
+        let ok = false;
+        for (let ti = 0; ti < DRONES.tiers.length; ti++) {
+          if (buildFn(ti).ok) { ok = true; break; }
+        }
+        if (!ok) toast("can't build — need credits/bars or queue space", "#ff6b6b");
+      }
+      this.renderFortifyPanel();
+    });
     // drone berths → berth-slot module edit · assign · recall (with swap) · swap pick
     fo.drones.addEventListener("click", (e) => {
       const o = this.dockedOutpost(); if (!o) return;
@@ -2069,12 +2282,21 @@ Object.assign(GAME, {
       thrust100: { x: thrX0 + (thrW + thrG) * 3, y: shipY, w: thrW, h: thrH },
       // Mute below SEC badge (SEC draws at ~y 170*k)
       mute:    { x: W - 48 * k, y: 196 * k, w: 36 * k, h: 22 * k },
-      map:     { x: 12, y: H - 120, w: 64, h: 22 },
-      scan:    { x: 12, y: H - 146, w: 84, h: 22 },
-      survey:  { x: 12, y: H - 172, w: 84, h: 22 },
-      quest:   { x: 10, y: H - 52, w: 168, h: 40 },
-      // Taller radio so more lines stay on-screen above the footer controls
-      radio:   { x: W - 186, y: H - 118, w: 176, h: 108 },
+      // Tools sit in a horizontal row UNDER the weapon/skill button row
+      // (ForgeHUD.skillRowRect, bottom-anchored at H - 158k) — was a vertical
+      // stack up the bottom-left corner.
+      survey:  { x: 12,  y: H - 106 * k, w: 84, h: 24 },
+      scan:    { x: 104, y: H - 106 * k, w: 84, h: 24 },
+      // MAP has no button of its own: the mini-map dish IS the button (it draws
+      // a ◈ badge on its lower-right rim). Saves a slot in the tool row.
+      map: (typeof ForgeHUD !== "undefined" && ForgeHUD.minimapRect)
+        ? ForgeHUD.minimapRect()
+        : { x: W - 102 * k, y: 74 * k, w: 88 * k, h: 88 * k },
+      // Quest tracker above SURVEY/SCAN/MAP so progress + wing banter sit under
+      // the ship vitals band and clear of the bottom-left tools (was H-52).
+      quest:   { x: 10, y: H - 218, w: 168, h: 40 },
+      // Radio: x/w only — height is short/long from state (game/radio.js)
+      radio:   { x: W - 186, w: 176 },
     };
   },
   setThrustPower(v) {
@@ -2088,8 +2310,18 @@ Object.assign(GAME, {
     if (hit(gb.map)) { input.mapToggle = true; return true; }
     if (hit(gb.mute)) { this.toggleMute(); return true; }
     if (this.hitRadioHUD && this.hitRadioHUD(x, y)) return true;
-    if (hit(gb.scan)) { this.scanNearestEnemy(); return true; }    // SCAN button — auto-target nearest
-    if (hit(gb.survey)) { input.deepScan = true; return true; }    // SURVEY button — sweep this region
+    // Contact queue first — select active target without moving
+    if (this.hitScanList) {
+      const cid = this.hitScanList(x, y);
+      if (cid != null) { this.selectScanTarget(cid); return true; }
+    }
+    if (hit(gb.scan)) { this.scanNearestEnemy(); return true; }    // SCAN — orange pulse + fill contact queue
+    if (hit(gb.survey)) { input.deepScan = true; return true; }    // SURVEY — region POI sweep + aggro
+    // Rocket icon: toggle hold-thrust ↔ tap-to-fly (mobile-friendly)
+    if (gb.thrustIcon && hit(gb.thrustIcon)) {
+      if (this.toggleTapFly) this.toggleTapFly();
+      return true;
+    }
     if (hit(gb.thrust25))  { this.setThrustPower(0.25); return true; }
     if (hit(gb.thrust50))  { this.setThrustPower(0.50); return true; }
     if (hit(gb.thrust75))  { this.setThrustPower(0.75); return true; }
@@ -2214,15 +2446,48 @@ Object.assign(GAME, {
       g.fillStyle = on ? "#0d1017" : (fg || "#e8edf4"); g.font = "bold 10px monospace"; g.textAlign = "center";
       g.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 3.5); g.textAlign = "left";
     };
-    btn(gb.map, "◈ MAP", false, "#8fd0ff");
-    // SCAN button — pulses orange when there are hostiles in range, dim when no targets
-    const hasTargets = s.aliens && s.aliens.some(al => al.state !== "DEAD" &&
-      Math.hypot(al.x - s.x, al.y - s.y) <= (s.derived ? s.derived.scanRange : 900));
-    const isLocked = ForgeCombat.isLocked() || ForgeCombat.getLock().status === "locking";
+    // No MAP button — the mini-map dish is the map control (ForgeHUD draws its
+    // ◈ badge; gameButtons().map is the dish's own rect).
+    // SCAN — fills the contact queue (quiet). Orange while ready / pulsing.
+    // Selecting a contact from the list sets the active target (not this button).
+    const aq = this.activeQuest && this.activeQuest();
+    const questMarkNear = !!(aq && aq.nearObj && (aq.action === "special_scout" || aq.action === "special_end")
+      && aq.phase === "escort" && !aq.scanning);
+    const questScanning = !!(aq && aq.scanning);
+    const listN = (s.scanList && s.scanList.length) || 0;
     const outOfRange = (s._outOfRange || 0) > 0;
-    const scanCol = outOfRange ? "#ff5050" : (isLocked ? "#57d1c9" : (hasTargets ? "#ff8a3c" : "#5a6a82"));
-    const scanLabel = outOfRange ? "TOO FAR" : (isLocked ? "LOCKED" : (hasTargets ? "⊕ SCAN" : "◎ SCAN"));
-    btn(gb.scan, scanLabel, isLocked && !outOfRange, scanCol);
+    const onCd = (s.scanPulseCd || 0) > 0 && !s.scanPulse && !questMarkNear && !questScanning;
+    // Always keep the word SCAN readable — never replace the label with a bare
+    // contact count (that used to render as just "8" on the small button).
+    let scanOn = false, scanCol = "#ff8a3c", scanLabel = "⊕ SCAN";
+    if (outOfRange) {
+      scanLabel = "TOO FAR"; scanCol = "#ff5050";
+    } else if (s.scanPulse) {
+      scanOn = true; scanCol = "#0d1017";
+      scanLabel = "SCAN " + Math.round((s.scanPulse.t / s.scanPulse.dur) * 100) + "%";
+    } else if (questScanning) {
+      scanOn = true; scanCol = "#0d1017";
+      const hold = (aq && aq.scanHold) || 3;
+      scanLabel = "SCAN " + Math.round(Math.min(1, (aq.scanT || 0) / hold) * 100) + "%";
+    } else if (onCd) {
+      scanLabel = "SCAN " + Math.ceil(s.scanPulseCd) + "s"; scanCol = "#8a5a3a";
+    } else if (questMarkNear) {
+      scanOn = true; scanCol = "#0d1017"; scanLabel = "⊕ SCAN!";
+    } else {
+      // Ready: fixed label. Contact count lives on the TARGETS panel, not here.
+      scanOn = false; scanCol = "#ff8a3c"; scanLabel = "⊕ SCAN";
+    }
+    btn(gb.scan, scanLabel, scanOn && !outOfRange, scanCol);
+    // Small contact-count badge when the queue is populated (doesn't eat the label)
+    if (listN > 0 && !outOfRange && !s.scanPulse && !questScanning && !onCd) {
+      const bx = gb.scan.x + gb.scan.w - 2, by = gb.scan.y + 2;
+      g.fillStyle = "#ff8a3c";
+      g.beginPath(); g.arc(bx, by, 7, 0, TAU); g.fill();
+      g.fillStyle = "#0d1017";
+      g.font = "bold 8px monospace"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(String(Math.min(99, listN)), bx, by + 0.5);
+      g.textAlign = "left"; g.textBaseline = "alphabetic";
+    }
     // SURVEY — region sensor sweep. Cyan and inviting in an unsurveyed sector,
     // dim once this region is known, filling while the 5s channel runs.
     const curReg = this.regionAt(s.x, s.y);
@@ -2232,6 +2497,11 @@ Object.assign(GAME, {
     // Out-of-range warning blink
     if (outOfRange && ((s.t * 4) | 0) % 2 === 0) {
       g.fillStyle = "rgba(255,80,80,0.12)";
+      g.beginPath(); g.roundRect(gb.scan.x, gb.scan.y, gb.scan.w, gb.scan.h, 8); g.fill();
+    }
+    // Quest mark ready — soft orange glow on the SCAN button
+    if (questMarkNear && !outOfRange && ((s.t * 4) | 0) % 2 === 0) {
+      g.fillStyle = "rgba(255,138,60,0.18)";
       g.beginPath(); g.roundRect(gb.scan.x, gb.scan.y, gb.scan.w, gb.scan.h, 8); g.fill();
     }
     // Global audio mute — sits under SEC badge (not overlapping SEC text)
@@ -2251,17 +2521,23 @@ Object.assign(GAME, {
     } else if (s.atOutpost) btn(gb.dock, "◈ DOCK", true, "#0d1017");
     else if (s.nearPlanetName) btn(gb.dock, "◈ LAND", true, "#0d1017");
     // Ship strip: engine glyph + thrust pills + short hull chip (one row)
+    // Rocket = toggle hold-thrust ↔ tap-to-fly (lit when tap-fly is armed)
     const sh = this.activeShip && this.activeShip();
     const ic = gb.thrustIcon;
     if (ic) {
-      g.fillStyle = "rgba(13,16,23,0.9)";
-      g.strokeStyle = "#57d1c9"; g.lineWidth = 1;
+      const tapOn = !!s.tapFly;
+      g.fillStyle = tapOn ? "#57d1c9" : "rgba(13,16,23,0.9)";
+      g.strokeStyle = tapOn ? "#a8fff0" : "#57d1c9"; g.lineWidth = tapOn ? 1.5 : 1;
       g.beginPath(); g.roundRect(ic.x, ic.y, ic.w, ic.h, 5); g.fill(); g.stroke();
       g.font = `${Math.max(11, 12)}px monospace`;
       g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillStyle = "#7fdfff";
+      g.fillStyle = tapOn ? "#0d1017" : "#7fdfff";
       g.fillText("🚀", ic.x + ic.w / 2, ic.y + ic.h / 2 + 1);
       g.textBaseline = "alphabetic"; g.textAlign = "left";
+    }
+    // Tap-fly destination marker (world → screen)
+    if (s.tapFly && s.tapFlyDest && !s.docked && !s.onPlanet) {
+      this.drawTapFlyDest(g);
     }
     const tp = s.thrustPower || 0.75;
     btn(gb.thrust25,  "25",  tp === 0.25, tp === 0.25 ? "#0d1017" : "#9aa7b8");
@@ -2283,6 +2559,48 @@ Object.assign(GAME, {
     if (!s.atStation && !s.atOutpost && !s.docked) this.drawWeaponRangeRing(g);
     // Decay out-of-range indicator
     if (s._outOfRange > 0) s._outOfRange--;
+  },
+
+  // Waypoint reticle for tap-to-fly: soft cyan ring + cross at the world point.
+  drawTapFlyDest(g) {
+    if (HEADLESS) return;
+    const s = this.state, dest = s.tapFlyDest;
+    if (!dest) return;
+    const p = this.S(dest.x, dest.y);
+    const pad = 10;
+    if (p.x < -pad || p.y < -pad || p.x > CONFIG.W + pad || p.y > CONFIG.H + pad) {
+      // Edge chevron toward off-screen dest
+      const cx = CONFIG.W / 2, cy = CONFIG.H / 2;
+      const dx = p.x - cx, dy = p.y - cy;
+      const ang = Math.atan2(dy, dx);
+      const m = Math.min(
+        (CONFIG.W / 2 - 18) / Math.max(0.01, Math.abs(Math.cos(ang))),
+        (CONFIG.H / 2 - 18) / Math.max(0.01, Math.abs(Math.sin(ang)))
+      );
+      const ex = cx + Math.cos(ang) * m, ey = cy + Math.sin(ang) * m;
+      g.fillStyle = "rgba(87,209,201,0.9)";
+      g.save(); g.translate(ex, ey); g.rotate(ang);
+      g.beginPath(); g.moveTo(7, 0); g.lineTo(-5, 5); g.lineTo(-5, -5); g.closePath(); g.fill();
+      g.restore();
+      return;
+    }
+    const pulse = 0.55 + 0.45 * Math.sin((s.t || 0) * 3.5);
+    const z = (s.cam && s.cam.zoom) || 1;
+    const rr = Math.max(10, 14 * z);
+    g.strokeStyle = `rgba(87,209,201,${0.55 + 0.35 * pulse})`;
+    g.lineWidth = 1.8;
+    g.beginPath(); g.arc(p.x, p.y, rr, 0, TAU); g.stroke();
+    g.beginPath(); g.arc(p.x, p.y, rr * 0.45, 0, TAU); g.stroke();
+    g.beginPath();
+    g.moveTo(p.x - rr - 3, p.y); g.lineTo(p.x - rr * 0.35, p.y);
+    g.moveTo(p.x + rr * 0.35, p.y); g.lineTo(p.x + rr + 3, p.y);
+    g.moveTo(p.x, p.y - rr - 3); g.lineTo(p.x, p.y - rr * 0.35);
+    g.moveTo(p.x, p.y + rr * 0.35); g.lineTo(p.x, p.y + rr + 3);
+    g.stroke();
+    g.fillStyle = "rgba(87,209,201,0.85)";
+    g.font = "bold 9px monospace"; g.textAlign = "center";
+    g.fillText("NAV", p.x, p.y - rr - 6);
+    g.textAlign = "left"; g.lineWidth = 1;
   },
 
   drawWeaponRangeRing(g) {

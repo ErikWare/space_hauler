@@ -43,20 +43,24 @@ const DRONES = {
   fightDps: 12, fightDpsTier: 5,   // incoming pirate dps (shield soaks first); ×2 when dry
   flashT: 0.5,               // destroyed → red map flash, then culled from s.drones
   arrivedLinger: 6,          // arrived rows stay in the bay list this long
+  // Hull/shield rebalanced for combat targeting: aliens hit drones at ~0.85×
+  // weaponDmg (normal ≈7/shot, elite ≈13). Prior 40/20 Basic died in a few
+  // volleys once escorts drew fire; these values survive a short skirmish and
+  // let Armored tanks actually soak while escorts DPS.
   tiers: [
     { name: "Basic",      cost: 25,  materials: [{ type: "copper", n: 2 }],
-      payout: 125, successRate: 0.72, maxFuel: 80, maxHp: 40, maxShield: 20,
-      loadout: [{ type: "weapon", name: "Light Laser", dmg: 4, amount: 0, fuelCost: 1, fireRate: 1.5 }] },
+      payout: 125, successRate: 0.72, maxFuel: 80, maxHp: 160, maxShield: 100,
+      loadout: [{ type: "weapon", name: "Light Laser", dmg: 2, amount: 0, fuelCost: 1, fireRate: 1.1 }] },
     { name: "Reinforced", cost: 60,  materials: [{ type: "silver", n: 3 }, { type: "gold", n: 1 }],
-      payout: 220, successRate: 0.82, maxFuel: 120, maxHp: 70, maxShield: 50,
-      loadout: [{ type: "weapon", name: "Pulse Laser", dmg: 7, amount: 0, fuelCost: 1.2, fireRate: 1.5 },
-                { type: "repair", name: "Repair Bot", dmg: 0, amount: 4, fuelCost: 0.5, fireRate: 0.5 }] },
+      payout: 220, successRate: 0.82, maxFuel: 120, maxHp: 280, maxShield: 180,
+      loadout: [{ type: "weapon", name: "Pulse Laser", dmg: 3, amount: 0, fuelCost: 1.2, fireRate: 1.1 },
+                { type: "repair", name: "Repair Bot", dmg: 0, amount: 5, fuelCost: 0.5, fireRate: 0.5 }] },
     { name: "Armored",    cost: 150, materials: [{ type: "platinum", n: 2 }, { type: "gold", n: 3 }],
-      payout: 450, successRate: 0.91, maxFuel: 180, maxHp: 120, maxShield: 90,
-      // Armored wing is the crown-contract DPS — tank hull holds aggro, drones kill.
-      loadout: [{ type: "weapon", name: "Drone Cannon", dmg: 18, amount: 0, fuelCost: 1.5, fireRate: 1.35 },
-                { type: "repair", name: "Nano Repair Rig", dmg: 0, amount: 6, fuelCost: 0.5, fireRate: 0.5 },
-                { type: "utility", name: "Shield Booster", dmg: 0, amount: 5, fuelCost: 0.4, fireRate: 0.5 }] },
+      payout: 450, successRate: 0.91, maxFuel: 180, maxHp: 480, maxShield: 320,
+      // Armored = tank hull (high shield/hp). DPS is modest — assign TANK role to soak.
+      loadout: [{ type: "weapon", name: "Drone Cannon", dmg: 5, amount: 0, fuelCost: 1.5, fireRate: 0.95 },
+                { type: "repair", name: "Nano Repair Rig", dmg: 0, amount: 7, fuelCost: 0.5, fireRate: 0.5 },
+                { type: "utility", name: "Shield Booster", dmg: 0, amount: 7, fuelCost: 0.4, fireRate: 0.5 }] },
   ],
   // per-tier drone colour — quality reads at a glance, in the menu AND in flight:
   // Basic = steel blue, Reinforced = teal (the fleet signature), Armored = purple.
@@ -127,6 +131,7 @@ Object.assign(GAME, {
     const s = this.state, d = s.playerFleet[fleetIdx];
     if (!d) return { ok: false, reason: "no such drone" };
     if (d.role === "trade") { toast("drone is mid trade run"); sfx("warn"); return { ok: false, reason: "on a trade run" }; }
+    if (d.role === "claim") { toast("claim the trade payout first"); sfx("warn"); return { ok: false, reason: "awaiting claim" }; }
     const spec = DRONES.tiers[d.tier], frac = DRONES.salvageFrac;
     const crBack = Math.floor((spec.cost || 0) * frac);
     s.credits += crBack;
@@ -207,6 +212,7 @@ Object.assign(GAME, {
     const s = this.state, d = s.playerFleet[fleetIdx];
     if (!d) return { ok: false, reason: "no drone" };
     if (d.role === "trade") return { ok: false, reason: "already on trade run" };
+    if (d.role === "claim") { toast("claim the trade payout first"); sfx("warn"); return { ok: false, reason: "awaiting claim" }; }
     if (!s.docked) { toast("dock to dispatch a trade run"); sfx("warn"); return { ok: false, reason: "not docked" }; }
     const stations = ForgeWorld.getStations();
     const from = stations.find(st => st.id === s.dockStationId);
@@ -458,6 +464,7 @@ Object.assign(GAME, {
 
     // ---- DRONES: tier cards (single build; owned cap DRONES.ownedMax) ----
     dm.tiers.innerHTML = "";
+    const battleCtrl = typeof this.isBattleControl === "function" && this.isBattleControl();
     const full = s.playerFleet.length >= DRONES.ownedMax;
     DRONES.tiers.forEach((spec, ti) => {
       const card = this._drEl("drCard" + (ui.tier === ti ? " sel" : "") +
@@ -473,15 +480,28 @@ Object.assign(GAME, {
       const w = spec.loadout.find(m => m.type === "weapon");
       if (w) this._drEl("drCardLine dim", `weapon: ${w.name} (${Math.round(w.dmg * (dsk.dmgMult || 1) * 10) / 10} dmg)`, card);
     });
+    const atOutpost = !!(this.dockedOutpost && this.dockedOutpost() && this.dockedOutpost().owner === "player");
+    const netEntries = (this.listNetworkQueueEntries && this.listNetworkQueueEntries()) || [];
+    const netQ = netEntries.length;
+    let netFly = 0;
+    if (this.allPlayerNetworkRoots) {
+      for (const root of this.allPlayerNetworkRoots()) {
+        const st = this.networkReinforceState && this.networkReinforceState(root);
+        if (st) netFly += (st.transit || []).length;
+      }
+    }
     const cap = document.getElementById("drCap");
     if (cap) {
       const wing = typeof this.escortCap === "function" ? this.escortCap() : FLEET.max;
-      cap.textContent = `owned ${s.playerFleet.length}/${DRONES.ownedMax} · escorts ${this.escorts(s).length}/${wing}`;
+      let txt = `owned ${s.playerFleet.length}/${DRONES.ownedMax} · escorts ${this.escorts(s).length}/${wing}`;
+      txt += ` · reinforce ${netQ}q/${netFly}fly`;
+      cap.textContent = txt;
     }
 
     // ---- owned-drone list: role + HP, SALVAGE for parts (50% back) ----
     if (dm.list) {
       dm.list.innerHTML = "";
+      this._drEl("flDestHead", "YOUR DRONES (personal hangar · max " + DRONES.ownedMax + ")", dm.list);
       if (!s.playerFleet.length) this._drEl("ghNote", "No drones yet — build one above.", dm.list);
       s.playerFleet.forEach((d, fi) => {
         const row = this._drEl("drDrone", null, dm.list);
@@ -490,10 +510,71 @@ Object.assign(GAME, {
         const out = this._drEl("drBarOut", null, row);
         const fill = this._drEl("drBarFill flHp", null, out);
         fill.style.width = Math.round(clamp(d.hp / d.maxHp, 0, 1) * 100) + "%";
+        // Enqueue only while docked at a held outpost (career / sandbox / campaign / control)
+        if (atOutpost && d.role !== "trade" && d.role !== "claim") {
+          const rfBtn = this._drEl("btn:ghBtn flToEscort", "→ QUEUE", row);
+          rfBtn.dataset.reinforce = String(fi);
+          rfBtn.title = "Move into this outpost network's reinforcement queue";
+        }
         const sv = this._drEl("btn:ghBtn flRemove", "SALVAGE", row);
         sv.dataset.salvage = String(fi);
-        if (d.role === "trade") sv.disabled = true;
+        if (d.role === "trade" || d.role === "claim") sv.disabled = true;
       });
+
+      // ---- reinforcement queue(s) — always visible; manage at outposts ----
+      const qMax = (typeof RF_NET !== "undefined" && RF_NET.queueMax)
+        || (typeof REINFORCE !== "undefined" && REINFORCE.queueMax) || 18;
+      this._drEl("flDestHead",
+        "REINFORCEMENT QUEUE  " + netQ + " waiting · " + netFly + " flying",
+        dm.list);
+      if (!atOutpost) {
+        this._drEl("ghNote",
+          "View only here. Dock at a held OUTPOST to move hangar drones into that network's queue "
+          + "(frees hangar slots to build more). Fit modules on LOADOUT. Queues fly into open berths when you undock.",
+          dm.list);
+      } else {
+        this._drEl("ghNote",
+          "Docked at a held outpost — → QUEUE adds to THIS network. Each connected outpost network keeps its own drones. "
+          + "Frozen while docked (edit on LOADOUT). On undock, empty fortify berths (3 max each) pull from the queue.",
+          dm.list);
+      }
+
+      if (!netEntries.length) {
+        this._drEl("ghNote",
+          atOutpost
+            ? "Queue empty for this network. Use → QUEUE on a hangar drone, or BUILD when hangar is full."
+            : "No drones queued on any network yet.",
+          dm.list);
+      } else {
+        // Group by network root for readability
+        let lastRoot = null;
+        for (const ent of netEntries) {
+          if (ent.root !== lastRoot) {
+            lastRoot = ent.root;
+            this._drEl("flDestHead",
+              "▸ " + ent.netLabel + " network · " + ent.netSize + " outpost"
+              + (ent.netSize > 1 ? "s" : ""),
+              dm.list);
+          }
+          const d = ent.drone;
+          const row = this._drEl("drDrone", null, dm.list);
+          this._drEl("drTag t" + d.tier, DRONES.tiers[d.tier].name, row);
+          const mods = (d.loadout || []).filter(Boolean).length;
+          this._drEl("drRoute",
+            "QUEUED · mods " + mods + "/" + DRONES.slotCount
+            + " · HP " + Math.round(d.hp) + "/" + d.maxHp, row);
+          const out = this._drEl("drBarOut", null, row);
+          const fill = this._drEl("drBarFill flHp", null, out);
+          fill.style.width = Math.round(clamp(d.hp / d.maxHp, 0, 1) * 100) + "%";
+          fill.style.background = "#57e6ff";
+          if (atOutpost) {
+            const back = this._drEl("btn:ghBtn flToHangar", "↩ HANGAR", row);
+            back.dataset.dequeue = String(ent.queueIdx);
+            back.dataset.rootId = String(ent.root.id);
+            back.title = "Return to personal hangar";
+          }
+        }
+      }
     }
   },
 
@@ -509,8 +590,9 @@ Object.assign(GAME, {
     const un = this.shipUnlockStatus(hullKey);
     if (!un.unlocked) { toast("LOCKED — " + un.req, "#ff8a8a"); sfx("warn"); return { ok: false, reason: "locked" }; }
     if (s.credits < hull.cost.credits) { toast(`need ${hull.cost.credits}cr`); sfx("warn"); return { ok: false, reason: "credits" }; }
-    // faction yards price in exotic ore on top of credits (cost.ore, held in s.ore)
-    const oreCost = hull.cost.ore || {};
+    // Sandbox: credits only (all ships unlocked). Career campaign: exotic ore too.
+    const sandbox = s.playMode === "battle" && s.battle && s.battle.lane === "sandbox";
+    const oreCost = sandbox ? {} : (hull.cost.ore || {});
     for (const [type, n] of Object.entries(oreCost)) {
       const have = (s.ore[type] && s.ore[type].count) || 0;
       if (have < n) {
@@ -524,7 +606,8 @@ Object.assign(GAME, {
     const ship = { id: this._nextShipId++, hullKey, name: hull.name, slots: new Array(nSlots).fill(null) };
     s.ships.push(ship);
     if (!(opts && opts.quiet)) { toast("★ " + hull.name + " delivered — fit it in LOADOUT", "#ffd24a"); sfx("buy"); }
-    this.saveGame();   // auto-save: hull purchases are progress worth keeping
+    if (sandbox && this.saveSandboxSession) this.saveSandboxSession({ quiet: true });
+    else this.saveGame();   // campaign: hull purchases are progress worth keeping
     return { ok: true, ship };
   },
 
@@ -545,11 +628,39 @@ Object.assign(GAME, {
     });
     const build = document.getElementById("drBuild");
     if (build) build.addEventListener("click", () => {
-      this.buildDrone(this._drUI.tier);
+      // At held outpost + hangar full → build straight into that network's queue
+      const atOp = this.dockedOutpost && this.dockedOutpost() && this.dockedOutpost().owner === "player";
+      if (atOp && this.state.playerFleet.length >= DRONES.ownedMax
+          && this.buildDroneToNetworkReinforcement) {
+        this.buildDroneToNetworkReinforcement(this._drUI.tier);
+      } else {
+        this.buildDrone(this._drUI.tier);
+      }
       this.renderDronePanel();
     });
-    // owned-drone list: SALVAGE → confirm modal (an Armored scrap is a big loss)
+    // owned-drone list: REINFORCE / DEQUEUE / SALVAGE
     if (dm.list) dm.list.addEventListener("click", (e) => {
+      const rfBtn = e.target.closest ? e.target.closest("[data-reinforce]") : null;
+      if (rfBtn) {
+        if (this.enqueueNetworkReinforcement)
+          this.enqueueNetworkReinforcement(+rfBtn.dataset.reinforce);
+        else if (this.enqueueReinforcement)
+          this.enqueueReinforcement(+rfBtn.dataset.reinforce);
+        this.renderDronePanel();
+        return;
+      }
+      const dqBtn = e.target.closest ? e.target.closest("[data-dequeue]") : null;
+      if (dqBtn) {
+        const rootId = dqBtn.dataset.rootId;
+        if (this.dequeueNetworkReinforcement) {
+          const root = rootId != null ? this.outpostById(rootId) : (this.dockedOutpost && this.dockedOutpost());
+          if (root) this.dequeueNetworkReinforcement(root, +dqBtn.dataset.dequeue);
+        } else if (this.dequeueReinforcement) {
+          this.dequeueReinforcement(+dqBtn.dataset.dequeue, rootId);
+        }
+        this.renderDronePanel();
+        return;
+      }
       const btn = e.target.closest ? e.target.closest("[data-salvage]") : null;
       if (!btn || btn.disabled) return;
       const fi = +btn.dataset.salvage, d = this.state.playerFleet[fi];

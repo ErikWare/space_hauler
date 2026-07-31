@@ -4,15 +4,18 @@
 // VO, job dispatch, local berth traffic, and ambient lane noise. Gameplay toasts
 // (tractor full, DPS, pickups) also stream here so they don't paint over vitals.
 //
-// Controls: T toggle · Y cycle channel · speaker/CH/expand on the radio footer.
-// Expand opens a scrollable history panel (#radioLogPanel).
-// Persist: radioOn + radioChannel only (log is session).
+// Controls: T toggle · Y cycle channel · footer: 🔊 / CH / ^^ tall / ▣ full log.
+// Short = default card (text clipped inside). Long (^^) = taller card, more lines.
+// ▣ opens scrollable history (#radioLogPanel) with the same CH filter + colors.
+// Persist: radioOn + radioChannel only (log is session; tall is session).
 
 const RADIO = {
-  logMax: 12,              // compact HUD shows the newest few (drawn upward)
-  archiveMax: 120,         // scrollable history in the expand panel
+  logMax: 16,              // in-memory compact feed (clip by card height when drawing)
+  archiveMax: 120,         // scrollable history in the full-log panel
   lineLife: 22,            // seconds before a line fades from the compact HUD
   ambientCd: 18,
+  shortH: 62,              // default card height (footer + ~2 lines)
+  longH: 148,              // expanded card — the former “overflow above panel” height
   channels: [
     { id: "all",       name: "ALL BAND",   col: "#9fd36a", short: "ALL" },
     { id: "companion", name: "COMPANION",  col: "#ffb45e", short: "CMP" },
@@ -34,7 +37,78 @@ Object.assign(GAME, {
     s._radioAmbientT = 4;
     s._radioLastRegion = null;
     s._radioLastDanger = null;
-    s.radioExpanded = false;
+    s.radioExpanded = false;   // full DOM history open
+    s.radioTall = false;       // canvas card short vs long
+    s._critChat = null;        // lower-left critical card (raids, under-attack)
+  },
+
+  // Critical alerts: cockpit radio + lower-left chat card (quest/wing lane).
+  // Never paints over the top vitals strip.
+  critNotify(text, col, channelId) {
+    const s = this.state;
+    if (!s || text == null || text === "") return false;
+    const c = col || "#ff9a3c";
+    const ch = channelId || "dispatch";
+    s._critChat = {
+      name: ch === "companion" ? "WING" : (ch === "local" ? "LOCAL" : "ALERT"),
+      text: String(text), col: c, age: 0, life: 8,
+    };
+    // Always archive + show on radio when possible (forceShow for system/dispatch)
+    if (this.radioPush) {
+      const ok = this.radioPush(ch, String(text), c, true);
+      if (!ok && this.radioFeed) this.radioFeed(String(text), c);
+    } else if (this.radioFeed) {
+      this.radioFeed(String(text), c);
+    }
+    return true;
+  },
+  updateCritChat(dt) {
+    const s = this.state;
+    if (!s || !s._critChat) return;
+    s._critChat.age = (s._critChat.age || 0) + dt;
+    if (s._critChat.age > (s._critChat.life || 8)) s._critChat = null;
+  },
+  // Same visual language as wing banter — sits with the quest tracker, not the HUD top.
+  drawCritChatHUD(g) {
+    if (HEADLESS) return;
+    const s = this.state, ch = s && s._critChat;
+    if (!ch || s.docked || s.onPlanet) return;
+    // Prefer stacking above wing chat if both live
+    const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
+    const gb = this.gameButtons && this.gameButtons();
+    const qbox = (gb && gb.quest) || { x: 10, y: CONFIG.H - 218, w: 168, h: 40 };
+    let baseY = qbox.y - 6;
+    if (s._wingChat) {
+      // leave room — wing chat draws itself above quest; we sit above that band
+      baseY = qbox.y - 6 - 48 * k;
+    }
+    const maxW = Math.min(Math.max(qbox.w + 40, 240), CONFIG.W - 20);
+    const x = qbox.x;
+    g.font = `${Math.max(8, 9 * k) | 0}px monospace`;
+    const words = (ch.name + ": " + ch.text).split(/\s+/);
+    const lines = [];
+    let cur = "";
+    for (const w of words) {
+      const t = cur ? cur + " " + w : w;
+      if (g.measureText(t).width > maxW - 14 && cur) { lines.push(cur); cur = w; }
+      else cur = t;
+    }
+    if (cur) lines.push(cur);
+    const lineH = 12 * k;
+    const boxH = 10 * k + lines.length * lineH;
+    const y = baseY - boxH;
+    const fade = Math.max(0.4, 1 - (ch.age || 0) / (ch.life || 8));
+    g.globalAlpha = fade;
+    g.fillStyle = "rgba(8,12,20,0.92)";
+    g.strokeStyle = ch.col || "#ff9a3c";
+    g.lineWidth = 1.4;
+    g.beginPath(); g.roundRect(x, y, maxW, boxH, 6); g.fill(); g.stroke();
+    g.fillStyle = ch.col || "#ff9a3c";
+    g.textAlign = "left"; g.textBaseline = "top";
+    for (let i = 0; i < lines.length; i++)
+      g.fillText(lines[i], x + 7, y + 5 + i * lineH);
+    g.globalAlpha = 1;
+    g.textBaseline = "alphabetic";
   },
 
   radioChannelMeta(idx) {
@@ -60,6 +134,15 @@ Object.assign(GAME, {
     if (typeof sfx === "function") sfx("grab");
     this.radioPush("system", "— tuned " + ch.name + " —", ch.col, true);
     if (this.saveGame) this.saveGame();
+    // Keep full-log panel in sync with the active band filter
+    if (s.radioExpanded && this.refreshRadioLog) this.refreshRadioLog();
+  },
+
+  toggleRadioTall() {
+    const s = this.state;
+    if (!s) return;
+    s.radioTall = !s.radioTall;
+    if (typeof sfx === "function") sfx("grab");
   },
 
   // Push a line if radio is on and channel filter allows it.
@@ -67,13 +150,15 @@ Object.assign(GAME, {
     const s = this.state;
     if (!s || !text) return false;
     if (!s.radioOn && !forceShow) return false;
-    const chMeta = RADIO.channels.find(c => c.id === channelId) || RADIO.channels[0];
+    const chMeta = RADIO.channels.find(c => c.id === channelId)
+      || (channelId === "system" ? { id: "system", short: "SYS", col: "#9aa7b8" } : RADIO.channels[0]);
     const active = this.radioChannelMeta(s.radioChannel);
     if (active.id !== "all" && channelId !== "system" && channelId !== active.id) return false;
     if (!s._radioLog) s._radioLog = [];
     if (!s._radioArchive) s._radioArchive = [];
     const tag = channelId === "system" ? "SYS" : (chMeta.short || channelId.slice(0, 3).toUpperCase());
     const entry = {
+      channel: channelId,
       tag, text: String(text),
       col: col || chMeta.col || "#e8edf4",
       age: 0,
@@ -81,8 +166,11 @@ Object.assign(GAME, {
     };
     s._radioLog.push(entry);
     while (s._radioLog.length > RADIO.logMax) s._radioLog.shift();
-    s._radioArchive.push({ tag: entry.tag, text: entry.text, col: entry.col, t: entry.t });
+    s._radioArchive.push({
+      channel: entry.channel, tag: entry.tag, text: entry.text, col: entry.col, t: entry.t,
+    });
     while (s._radioArchive.length > RADIO.archiveMax) s._radioArchive.shift();
+    if (s.radioExpanded && this.refreshRadioLog) this.refreshRadioLog();
     return true;
   },
 
@@ -97,11 +185,11 @@ Object.assign(GAME, {
     if (!s._radioLog) this.initRadio(s);
     const bright = col || "#e8edf4";
     if (!s.radioOn) {
-      // Still archive so expand history is complete when they open radio later
+      // Still archive so full-log history is complete when they open radio later
       if (!s._radioArchive) s._radioArchive = [];
-      s._radioArchive.push({ tag: "SYS", text: String(text), col: bright, t: Date.now() });
+      s._radioArchive.push({ channel: "system", tag: "SYS", text: String(text), col: bright, t: Date.now() });
       while (s._radioArchive.length > RADIO.archiveMax) s._radioArchive.shift();
-      s._radioLog.push({ tag: "SYS", text: String(text), col: bright, age: 0 });
+      s._radioLog.push({ channel: "system", tag: "SYS", text: String(text), col: bright, age: 0 });
       while (s._radioLog.length > RADIO.logMax) s._radioLog.shift();
       return true;
     }
@@ -272,7 +360,55 @@ Object.assign(GAME, {
       this.radioSay("dispatch", "Dispatch — Hostiles down. Extract or hold.", "#7bd88f");
   },
 
-  // ---- Expand panel (DOM scroll history) ----------------------------------
+  // ---- Full-log panel (DOM scroll history) --------------------------------
+  // Same CH filter as the compact card; line colors match channel/toast colors.
+  _radioArchiveFiltered() {
+    const s = this.state;
+    if (!s || !s._radioArchive) return [];
+    const active = this.radioChannelMeta(s.radioChannel);
+    const all = s._radioArchive.slice().reverse(); // newest first
+    if (active.id === "all") return all;
+    return all.filter(ln => {
+      const ch = ln.channel || this._radioChannelFromTag(ln.tag);
+      return !ch || ch === "system" || ch === active.id;
+    });
+  },
+  _radioChannelFromTag(tag) {
+    const t = String(tag || "").toUpperCase();
+    if (t === "SYS") return "system";
+    const hit = RADIO.channels.find(c => c.short === t);
+    return hit ? hit.id : null;
+  },
+  _radioTagColor(tag, fallback) {
+    const chId = this._radioChannelFromTag(tag);
+    if (chId === "system") return "#9aa7b8";
+    const meta = RADIO.channels.find(c => c.id === chId);
+    return (meta && meta.col) || fallback || "#57e6ff";
+  },
+  refreshRadioLog() {
+    if (HEADLESS || typeof document === "undefined") return;
+    const body = document.getElementById("radioLogBody");
+    const chEl = document.getElementById("radioLogCh");
+    if (!body) return;
+    const s = this.state;
+    if (!s || !s.radioExpanded) return;
+    const active = this.radioChannelMeta(s.radioChannel);
+    if (chEl) {
+      chEl.textContent = active.short;
+      chEl.style.color = active.col;
+      chEl.style.borderColor = active.col;
+    }
+    const lines = this._radioArchiveFiltered();
+    body.innerHTML = lines.length
+      ? lines.map(ln => {
+          const textCol = ln.col || "#e8edf4";
+          const tagCol = this._radioTagColor(ln.tag, textCol);
+          return '<div class="rlLine" style="color:' + textCol + '">' +
+            '<span class="rlTag" style="color:' + tagCol + '">[' + (ln.tag || "SYS") + ']</span>' +
+            String(ln.text || "").replace(/</g, "&lt;") + "</div>";
+        }).join("")
+      : '<div class="rlLine" style="color:#7f8ea6">— no traffic on ' + active.name + " —</div>";
+  },
   openRadioLog() {
     if (HEADLESS || typeof document === "undefined") return false;
     const panel = document.getElementById("radioLogPanel");
@@ -280,14 +416,9 @@ Object.assign(GAME, {
     if (!panel || !body) return false;
     const s = this.state;
     if (!s._radioArchive) s._radioArchive = [];
-    const lines = s._radioArchive.slice().reverse(); // newest first
-    body.innerHTML = lines.length
-      ? lines.map(ln =>
-          '<div class="rlLine"><span class="rlTag">[' + (ln.tag || "SYS") + ']</span>' +
-          String(ln.text || "").replace(/</g, "&lt;") + "</div>").join("")
-      : '<div class="rlLine" style="color:#7f8ea6">— no traffic yet —</div>';
-    panel.classList.add("show");
     s.radioExpanded = true;
+    panel.classList.add("show");
+    this.refreshRadioLog();
     body.scrollTop = 0;
     return true;
   },
@@ -308,25 +439,31 @@ Object.assign(GAME, {
   },
 
   // ---- HUD ----------------------------------------------------------------
-  // Compact feed: messages fill most of the box; footer has 🔊 / CH / ▣ expand.
-  // History draws upward (brighter) so more lines are visible on-screen.
+  // Short card by default (text clipped inside). ^^ expands to long height.
+  // ▣ opens full scrollable history with the same channel filter + colors.
   _radioGeom() {
+    const s = this.state;
     const k = Math.min(CONFIG.W / 390, CONFIG.H / 700);
-    const gb = this.gameButtons();
-    // Taller radio panel so more lines fit
-    const anchor = (gb && gb.radio) || { x: CONFIG.W - 186, y: CONFIG.H - 118, w: 176, h: 108 };
+    const gb = this.gameButtons && this.gameButtons();
+    const anchor = (gb && gb.radio) || { x: CONFIG.W - 186, w: 176 };
+    const h = (s && s.radioTall) ? RADIO.longH : RADIO.shortH;
+    const w = anchor.w || 176;
+    const x = anchor.x != null ? anchor.x : (CONFIG.W - w - 10);
+    // Bottom-align; grow upward when tall so the footer stays put-ish at bottom
+    const y = CONFIG.H - h - 10;
     const btn = 20;
     const footerH = btn + 6;
+    const fy = y + h - footerH;
     return {
-      x: anchor.x, y: anchor.y, w: anchor.w, h: anchor.h, k,
-      // footer controls along the bottom of the panel
-      power:  { x: anchor.x + 4, y: anchor.y + anchor.h - footerH, w: btn, h: btn },
-      cycle:  { x: anchor.x + 4 + btn + 3, y: anchor.y + anchor.h - footerH, w: 34, h: btn },
-      expand: { x: anchor.x + anchor.w - 4 - btn, y: anchor.y + anchor.h - footerH, w: btn, h: btn },
-      logX: anchor.x + 5,
-      logW: anchor.w - 10,
-      logBottom: anchor.y + anchor.h - footerH - 4,
-      logTop: anchor.y + 4,
+      x, y, w, h, k,
+      power:  { x: x + 4, y: fy, w: btn, h: btn },
+      cycle:  { x: x + 4 + btn + 3, y: fy, w: 34, h: btn },
+      tall:   { x: x + 4 + btn + 3 + 34 + 3, y: fy, w: btn, h: btn },
+      expand: { x: x + w - 4 - btn, y: fy, w: btn, h: btn },
+      logX: x + 5,
+      logW: w - 10,
+      logBottom: y + h - footerH - 4,
+      logTop: y + 4,
       footerH,
     };
   },
@@ -351,15 +488,20 @@ Object.assign(GAME, {
     if (!s._radioLog) this.initRadio(s);
     const ch = this.radioChannelMeta(s.radioChannel);
     const geo = this._radioGeom();
-    const { x, y, w, h, k, power, cycle, expand, logX, logW, logBottom, logTop } = geo;
+    const { x, y, w, h, k, power, cycle, tall, expand, logX, logW, logBottom, logTop } = geo;
 
-    // Outer panel (no nested boxes around controls)
+    // Outer panel
     g.fillStyle = "rgba(8,12,20,0.9)";
     g.strokeStyle = s.radioOn ? "rgba(87,230,255,0.45)" : "#3a4558";
     g.lineWidth = 1.2;
     g.beginPath(); g.roundRect(x, y, w, h, 8); g.fill(); g.stroke();
 
-    // ---- Message stack (newest at bottom of message area) ----
+    // Clip messages to the card interior (no overflow above the panel)
+    g.save();
+    g.beginPath();
+    g.rect(x + 2, logTop, w - 4, Math.max(0, logBottom - logTop));
+    g.clip();
+
     g.font = `${Math.max(8, 9 * k) | 0}px monospace`;
     g.textBaseline = "alphabetic";
     g.textAlign = "left";
@@ -367,30 +509,27 @@ Object.assign(GAME, {
     const lineH = 11 * k;
     const entries = (s._radioLog || []).slice();
     let ty = logBottom;
-    // Draw newest first upward; allow climbing well above the panel for history
-    const absTop = Math.max(CONFIG.H * 0.22, logTop - 220 * k);
     for (let i = entries.length - 1; i >= 0; i--) {
       const ln = entries[i];
       const fade = Math.max(0.45, 1 - (ln.age || 0) / RADIO.lineLife);
       const wrapped = this._radioWrap(g, ln.text, maxTextW);
       const blockH = wrapped.length * lineH + 2;
       ty -= blockH;
-      if (ty < absTop) break;
+      if (ty + blockH < logTop) break;
       g.globalAlpha = fade;
-      // soft plate only when above the main box
-      if (ty < logTop) {
-        g.fillStyle = "rgba(8,12,20,0.82)";
-        g.fillRect(logX - 2, ty, logW + 4, blockH);
-      }
       let c = ln.col || "#f0f4fa";
       if (c === "#c8d0dc" || c === "#9aa7b8" || c === "#5a6578" || c === "#7f8ea6") c = "#f0f4fa";
       g.fillStyle = c;
-      for (let li = 0; li < wrapped.length; li++)
-        g.fillText(wrapped[li], logX, ty + 9 + li * lineH);
+      for (let li = 0; li < wrapped.length; li++) {
+        const ly = ty + 9 + li * lineH;
+        if (ly < logTop - 2 || ly > logBottom + 4) continue;
+        g.fillText(wrapped[li], logX, ly);
+      }
     }
     g.globalAlpha = 1;
+    g.restore();
 
-    // ---- Footer controls (no extra framing boxes — icons on the panel) ----
+    // Footer: 🔊 · CH · ^^/vv · ▣
     g.font = `${Math.max(11, 12 * k) | 0}px monospace`;
     g.textAlign = "center"; g.textBaseline = "middle";
     g.fillStyle = s.radioOn ? "#e8edf4" : "#5a6578";
@@ -399,6 +538,10 @@ Object.assign(GAME, {
     g.font = `bold ${Math.max(7, 8 * k) | 0}px monospace`;
     g.fillStyle = s.radioOn ? ch.col : "#5a6578";
     g.fillText(ch.short, cycle.x + cycle.w / 2, cycle.y + cycle.h / 2);
+
+    g.font = `bold ${Math.max(10, 12 * k) | 0}px monospace`;
+    g.fillStyle = s.radioTall ? "#57e6ff" : "#8fd0ff";
+    g.fillText(s.radioTall ? "vv" : "^^", tall.x + tall.w / 2, tall.y + tall.h / 2 + 1);
 
     g.font = `${Math.max(10, 11 * k) | 0}px monospace`;
     g.fillStyle = "#8fd0ff";
@@ -409,7 +552,7 @@ Object.assign(GAME, {
 
   radioHitBoxes() {
     const geo = this._radioGeom();
-    return { power: geo.power, cycle: geo.cycle, expand: geo.expand };
+    return { power: geo.power, cycle: geo.cycle, tall: geo.tall, expand: geo.expand };
   },
 
   hitRadioHUD(px, py) {
@@ -417,6 +560,7 @@ Object.assign(GAME, {
     const hit = r => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
     if (hit(hb.power)) { this.toggleRadio(); return true; }
     if (hit(hb.cycle)) { this.cycleRadioChannel(1); return true; }
+    if (hit(hb.tall)) { this.toggleRadioTall(); return true; }
     if (hit(hb.expand)) { this.openRadioLog(); return true; }
     return false;
   },
